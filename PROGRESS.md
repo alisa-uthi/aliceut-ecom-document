@@ -9,6 +9,7 @@ Daily log of work on this project. Newest entry on top. One entry per active day
 - Each day gets an explicit `<a id="YYYY-MM-DD"></a>` anchor immediately above its heading so external links resolve reliably (GitHub also auto-anchors the heading, but the explicit id survives renderer differences). Add the new date to the **Index** below.
 
 **Index**
+- [2026-08-22](#2026-08-22) — Phase 1 architecture overview.
 - [2026-08-19](#2026-08-19) — Requirements freeze + repo scaffolding.
 
 **Entry template**
@@ -29,6 +30,32 @@ Daily log of work on this project. Newest entry on top. One entry per active day
 **Next:**
 - immediate next steps for the following session
 ```
+
+---
+
+<a id="2026-08-22"></a>
+## 2026-08-22
+**Focus:** Phase 1 technical-design kickoff.
+
+**Done:**
+- Added the project architecture overview, covering module boundaries, data ownership, event flows, deployment evolution, and Phase 1 scope boundaries.
+- Marked the project architecture overview complete; detailed technical design continues within each phase.
+- Aligned buyer-story UI criteria with the Buyer Portal mock without expanding the signed BRD scope.
+- Added the Phase 1 ERD/data-model design for PostgreSQL module schemas, MongoDB audit/activity collections, order immutability, and outbox ownership.
+- Clarified the V1 order lifecycle across buyer, seller, and platform stories: `PENDING → SHIPPED → DELIVERED`, with a full-refund transition from every post-payment status.
+
+**Decisions:**
+- V1 remains a NestJS modular monolith with PostgreSQL transaction/outbox ownership and Kafka integration seams.
+- Later phases will extract domain modules into independently built and deployed Kubernetes services, moving to database-per-service incrementally.
+- V1 backend will use a modular monorepo with module-owned code, contracts, schemas, migrations, and worker processes to preserve extraction seams.
+- REST APIs will use a versioned OpenAPI contract generated from NestJS transport DTOs; Angular consumes an OpenAPI-generated TypeScript client.
+- PostgreSQL 18+ uses native UUIDv7 identifiers for generated entities and events; audit timestamps remain explicit columns.
+- Seller coupon-code promotions are deferred from Phase 1 and reserved for a future `promotion` module/schema with immutable order-redemption snapshots.
+- Reusable buyer addresses are owned by Identity; Orders stores only an immutable checkout address snapshot.
+- A tracking number is generated at order placement and retained at shipment; stock is restored only for a refund before shipment.
+
+**Next:**
+- Define OpenAPI endpoint contracts and Avro event/outbox details.
 
 ---
 

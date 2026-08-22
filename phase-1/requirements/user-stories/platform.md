@@ -139,7 +139,7 @@ Priority: Must — trace: FR-P-10, NFR-13
 Priority: Must — trace: FR-P-11
 
 **Acceptance criteria**
-- `order.placed`, `order.shipped`, `order.refunded`, `seller.kyc.decided`, `inventory.low_stock`, `moderation.listing.removed` each have a notification consumer.
+- `order.placed`, `order.shipped`, `order.delivered`, `order.refunded`, `seller.kyc.decided`, `inventory.low_stock`, `moderation.listing.removed` each have a notification consumer.
 - Consumers idempotent on `event_id` (dedupe table 7-day TTL).
 - SMTP failure → retry 3× exponential; then DLQ `email.outbound.dlq` with alert.
 

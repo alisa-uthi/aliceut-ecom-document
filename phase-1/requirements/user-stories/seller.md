@@ -60,6 +60,7 @@ Priority: Must — trace: FR-S-05
 - Row: order_id, buyer name masked (`J. Doe`), items, total in offer currency, placed_at, action button.
 - Read from Postgres projection populated by Kafka consumers of order events.
 - p95 load ≤ 2s for ≤ 500 orders.
+- Each row is one seller/currency order. Its status is the lifecycle state on `Order`, not on individual `OrderItem`s.
 
 ---
 
@@ -68,8 +69,10 @@ Priority: Must — trace: FR-S-05
 Priority: Must — trace: FR-S-06
 
 **Acceptance criteria**
-- Action button on Pending row → confirms → sets `OrderItem.status=SHIPPED` for this seller's items; generates mock `TRK-<uuid8>`.
-- Publishes `order.shipped` per (seller, order) with `correlation_id`.
+- Action button is available only for a `PENDING` order owned by the current seller. On confirmation it transitions `Order.status` from `PENDING` to `SHIPPED`.
+- The tracking number was generated at order placement for buyer confirmation and is preserved on shipment; this transition must not create a second tracking number.
+- The status update and one `order.shipped` outbox event commit in the same transaction with the original `correlation_id`.
+- Repeating a completed shipment action returns the existing `SHIPPED` order without publishing another event; all other source statuses are rejected.
 - Buyer sees updated status within 5s (NFR-13).
 - Email sent to buyer via consumer.
 
@@ -80,12 +83,14 @@ Priority: Must — trace: FR-S-06
 Priority: Must — trace: FR-S-07
 
 **Acceptance criteria**
-- Refund action on any post-payment status; requires reason (≤ 500 chars).
+- Refund action is available for the seller-owned `PENDING`, `SHIPPED`, or `DELIVERED` order; requires reason (≤ 500 chars).
 - On confirm:
-  1. `OrderItem.status=REFUNDED`.
-  2. Publish `order.refunded` → inventory consumer restores stock, email consumer notifies buyer.
+  1. Transition `Order.status` to `REFUNDED` and create the fake-payment reversal record.
+  2. Publish one `order.refunded` outbox event → email consumer notifies buyer.
+  3. Restore stock only for a `PENDING` order, when goods have not shipped. Refunding a `SHIPPED` or `DELIVERED` order does not restore stock because a return workflow is out of scope.
 - Refund amount = snapshotted `unit_price × quantity` (FR-P-03).
 - Partial refunds deferred; V1 = full item refund only.
+- Repeating a completed refund returns the existing refund result without a second reversal, stock movement, or event.
 
 ---
 

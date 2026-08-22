@@ -2,6 +2,8 @@
 
 Maps to BRD FR-B-* functional requirements. See [README](README.md) for format legend and cross-role index.
 
+**Design reference:** [AliceUT_Buyer_Portal.png](../../screens/AliceUT_Buyer_Portal.png) is the high-level desktop UI baseline. It informs layout and terminology below; it does not extend the signed V1 scope. Mock-only elements such as personalized recommendations, customer reviews, AliceUT Premium, and returns flows require a separate approved requirement before implementation.
+
 ---
 
 ## US-B-01 — Register account
@@ -47,11 +49,11 @@ Priority: Must — trace: FR-B-03
 - Filters applied combine via AND.
 - Price range in buyer's display currency; ES facet uses converted min/max via cached FX (display-only per FR-P-02).
 - "In stock only" filter uses `inventory.changed` projection; hides offers with `available_qty = 0`.
-- Rating filter deferred to V2 (reviews out of scope §3.2) — placeholder disabled in UI.
-- **UI layout:** left-side sidebar (min-width 240px) with collapsible filter groups: Category (multi-select checkbox tree), Price range (slider with input boxes), In-stock (toggle). Mobile: sticky bottom sheet or drawer. Clear all / Apply buttons at bottom.
+- Rating is an imported product attribute in V1 and supports a minimum-rating filter; creating or submitting reviews remains out of scope.
+- **UI layout:** left-side sidebar (min-width 240px) with collapsible filter groups: Category (multi-select checkbox tree), Price range (slider with input boxes or configured price bands), Rating (minimum stars), and In-stock (toggle). Mobile: sticky bottom sheet or drawer. Clear all / Apply buttons at bottom.
 - Selected filters show as chips in results header with individual close (×) buttons.
 
-**Notes:** V1 filter set = category + price + in-stock only. Rating hidden until V2.
+**Notes:** The mock also depicts Brand Partner and Shipping Speed facets. They are design candidates only: add them to V1 only with a BRD change that defines their data and behaviour. The mock's rating displays do not imply review authoring.
 
 ---
 
@@ -64,7 +66,9 @@ Priority: Must — trace: FR-B-04
 - Price sort uses cheapest available `Price` in buyer's preferred currency (or FX-converted for display ordering).
 - Newest = `product.created_at desc`.
 - Sort persists in URL query string (`?sort=price_asc`) for share/back-button.
-- **UI placement:** dropdown menu in results header, label "Sort by: Relevance" (current selection), positioned right-aligned next to filter chips. Options: Relevance (default), Price: Low to High, Price: High to Low, Newest.
+- **UI placement:** dropdown menu in results header, right-aligned next to filter chips. Options: Relevance (default), Price: Low to High, Price: High to Low, Newest.
+
+**Notes:** The mock labels its dropdown "Featured Partners." That is not a signed V1 sort option; use "Relevance" or obtain approval to define the ranking semantics.
 
 ---
 
@@ -77,6 +81,8 @@ Priority: Must — trace: FR-B-05, FR-P-01, FR-P-05
 - If multiple sellers offer same product → "Other sellers" section listing offers sorted by lowest price in buyer currency (FR-P-05).
 - Effective price resolved by: account_type (B2C uses LIST or SALE; B2B_TIER only if qty ≥ min_qty) × current time × selected qty.
 - If price in buyer currency missing: show cheapest available price converted via FX with "≈" prefix and tooltip "Estimated in <currency>".
+- **UI layout:** show category breadcrumbs, a thumbnail gallery with a primary image, seller name, price/list-price treatment, availability/fulfilment message, quantity control, and the add-to-cart CTA. Specifications may be shown in a product-details tab.
+- Customer-review content or a review tab is excluded from V1 unless separately approved.
 - Load p95 ≤ 2s cold cache (NFR-01).
 
 ---
@@ -90,6 +96,8 @@ Priority: Must — trace: FR-B-06
   When I click "Add to cart"
   Then a `CartItem` referencing the chosen `Offer` is created/upserted.
 - Cart badge in header increments.
+- Cart page shows each line item's image, product and seller, unit price, quantity decrement/increment controls, line total, and a remove action; it also shows item subtotal, shipping, tax, total estimate, and a checkout CTA.
+- Updating quantity immediately recalculates the line and cart totals and revalidates available inventory.
 - Adding qty > available inventory → error: "Only N available."
 - Adding an item from a different seller does not conflict — cart supports multi-seller.
 
@@ -123,7 +131,8 @@ Priority: Should — trace: FR-B-08
 Priority: Must — trace: FR-B-09, FR-P-03, FR-P-04, NFR-14
 
 **Acceptance criteria**
-- Checkout page shows: cart line items, shipping form, fake payment selector (mock Visa / mock PayPal), order total per currency, "Place order" button.
+- Checkout page shows: cart line items, shipping form, a mock shipping-method choice with its displayed cost and delivery estimate, fake payment selector, order total per currency, and "Place order" button.
+- The page presents the stages in the mock's order: Shipping Address, Shipping Method, then Payment Method. Exact mock shipping-service names, fees, and estimates are seeded configuration—not a real carrier integration.
 - Multi-currency carts: system splits into N orders — one per seller currency. Buyer confirms totals per currency separately.
 - On submit:
   1. Validate address (all fields required, country in allowed list).
@@ -135,6 +144,20 @@ Priority: Must — trace: FR-B-09, FR-P-03, FR-P-04, NFR-14
 - Kafka publish failure → order stays in Postgres, outbox relay retries (NFR-14 at-least-once).
 - All amounts serialized as strings in API response (FR-P-04b).
 
+**Order lifecycle**
+
+The first persisted order state is `PENDING`; a cart is not an order state. The server alone validates the cart, offer status, effective price, buyer currency preference, address, and stock during checkout. It creates one `PENDING` order per seller and currency only after the fake payment succeeds.
+
+| From | Actor / trigger | To | Required effects |
+|---|---|---|---|
+| Cart | Buyer submits checkout | `PENDING` | Lock or reserve stock for the payment attempt (maximum 15 minutes), then consume the successful reservation; create immutable order/item snapshots, mock payment record, tracking number, ETA, and `order.placed` outbox event in one transaction. |
+| Payment/reservation failure or expiry | System | Cart remains unchanged | Release any active reservation; create no order and return an actionable error. |
+| `PENDING` | Seller marks shipment | `SHIPPED` | Preserve the tracking number issued at placement; write `order.shipped` through the outbox. |
+| `SHIPPED` | Mock-delivery scheduler reaches ETA | `DELIVERED` | Write `order.delivered` through the outbox. |
+| `PENDING`, `SHIPPED`, or `DELIVERED` | Seller issues full refund | `REFUNDED` | Record fake-payment reversal and `order.refunded`; restore stock only when goods have not shipped. |
+
+`REFUNDED` is terminal. Buyer cancellation, returns, partial refunds, and manual delivery confirmation are out of scope for V1. Repeating an already completed checkout request or transition must return its recorded result without creating a second order, payment reversal, stock movement, or event.
+
 ---
 
 ## US-B-10 — Order confirmation with mock tracking
@@ -143,7 +166,8 @@ Priority: Must — trace: FR-B-10
 
 **Acceptance criteria**
 - Confirmation page renders on synchronous checkout response — does not wait for Kafka fan-out.
-- Shows order ID, per-item snapshot pricing, mock tracking `TRK-<uuid8>`, ETA = today + 3–7 days (deterministic per order_id seed).
+- Shows order ID, per-item snapshot pricing, mock tracking `TRK-<uuid8>`, and ETA = today + 3–7 days (deterministic per order_id seed).
+- The tracking number is assigned when the `PENDING` order is placed and is retained when the seller marks it shipped; it is never regenerated during fulfilment.
 - Email dispatched via `order.placed` consumer (async, not blocking).
 
 ---
@@ -156,3 +180,4 @@ Priority: Must — trace: FR-B-11
 - `/orders` lists orders paginated, newest first, showing: order_id, placed_at, total per currency, status (`PENDING`, `SHIPPED`, `DELIVERED`, `REFUNDED`).
 - Order detail shows snapshotted line items (never live-priced — FR-P-03).
 - Status updates arrive via Kafka projection to Postgres read model.
+- Status has only the transitions defined in US-B-09: seller shipment creates `SHIPPED`, the mock-delivery scheduler creates `DELIVERED`, and a seller full refund creates `REFUNDED`. Each split seller/currency order progresses independently.

@@ -4,16 +4,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Current Project State
 
-**Pre-implementation.** Repo contains `phase-1/requirements/BRD.md` (v1.1, signed off 2026-08-19) and `phase-1/requirements/user-stories/` (39 stories, split by role: buyer/seller/admin/platform). No source code, no build system yet. Next phase per BRD §12: detailed design (→ `phase-1/technical-design/`) + backlog decomposition. Do not scaffold code unless user explicitly asks.
+**Pre-implementation.** Repo contains `architecture-overview.md`, `phase-1/requirements/BRD.md` (v1.1, signed off 2026-08-19), and `phase-1/requirements/user-stories/` (39 stories, split by role: buyer/seller/admin/platform). No source code or build system yet. Next phase per BRD §12: detailed design (→ `phase-1/technical-design/`) + backlog decomposition. Do not scaffold code unless user explicitly asks.
 
 ## Repo Layout
 
 ```
+architecture-overview.md     project-level architecture and evolution path
 phase-1/
 ├── requirements/
 │   ├── BRD.md
 │   └── user-stories/     README.md (index) + buyer.md, seller.md, admin.md, platform.md
-└── technical-design/     (future: architecture, ERD, API specs, event schemas)
+└── technical-design/     ERD, API specs, event schemas, and other Phase 1 detail
 phase-2/                  (future: V2 scope — K8s, real payments, etc.)
 ```
 
@@ -23,7 +24,7 @@ Solo developer, learning/portfolio project, no deadline — quality over speed.
 
 ## Authoritative Reference
 
-`phase-1/requirements/BRD.md` is the single source of truth for scope, stack, and locked decisions. Always read it before proposing architecture, entities, or scope changes. Every decision in §13 is signed off — treat as constraints, not suggestions.
+`architecture-overview.md` is the project-level architecture and evolution reference. `phase-1/requirements/BRD.md` is the single source of truth for Phase 1 scope, stack, and locked decisions. Always read both before proposing Phase 1 architecture, entities, or scope changes. Every BRD decision in §13 is signed off — treat as constraints, not suggestions.
 
 ## Design Reference
 
