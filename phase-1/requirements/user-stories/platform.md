@@ -33,7 +33,7 @@ Priority: Should — trace: FR-P-02
 Priority: Must — trace: FR-P-03
 
 **Acceptance criteria**
-- `OrderItem` columns: `unit_price NUMERIC(19,4)`, `currency CHAR(3)`, `tax NUMERIC(19,4)`, `fx_rate_used NUMERIC(19,8) NULL`, `quantity INT`.
+- `FulfillmentItem` columns: `unit_price NUMERIC(19,4)`, `currency CHAR(3)`, `tax NUMERIC(19,4)`, `fx_rate_used NUMERIC(19,8) NULL`, `quantity INT`.
 - Reads for order history compute totals from these fields only — no JOIN to live `Price`.
 - Regression test: mutating a `Price` row after order placement must not change the order total.
 
@@ -139,7 +139,7 @@ Priority: Must — trace: FR-P-10, NFR-13
 Priority: Must — trace: FR-P-11
 
 **Acceptance criteria**
-- `order.placed`, `order.shipped`, `order.delivered`, `order.refunded`, `seller.kyc.decided`, `inventory.low_stock`, `moderation.listing.removed` each have a notification consumer.
+- `fulfillment.placed`, `fulfillment.shipped`, `fulfillment.delivered`, `fulfillment.refunded`, `order.completed`, `seller.kyc.decided`, `inventory.low_stock`, `moderation.listing.removed` each have a notification consumer.
 - Consumers idempotent on `event_id` (dedupe table 7-day TTL).
 - SMTP failure → retry 3× exponential; then DLQ `email.outbound.dlq` with alert.
 

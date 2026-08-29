@@ -46,7 +46,7 @@ Priority: Must — trace: FR-S-04
 
 **Acceptance criteria**
 - Edit/delete require `offer.seller_id === current_user.seller_id`; else 403.
-- Delete = soft delete (`status=INACTIVE`); preserves historical `OrderItem` FKs.
+- Delete = soft delete (`status=INACTIVE`); preserves historical `FulfillmentItem` FKs.
 - Publishes `offer.changed` (INACTIVE) → search removes from index.
 
 ---
@@ -60,7 +60,7 @@ Priority: Must — trace: FR-S-05
 - Row: order_id, buyer name masked (`J. Doe`), items, total in offer currency, placed_at, action button.
 - Read from Postgres projection populated by Kafka consumers of order events.
 - p95 load ≤ 2s for ≤ 500 orders.
-- Each row is one seller/currency order. Its status is the lifecycle state on `Order`, not on individual `OrderItem`s.
+- Each row is one seller/currency fulfillment. Its status is the lifecycle state on `Fulfillment`, not on individual `FulfillmentItem`s.
 
 ---
 
@@ -69,10 +69,10 @@ Priority: Must — trace: FR-S-05
 Priority: Must — trace: FR-S-06
 
 **Acceptance criteria**
-- Action button is available only for a `PENDING` order owned by the current seller. On confirmation it transitions `Order.status` from `PENDING` to `SHIPPED`.
+- Action button is available only for a `PENDING` fulfillment owned by the current seller. On confirmation it transitions `Fulfillment.status` from `PENDING` to `SHIPPED`.
 - The tracking number was generated at order placement for buyer confirmation and is preserved on shipment; this transition must not create a second tracking number.
-- The status update and one `order.shipped` outbox event commit in the same transaction with the original `correlation_id`.
-- Repeating a completed shipment action returns the existing `SHIPPED` order without publishing another event; all other source statuses are rejected.
+- The status update and one `fulfillment.shipped` outbox event commit in the same transaction with the original `correlation_id`.
+- Repeating a completed shipment action on an already-`SHIPPED` fulfillment returns the existing result without publishing another event; all other source statuses are rejected.
 - Buyer sees updated status within 5s (NFR-13).
 - Email sent to buyer via consumer.
 
@@ -83,14 +83,14 @@ Priority: Must — trace: FR-S-06
 Priority: Must — trace: FR-S-07
 
 **Acceptance criteria**
-- Refund action is available for the seller-owned `PENDING`, `SHIPPED`, or `DELIVERED` order; requires reason (≤ 500 chars).
+- Refund action is available for the seller-owned `PENDING`, `SHIPPED`, or `DELIVERED` fulfillment; requires reason (≤ 500 chars).
 - On confirm:
-  1. Transition `Order.status` to `REFUNDED` and create the fake-payment reversal record.
-  2. Publish one `order.refunded` outbox event → email consumer notifies buyer.
-  3. Restore stock only for a `PENDING` order, when goods have not shipped. Refunding a `SHIPPED` or `DELIVERED` order does not restore stock because a return workflow is out of scope.
+  1. Transition `Fulfillment.status` to `REFUNDED` and create the fake-payment reversal record.
+  2. Publish one `fulfillment.refunded` outbox event → email consumer notifies buyer.
+  3. Restore stock only for a `PENDING` fulfillment, when goods have not shipped. Refunding a `SHIPPED` or `DELIVERED` fulfillment does not restore stock because a return workflow is out of scope.
 - Refund amount = snapshotted `unit_price × quantity` (FR-P-03).
 - Partial refunds deferred; V1 = full item refund only.
-- Repeating a completed refund returns the existing refund result without a second reversal, stock movement, or event.
+- Repeating a completed refund action on an already-`REFUNDED` fulfillment returns the existing result without a second reversal, stock movement, or event.
 
 ---
 

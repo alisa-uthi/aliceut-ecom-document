@@ -277,6 +277,7 @@ Unique constraint: `(cart_id, offer_id)`. No price is persisted; the server alon
 | Column | Type | Constraints / purpose |
 |---|---|---|
 | `id` | `UUID` | PK; `DEFAULT uuidv7()` |
+| `display_id` | `TEXT` | Required; `UNIQUE`; format `ORD-<first 8 uppercase hex chars of id>` (e.g. `ORD-3F2A1B9C`); generated at insert time |
 | `buyer_id` | `UUID` | Required FK → `identity.user(id)` |
 | `seller_id` | `UUID` | Required FK → `seller.seller_profile(id)` |
 | `currency_code` | `CHAR(3)` | Required FK → `pricing.currency(code)` |

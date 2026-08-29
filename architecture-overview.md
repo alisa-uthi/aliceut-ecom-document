@@ -61,7 +61,7 @@ The Angular SPA is the only browser client. NestJS exposes versioned REST endpoi
 | Inventory | Seller stock, availability and low-stock state | PostgreSQL; `inventory.changed` |
 | Search | Search API and facets over the denormalized product index | Elasticsearch (read-only from API) |
 | Cart | Guest and authenticated carts, merge on login | PostgreSQL for authenticated carts; browser local storage for guest cart |
-| Checkout and orders | Address, shipping/payment simulation, inventory reservation, immutable orders | PostgreSQL; `order.placed` |
+| Checkout and orders | Address, shipping/payment simulation, inventory reservation, immutable orders and fulfillments | PostgreSQL; `order.finalized`, `fulfillment.placed` |
 | Seller | KYC application, listing and fulfilment operations | PostgreSQL; KYC/order events |
 | Administration | KYC decisions and catalog moderation | PostgreSQL; moderation events |
 | Notifications | Email and in-app notification projections | Kafka consumer; PostgreSQL/Mongo read records as designed later |
@@ -90,7 +90,7 @@ V1 uses one PostgreSQL database, with a schema per application module. This keep
 | `pricing` | Pricing | `prices`, `currencies`, `fx_rates` |
 | `inventory` | Inventory | `inventory`, `stock_reservations` |
 | `cart` | Cart | `carts`, `cart_items` |
-| `orders` | Checkout and orders | `orders`, `order_items`, `addresses` |
+| `orders` | Checkout and orders | `orders`, `fulfillments`, `fulfillment_items`, `addresses` |
 | `seller` | Seller | `seller_profiles`, `kyc_applications` |
 | `admin` | Administration | `moderation_cases` |
 | `notifications` | Notifications | `in_app_notifications` |
@@ -106,7 +106,7 @@ V1 uses one PostgreSQL database, with a schema per application module. This keep
 - Store money in PostgreSQL as `NUMERIC(19,4)` with ISO 4217 currency code; use string values at API boundaries and `decimal.js` or `Big.js` in application code.
 - `Product` has no price. The hierarchy is `Product → Offer → Price`; cart and order items reference an `Offer`.
 - Price resolution considers account type, selected quantity, time bounds, price type, and buyer display currency. FX conversion is display-only.
-- At checkout, `OrderItem` snapshots unit price, currency, tax, FX rate used, and quantity. Historical orders never read a current offer price to calculate a total.
+- At checkout, `FulfillmentItem` snapshots unit price, currency, tax, FX rate used, and quantity. Historical orders never read a current offer price to calculate a total.
 
 ## 6. Phase 1 core flows
 
@@ -127,12 +127,13 @@ Search is therefore eventually consistent. The target propagation lag is no more
 ```text
 Buyer checkout request
   → validate address, cart, prices, stock, and idempotency key
-  → one PostgreSQL transaction:
-       reserve/decrement inventory, create order + immutable item snapshots,
-       record mock shipping/payment result, write order.placed outbox event
-  → return confirmation with mock tracking and ETA
-  → relay publishes order.placed asynchronously
-  → notification, seller, audit, and analytics consumers process it idempotently
+  → one PostgreSQL transaction per seller/currency group (inside the checkout request):
+       reserve/decrement inventory, create Fulfillment + immutable FulfillmentItem snapshots,
+       record mock shipping/payment result, write fulfillment.placed outbox event
+  → write order.finalized outbox event (same tx as Order status write, after all groups processed)
+  → return confirmation with placed fulfillments, mock tracking, ETAs, and any skipped/failed groups
+  → relay publishes order.finalized and fulfillment.placed events asynchronously
+  → notification, seller, audit, and analytics consumers process each event idempotently
 ```
 
 The confirmation is served from the committed order transaction, not from Kafka consumer completion. Outbox relay retries failed publication; poison messages are routed to a consumer-specific DLQ with alerting.

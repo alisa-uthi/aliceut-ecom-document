@@ -162,84 +162,7 @@ A global multi-vendor e-commerce marketplace inspired by Amazon.com. Serves as a
 
 ---
 
-## 7. Data + Architecture Recommendations
-
-### 7.1 Recommended stack
-
-- **Frontend:** Angular + Angular Material
-- **Backend:** NestJS (modular monolith, microservice-ready)
-- **Primary DB:** PostgreSQL — orders, users, transactions, seller accounts, inventory (strong consistency, ACID)
-- **Secondary DB:** MongoDB — high-write append data: activity logs, cart events, audit trail. Also holds reviews when introduced in v2. *Rationale: keeps Postgres transactional core lean and lets flexible schemas evolve independently.*
-- **Search:** Elasticsearch / OpenSearch — product catalog index, facets, typo tolerance
-- **Event bus:** **Apache Kafka** (single-broker dev cluster in docker-compose) — async domain events, service decoupling, projection to search + Mongo + analytics
-- **Schema registry:** **Confluent Schema Registry** — Avro schemas per topic, forward + backward compatibility enforced
-- **Kafka tooling:** **Kafka UI** (provectus/kafka-ui) in docker-compose for topic browsing, message inspection, consumer lag monitoring
-- **ORM:** **TypeORM** with **raw-SQL migration files** (not decorator-driven schema sync). Repository pattern isolates queries behind interfaces. Rationale: NestJS-native DX + schema stays language-agnostic (SQL migrations portable to Java/Kotlin/Go/Rust if stack changes)
-- **FX source:** exchangerate.host public API, cron refresh into `FxRate` table (display conversion only — orders snapshot per §7.2)
-- **Auth:** Passport.js in NestJS (local + Google + Facebook strategies), JWT sessions
-- **Deployment V1:** Docker + docker-compose (Angular, NestJS API, Postgres, Mongo, Elasticsearch self-hosted single-node, Kafka + Zookeeper, Confluent Schema Registry, Kafka UI)
-- **Deployment V2:** Kubernetes + Istio service mesh (mTLS, traffic routing, observability); Kafka via Strimzi operator
-
-### 7.2 Core entities (draft)
-
-`User`, `SellerProfile`, `Product`, `ProductVariant`, `Offer` (seller-scoped listing of a product), `Price` (currency + Decimal amount rows per offer), `Currency` (ISO4217 code + `minor_unit_scale` for display), `Inventory`, `Cart`, `CartItem` (references `Offer`, not `Product`), `Order`, `OrderItem` (snapshots Decimal price/currency/tax/fx at capture), `Address`, `KycApplication`, `ModerationCase`, `FxRate` (currency-pair cache for display conversion, `NUMERIC(19,8)`), `ActivityEvent` (Mongo), `AuditLog` (Mongo).
-
-**Pricing model (canonical):**
-
-```
-Product (catalog entity, no price)
-   ↓ 1..N
-Offer (seller_id, product_id, variant_id, status)
-   ↓ 1..N
-Price (offer_id, currency ISO4217, amount NUMERIC(19,4), price_type: LIST | SALE | B2B_TIER)
-```
-
-**Snapshot at checkout:**
-
-```
-OrderItem
-  offer_id             -- pointer, not price source
-  currency             -- captured (ISO 4217)
-  unit_price NUMERIC(19,4)   -- captured Decimal
-  tax        NUMERIC(19,4)   -- captured Decimal
-  fx_rate_used NUMERIC(19,8) -- nullable; higher precision for rate itself
-  quantity   INT
-```
-
-Rule: **once an order is placed, its amounts never re-derive from live FX or current `Price` rows.**
-
-### 7.3 Event streaming (Kafka)
-
-Domain events published to Kafka topics using **transactional outbox pattern** — NestJS writes event to Postgres in same tx as domain change, then relay ships to Kafka. Guarantees no lost events on crash.
-
-**Core topics (v1):**
-
-| Topic | Producer | Consumers | Purpose |
-|-------|----------|-----------|---------|
-| `product.changed` | Catalog service | Search indexer, Cache invalidator | Reindex Elasticsearch on product/offer/price update |
-| `offer.changed` | Catalog service | Search indexer | Update lowest-price / availability facets |
-| `inventory.changed` | Inventory service | Search indexer, Low-stock notifier | Toggle in-stock filter, alert seller |
-| `order.placed` | Order service | Inventory (decrement), Email, Seller notifier, Analytics | Fan-out on checkout |
-| `order.shipped` | Order service | Email, Buyer notifier, Analytics | Ship confirmation |
-| `order.refunded` | Order service | Inventory (restore), Email, Analytics | Refund fanout |
-| `seller.kyc.decided` | Admin service | Email, Seller onboarding | Approve/reject notification |
-| `moderation.listing.removed` | Admin service | Seller notifier, Search indexer | Delist product |
-| `audit.event` | All services | Mongo audit log writer | Persist tamper-evident audit trail |
-| `email.outbound.dlq` | Email consumer (retry-fail) | Ops alerting | Dead-letter for failed sends |
-
-**Event schema:** **Avro** in **Confluent Schema Registry**, one subject per topic (`<topic>-value` naming). Every event carries `event_id` (UUID), `event_type`, `event_version`, `occurred_at`, `correlation_id`, `payload`. Compatibility mode: `BACKWARD` (consumers upgraded before producers).
-
-**Consumer rules:**
-- Idempotent handlers (dedupe on `event_id`)
-- At-least-once delivery; consumers commit offset after successful side-effect
-- Dead-letter topic per consumer for poison messages
-- No cross-service DB reads — services own their data, subscribe to events
-
-**Rationale for Kafka in a learning project:** demonstrates event-driven architecture, decouples services for future microservice extraction, powers search freshness without polling, provides realistic audit + analytics pipeline. Redpanda (Kafka-API-compatible, single binary) recommended if Zookeeper ops feels heavy.
-
----
-
-## 8. Non-Functional Requirements
+## 7. Non-Functional Requirements
 
 | ID | Category | Requirement | Target |
 |----|----------|-------------|--------|
@@ -264,7 +187,7 @@ Domain events published to Kafka topics using **transactional outbox pattern** �
 
 ---
 
-## 9. Constraints + Dependencies
+## 8. Constraints + Dependencies
 
 - Solo developer; time-boxed learning task list per feature
 - No budget for paid services in V1 (all self-hosted or free tier)
@@ -273,7 +196,7 @@ Domain events published to Kafka topics using **transactional outbox pattern** �
 
 ---
 
-## 10. Risks
+## 9. Risks
 
 | Risk | Impact | Mitigation |
 |------|--------|------------|
@@ -293,7 +216,7 @@ Domain events published to Kafka topics using **transactional outbox pattern** �
 
 ---
 
-## 11. Phasing
+## 10. Phasing
 
 | Phase | Deliverable | Milestone |
 |-------|-------------|-----------|
@@ -304,7 +227,7 @@ Domain events published to Kafka topics using **transactional outbox pattern** �
 
 ---
 
-## 12. Acceptance Criteria (V1 done = all true)
+## 11. Acceptance Criteria (V1 done = all true)
 
 - [ ] All FR-B, FR-S, FR-A, FR-P items marked "Must" pass end-to-end manual test
 - [ ] All NFR targets met on seeded 100-product catalog
@@ -316,7 +239,7 @@ Domain events published to Kafka topics using **transactional outbox pattern** �
 
 ---
 
-## 13. Resolved Decisions (product owner sign-off 2026-08-19)
+## 12. Resolved Decisions (product owner sign-off 2026-08-19)
 
 | # | Question | Decision |
 |---|----------|----------|

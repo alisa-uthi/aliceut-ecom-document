@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Current Project State
 
-**Pre-implementation.** Repo contains `architecture-overview.md`, `phase-1/requirements/BRD.md` (v1.1, signed off 2026-08-19), and `phase-1/requirements/user-stories/` (39 stories, split by role: buyer/seller/admin/platform). No source code or build system yet. Next phase per BRD §12: detailed design (→ `phase-1/technical-design/`) + backlog decomposition. Do not scaffold code unless user explicitly asks.
+**Pre-implementation.** Repo contains `architecture-overview.md`, `phase-1/requirements/BRD.md` (v1.1, signed off 2026-08-19), and `phase-1/requirements/user-stories/` (split by role: buyer/seller/admin/platform). No source code or build system yet. Next phase per BRD §12 (Resolved Decisions): detailed design (→ `phase-1/technical-design/`) + backlog decomposition. Do not scaffold code unless user explicitly asks.
 
 ## Repo Layout
 
@@ -13,8 +13,8 @@ architecture-overview.md     project-level architecture and evolution path
 phase-1/
 ├── requirements/
 │   ├── BRD.md
-│   └── user-stories/     README.md (index) + buyer.md, seller.md, admin.md, platform.md
-└── technical-design/     ERD, API specs, event schemas, and other Phase 1 detail
+│   └── user-stories/
+└── technical-design/     ERD, API specs, event schemas, and other detail designs
 phase-2/                  (future: V2 scope — K8s, real payments, etc.)
 ```
 
@@ -24,7 +24,7 @@ Solo developer, learning/portfolio project, no deadline — quality over speed.
 
 ## Authoritative Reference
 
-`architecture-overview.md` is the project-level architecture and evolution reference. `phase-1/requirements/BRD.md` is the single source of truth for Phase 1 scope, stack, and locked decisions. Always read both before proposing Phase 1 architecture, entities, or scope changes. Every BRD decision in §13 is signed off — treat as constraints, not suggestions.
+`architecture-overview.md` is the project-level architecture and evolution reference. `phase-1/requirements/BRD.md` is the single source of truth for Phase 1 scope, stack, and locked decisions. Always read both before proposing Phase 1 architecture, entities, or scope changes. Every BRD decision in §12 is signed off — treat as constraints, not suggestions.
 
 ## Design Reference
 
@@ -39,7 +39,7 @@ When UI/screen/component work is requested without a specified source, default t
 
 `PROGRESS.md` at repo root is the daily progress log. Read it at session start to see recent activity. Update it at session end (or when a meaningful milestone lands) with a new dated entry at the top. Keep entries concise — one bulleted list per section.
 
-## Locked Stack (BRD §7.1, §13)
+## Locked Stack (BRD §12)
 
 - **Frontend:** Angular + Angular Material
 - **Backend:** NestJS (modular monolith, microservice-ready)
@@ -54,23 +54,23 @@ Redpanda / KRaft mode acceptable substitute if Kafka+Zookeeper too heavy.
 
 ## Non-Negotiable Rules
 
-### Money handling (FR-P-04, Risks §10)
+### Money handling (FR-P-04, Risks §9)
 - Storage: Postgres `NUMERIC(19,4)` + ISO 4217 code column. FX rates use `NUMERIC(19,8)`.
 - App code: `decimal.js` or `Big.js`. **Never JS `number` for monetary math.**
 - API JSON: amounts as **strings** (`"99.99"`), not numbers.
 - Lint rule required: forbid `number` type on `*price*`, `*amount*`, `*tax*`, `*fee*` fields.
 - Currency-specific scale (JPY=0, BHD=3) driven by `Currency.minor_unit_scale`; storage stays 4 fractional digits.
 
-### Pricing model (FR-P-01, §7.2)
+### Pricing model (FR-P-01)
 ```
 Product → Offer (per seller) → Price (per currency, per price_type)
 ```
-Cart/OrderItem reference `Offer`, not `Product`. Never store price on `Product`.
+Cart/FulfillmentItem reference `Offer`, not `Product`. Never store price on `Product`.
 
 Price types: `LIST`, `SALE` (time-bounded), `B2B_TIER` (min_qty). PDP resolves effective price by account type + time + qty.
 
 ### Order immutability (FR-P-03)
-`OrderItem` snapshots `unit_price`, `currency`, `tax`, `fx_rate_used_at_capture` at checkout. **Never re-derive historical amounts from live FX or current Price rows.**
+`FulfillmentItem` snapshots `unit_price`, `currency`, `tax`, `fx_rate_used_at_capture` at checkout. **Never re-derive historical amounts from live FX or current Price rows.**
 
 ### Event-driven writes (FR-P-09..P-13)
 - Domain state changes (product, offer, inventory, order, KYC, moderation) publish to Kafka via **transactional outbox** (event row written in same Postgres tx as domain change; relay ships to Kafka).

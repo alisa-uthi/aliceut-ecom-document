@@ -13,12 +13,12 @@ Stories split by role. One file per role for scalability.
 
 | File | Prefix | FR trace | Count |
 |------|--------|----------|-------|
-| [buyer.md](buyer.md) | US-B-* | FR-B | 11 |
+| [buyer.md](buyer.md) | US-B-* | FR-B | 15 |
 | [seller.md](seller.md) | US-S-* | FR-S | 9 |
 | [admin.md](admin.md) | US-A-* | FR-A | 5 |
 | [platform.md](platform.md) | US-P-* | FR-P | 14 |
 
-**Total: 39 stories.** All V1 Must + Should items covered.
+**Total: 43 stories.** All V1 Must + Should items covered.
 
 ---
 
@@ -57,6 +57,10 @@ Notes: preconditions, edge cases, dependencies
 | US-B-09 | Checkout with fake payment | Must | FR-B-09 |
 | US-B-10 | Order confirmation with mock tracking | Must | FR-B-10 |
 | US-B-11 | View order history + status | Must | FR-B-11 |
+| US-B-12 | Order lifecycle email notifications | Must | FR-B-10, FR-B-11 |
+| US-B-13 | Reset forgotten password | Must | FR-B-01 |
+| US-B-14 | Manage delivery addresses | Should | FR-B-09 |
+| US-B-15 | Manage account profile | Should | FR-B-01 |
 
 ### Seller ([seller.md](seller.md))
 | ID | Title | Priority | Trace |
@@ -103,7 +107,7 @@ Notes: preconditions, edge cases, dependencies
 ## Story Dependencies (top-level)
 
 ```
-US-B-01 (register) ← US-B-06,07,09,11 (buyer core)
+US-B-01 (register) ← US-B-06,07,09,11,13,14,15 (buyer core)
 US-S-01 (KYC apply) ← US-A-02 (KYC decide) ← US-S-03 (list product)
 US-B-05 (PDP) ← US-P-01,02,04,05 (pricing correctness)
 US-B-09 (checkout) ← US-P-03,10 (snapshot + outbox)
@@ -122,10 +126,10 @@ US-P-08, US-P-09, US-P-10, US-P-13, US-P-04
 US-P-01, US-P-06, US-B-02, US-B-03, US-B-04, US-B-05, US-P-11, US-P-05
 
 **Sprint 2 — Auth + Cart (1 wk)**
-US-B-01, US-B-06, US-B-07, US-B-08, US-P-07
+US-B-01, US-B-13, US-B-14, US-B-15, US-B-06, US-B-07, US-B-08, US-P-07
 
 **Sprint 3 — Checkout + Orders (2 wk)**
-US-B-09, US-B-10, US-B-11, US-P-03, US-P-02, US-P-12
+US-B-09, US-B-10, US-B-11, US-B-12, US-P-03, US-P-02, US-P-12
 
 **Sprint 4 — Seller (2 wk)**
 US-S-01, US-S-02, US-S-03, US-S-04, US-S-05, US-S-06, US-S-07, US-S-08, US-S-09
@@ -133,4 +137,4 @@ US-S-01, US-S-02, US-S-03, US-S-04, US-S-05, US-S-06, US-S-07, US-S-08, US-S-09
 **Sprint 5 — Admin + DLQ (1 wk)**
 US-A-01, US-A-02, US-A-03, US-A-04, US-A-05, US-P-14
 
-Total ≈ 9 wk solo.
+Total ≈ 9–10 wk solo.

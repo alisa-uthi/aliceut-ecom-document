@@ -9,6 +9,8 @@ Daily log of work on this project. Newest entry on top. One entry per active day
 - Each day gets an explicit `<a id="YYYY-MM-DD"></a>` anchor immediately above its heading so external links resolve reliably (GitHub also auto-anchors the heading, but the explicit id survives renderer differences). Add the new date to the **Index** below.
 
 **Index**
+- [2026-08-29b](#2026-08-29b) — Buyer story real-world validation: 3 critical fixes + 3 new stories + minor clarifications.
+- [2026-08-29](#2026-08-29) — Buyer user story clarification + order lifecycle design + cross-doc consistency sweep.
 - [2026-08-22](#2026-08-22) — Phase 1 architecture overview.
 - [2026-08-19](#2026-08-19) — Requirements freeze + repo scaffolding.
 
@@ -30,6 +32,58 @@ Daily log of work on this project. Newest entry on top. One entry per active day
 **Next:**
 - immediate next steps for the following session
 ```
+
+<a id="2026-08-29b"></a>
+## 2026-08-29 (session 2)
+**Focus:** Buyer story real-world validation and gap remediation.
+
+**Done:**
+- Validated all 12 existing buyer stories against real-world e-commerce behavior.
+- **Critical fix (US-B-06 vs US-B-09):** removed contradictory "CTA disabled while stale items exist" rule; aligned to US-B-09 skip-at-submit behavior.
+- **Critical gap (US-B-01):** added email verification AC — email/password accounts cannot checkout until verified; OAuth pre-verified.
+- **Added US-B-13** (Reset forgotten password): email link, 60-min TTL, no email enumeration, OAuth set-password variant.
+- **Added US-B-14** (Manage delivery addresses): save/edit/delete, default address, checkout pre-fill, 10-address cap.
+- **Added US-B-15** (Manage account profile): display name, change password, B2B business name, email read-only.
+- **US-B-05 clarifications:** variant-level availability (badge + CTA update on variant select), B2B tier threshold display, imported rating tooltip.
+- **US-B-03 note:** imported rating tooltip to prevent buyer confusion.
+- **US-B-07:** replaced silent merge with toast; quantity-capped variation covered.
+- **US-B-09 note:** guest checkout explicitly deferred to future phase.
+- **US-B-11 note:** no cancel action in V1, placeholder text defined.
+- Updated README.md: buyer count 11 → 15, total 39 → 43, sprint assignments updated, dependency graph updated.
+
+**Decisions:**
+- Email verification gates checkout only (not browsing/cart) — avoids hard friction at registration.
+- Password reset uses no-enumeration response pattern (security).
+- Address book max 10 per account — reasonable V1 cap.
+- Email change deferred (requires re-verification flow not yet scoped).
+
+**Next:**
+- Review seller.md and admin.md stories for same real-world gaps.
+- Proceed to Phase 1 technical design once all story roles signed off.
+
+---
+
+<a id="2026-08-29"></a>
+## 2026-08-29
+**Focus:** Order lifecycle design + cross-doc consistency.
+
+**Done:**
+- Refined buyer stories US-B-06 through US-B-12; added email-templates.md (ET-01–ET-04).
+- Defined entity hierarchy: `Order` (buyer container) → `Fulfillment` (per seller) → `FulfillmentItem` (snapshotted line items). `OrderItem` removed everywhere.
+- Defined `Order.placement_outcome` (`FULLY_PLACED` | `PARTIALLY_PLACED`, immutable) vs `Order.status` (derived from Fulfillment states, projected read model).
+- Kafka events: `order.finalized` (once per Order), `fulfillment.placed/shipped/delivered/refunded` (per Fulfillment).
+- Removed BRD §7 (stack/entities/events belong in architecture-overview + technical-design); renumbered §8–§13 → §7–§12; updated CLAUDE.md refs.
+- Propagated all renames to `BRD.md`, `architecture-overview.md`, `seller.md`, `platform.md`, `email-templates.md`.
+
+**Decisions:**
+- Cart cleared only for placed fulfillments; skipped (inactive offer) + failed (stock) items remain in cart.
+- `Order.status` is a projected read model value; `Order.placement_outcome` is the immutable checkout outcome.
+- Email amounts converted to buyer's preferred currency via `fx_rate_used_at_capture`; templates stored as DB rows.
+
+**Next:**
+- Clarify remaining buyer stories US-B-01 through US-B-05.
+- Review seller.md, admin.md, platform.md stories.
+- Proceed to Phase 1 technical design after story sign-off.
 
 ---
 
