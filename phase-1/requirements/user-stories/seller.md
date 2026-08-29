@@ -5,7 +5,7 @@ Maps to BRD FR-S-* functional requirements. See [README](README.md) for format l
 ---
 
 ## US-S-00 — Seller dashboard overview
-**As a** seller, **I want** a summary screen when I log in, **so that** I can triage pending work without navigating to every section manually.
+**As a** seller, **I want** a summary screen when I log in, **so that** I can triage pending work without navigating to every section manually.  
 Priority: Must — trace: FR-S-05, FR-S-08
 
 **Acceptance criteria**
@@ -16,18 +16,21 @@ Priority: Must — trace: FR-S-05, FR-S-08
 ---
 
 ## US-S-01 — Seller onboarding application
-**As a** prospective seller, **I want** to submit business name, tax ID, and KYC documents, **so that** admin can review my eligibility.
+**As a** prospective seller, **I want** to register a seller account and submit my business KYC documents, **so that** admin can review my eligibility.  
 Priority: Must — trace: FR-S-01, NFR-09
 
+Seller registration is at `/seller/register`. No existing buyer account is required; an account can hold both BUYER and SELLER roles.
+
 **Acceptance criteria**
-- Fields: legal business name, business type (LLC / sole prop / corp), tax ID (country regex), country, business address, phone, uploads (business license PDF, ID doc, proof of address).
-- On submit → application created with pending status; seller receives confirmation email (→ ET-14) that application is under review.
+- **Step 1 — Account:** if the submitted email matches an existing account, the seller must authenticate with their password to link the SELLER role to that account. If the email is new, a seller account is created with email, password (≥ 8 chars, ≥ 1 letter, ≥ 1 number), and full name. After account step, the KYC application form is presented.
+- **Step 2 — KYC application:** legal business name, business type (LLC / sole prop / corp), tax ID (country regex), country, business address, phone, uploads (business license PDF, ID doc, proof of address).
+- On KYC submit → application created with pending status; seller receives confirmation email (→ ET-14) and admin receives alert (→ ET-21).
 - Seller with a pending or approved application cannot submit a new one; rejected application shows "Update and resubmit" CTA instead of the new-application form.
 
 ---
 
 ## US-S-02 — Block listing until KYC approved
-**As** the platform, **I want** to prevent sellers from listing products before KYC approval, **so that** we don't expose unvetted vendors.
+**As** the platform, **I want** to prevent sellers from listing products before KYC approval, **so that** we don't expose unvetted vendors.  
 Priority: Must — trace: FR-S-02
 
 **Acceptance criteria**
@@ -40,7 +43,7 @@ Priority: Must — trace: FR-S-02
 ---
 
 ## US-S-03 — Create product listing
-**As an** approved seller, **I want** to create a product with title, description, price(s), category, images, and variants, **so that** buyers can find and purchase it.
+**As an** approved seller, **I want** to create a product with title, description, price(s), category, images, and variants, **so that** buyers can find and purchase it.  
 Priority: Must — trace: FR-S-03, FR-P-01, FR-P-06a, FR-P-06b, FR-P-06c
 
 **Acceptance criteria**
@@ -62,7 +65,7 @@ Priority: Must — trace: FR-S-03, FR-P-01, FR-P-06a, FR-P-06b, FR-P-06c
 ---
 
 ## US-S-04 — Edit and delete own products
-**As a** seller, **I want** to edit or delete only my own listings, **so that** I control my catalog.
+**As a** seller, **I want** to edit or delete only my own listings, **so that** I control my catalog.  
 Priority: Must — trace: FR-S-04
 
 **Acceptance criteria**
@@ -76,7 +79,7 @@ Priority: Must — trace: FR-S-04
 ---
 
 ## US-S-04b — Manage offer pricing
-**As a** seller, **I want** to add, edit, or remove prices on an existing listing without editing the product itself, **so that** I can run sales or adjust prices quickly.
+**As a** seller, **I want** to add, edit, or remove prices on an existing listing without editing the product itself, **so that** I can run sales or adjust prices quickly.  
 Priority: Must — trace: FR-P-01, FR-P-06a, FR-P-06b
 
 **Acceptance criteria**
@@ -92,7 +95,7 @@ Priority: Must — trace: FR-P-01, FR-P-06a, FR-P-06b
 ---
 
 ## US-S-05 — Order fulfillment dashboard
-**As a** seller, **I want** to see my orders grouped by status, **so that** I can prioritize what to ship.
+**As a** seller, **I want** to see my orders grouped by status, **so that** I can prioritize what to ship.  
 Priority: Must — trace: FR-S-05, FR-B-10
 
 **Acceptance criteria**
@@ -107,7 +110,7 @@ Priority: Must — trace: FR-S-05, FR-B-10
 ---
 
 ## US-S-05b — Order detail view
-**As a** seller, **I want** to view full details of an order, **so that** I know what to ship and where to ship it.
+**As a** seller, **I want** to view full details of an order, **so that** I know what to ship and where to ship it.  
 Priority: Must — trace: FR-S-05, FR-S-06
 
 **Acceptance criteria**
@@ -119,7 +122,7 @@ Priority: Must — trace: FR-S-05, FR-S-06
 ---
 
 ## US-S-06 — Mark order shipped
-**As a** seller, **I want** to mark an order as shipped, **so that** the buyer sees progress and a tracking number.
+**As a** seller, **I want** to mark an order as shipped, **so that** the buyer sees progress and a tracking number.  
 Priority: Must — trace: FR-S-06
 
 **Acceptance criteria**
@@ -132,7 +135,7 @@ Priority: Must — trace: FR-S-06
 ---
 
 ## US-S-07 — Issue refund
-**As a** seller, **I want** to refund an order (fake payment reversal), **so that** I can handle customer service.
+**As a** seller, **I want** to refund an order (fake payment reversal), **so that** I can handle customer service.  
 Priority: Must — trace: FR-S-07
 
 **Acceptance criteria**
@@ -148,7 +151,7 @@ Priority: Must — trace: FR-S-07
 ---
 
 ## US-S-08 — Inventory + low-stock alerts
-**As a** seller, **I want** to see stock per SKU and get alerted when low, **so that** I don't oversell.
+**As a** seller, **I want** to see stock per SKU and get alerted when low, **so that** I don't oversell.  
 Priority: Must — trace: FR-S-08
 
 **Acceptance criteria**
@@ -161,7 +164,7 @@ Priority: Must — trace: FR-S-08
 ---
 
 ## US-S-09 — Bulk inventory update via CSV
-**As a** seller with many SKUs, **I want** to upload a CSV to update inventory in bulk, **so that** I don't click one row at a time.
+**As a** seller with many SKUs, **I want** to upload a CSV to update inventory in bulk, **so that** I don't click one row at a time.  
 Priority: Should — trace: FR-S-09
 
 **Acceptance criteria**
@@ -177,7 +180,7 @@ Priority: Should — trace: FR-S-09
 ---
 
 ## US-S-10 — View listing moderation status
-**As a** seller, **I want** to see the status of all my listings including flagged or removed ones, **so that** I understand why a listing is not visible and what action was taken.
+**As a** seller, **I want** to see the status of all my listings including flagged or removed ones, **so that** I understand why a listing is not visible and what action was taken.  
 Priority: Must — trace: FR-A-03, FR-A-04, FR-S-04
 
 **Acceptance criteria**
@@ -189,7 +192,7 @@ Priority: Must — trace: FR-A-03, FR-A-04, FR-S-04
 ---
 
 ## US-S-11 — Cancel unfulfillable PENDING order
-**As a** seller, **I want** to cancel a PENDING order I cannot fulfill, **so that** the buyer is refunded and I'm not left with a stuck order.
+**As a** seller, **I want** to cancel a PENDING order I cannot fulfill, **so that** the buyer is refunded and I'm not left with a stuck order.  
 Priority: Should — trace: FR-S-05, FR-S-07
 
 **Acceptance criteria**

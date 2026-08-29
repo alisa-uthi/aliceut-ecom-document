@@ -1,8 +1,8 @@
 # Business Requirements Document (BRD)
 ## AliceUT — Global Multi-Vendor Marketplace
 
-**Document version:** 1.1
-**Date:** 2026-08-19
+**Document version:** 1.2
+**Date:** 2026-08-29
 **Author:** Business Analyst (working with product owner)
 **Status:** Signed off — ready for design phase
 
@@ -259,6 +259,7 @@ A global multi-vendor e-commerce marketplace inspired by Amazon.com. Serves as a
 | 9 | Schema registry | Confluent Schema Registry, Avro, BACKWARD compatibility |
 | 10 | Kafka UI tool | Yes — `provectus/kafka-ui` in docker-compose |
 | 11 | Fulfillment model | **Direct-ship**: seller ships directly to buyer using buyer's delivery address. No platform warehouse, FBA-style centralized fulfillment, or reverse-logistics hub in V1. Buyer address accessible to seller via authenticated, audited order detail view only (US-S-05b, NFR-09). |
+| 12 | Frontend portal architecture | Three separate Angular applications — `buyer-app` (storefront), `seller-app` (seller portal), `admin-app` (admin portal) — in an Nx monorepo. Each app served by a dedicated nginx container in Docker Compose. Development uses separate `ng serve` instances on ports 4200 (buyer), 4201 (seller), 4202 (admin). Shared code (auth interceptor, generated API client, UI components, domain DTO types) lives in `libs/`. |
 
 All prior open questions resolved. Ready for detailed design + backlog decomposition.
 

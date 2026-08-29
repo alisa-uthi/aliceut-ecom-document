@@ -8,7 +8,7 @@
 
 ## 1. Architecture goals
 
-- Deliver the buyer, seller, and admin V1 loops in one deployable application.
+- Deliver the buyer, seller, and admin V1 loops as three separate Angular portal applications (buyer storefront, seller portal, admin portal), each served by its own nginx container and backed by one NestJS API deployment.
 - Keep transactional state strongly consistent while supporting asynchronous search and notifications.
 - Make module ownership and contracts explicit so modules can be extracted later without redesigning the data model.
 - Prepare every domain module to become an independently built and deployed Kubernetes service in a later phase.
@@ -29,12 +29,15 @@ Future product scope remains governed by its phase requirements document. This o
 ## 3. Phase 1 system context
 
 ```text
-Browser
-  │ HTTPS
-  ▼
-Angular + Angular Material SPA
-  │ REST/JSON + JWT
-  ▼
+Browser (buyer)       Browser (seller)       Browser (admin)
+      │ HTTPS                │ HTTPS                │ HTTPS
+      ▼                      ▼                      ▼
+  buyer-app             seller-app             admin-app
+ (Angular + AM)        (Angular + AM)         (Angular + AM)
+      │                      │                      │
+      └──────────────────────┴──────────────────────┘
+                             │ REST/JSON + JWT
+                             ▼
 NestJS modular monolith
   ├── PostgreSQL       transactional system of record + transactional outbox
   ├── MongoDB          append-only audit and activity records
@@ -49,7 +52,7 @@ External integrations: Google/Facebook OAuth; exchangerate.host for display-only
 Fake payment and shipping remain internal V1 adapters; no gateway or carrier is called.
 ```
 
-The Angular SPA is the only browser client. NestJS exposes versioned REST endpoints and contains the business modules below. Kafka is an internal integration boundary: modules do not synchronously read another module's database or write its tables.
+Three Angular applications — buyer storefront, seller portal, and admin portal — are the only browser clients; each targets the same versioned REST API. NestJS exposes versioned REST endpoints and contains the business modules below. Kafka is an internal integration boundary: modules do not synchronously read another module's database or write its tables.
 
 ## 4. Phase 1 application modules
 
@@ -150,7 +153,7 @@ The confirmation is served from the committed order transaction, not from Kafka 
 
 ## 8. Phase 1 deployment topology
 
-One Docker Compose environment runs the Angular UI, NestJS API, PostgreSQL, MongoDB, Elasticsearch (single node), Kafka (KRaft acceptable), self-managed Confluent Schema Registry, Kafka UI, and the outbox relay/consumers. Development secrets are injected via environment variables and are never committed.
+One Docker Compose environment runs three nginx containers serving buyer-app, seller-app, and admin-app; the NestJS API; PostgreSQL; MongoDB; Elasticsearch (single node); Kafka (KRaft acceptable); self-managed Confluent Schema Registry; Kafka UI; and the outbox relay/consumers. Development secrets are injected via environment variables and are never committed.
 
 V1 uses only the registry's free Community License functionality. It excludes commercial Schema Registry features: security-plugin RBAC, Schema Linking/exporters, and broker-side Schema Validation. The Community License is source-available rather than Apache 2.0, and it must not be used to offer a competing hosted schema-registry service.
 
@@ -225,7 +228,54 @@ NestJS controllers + transport DTOs
 - Keep public request/response DTOs in the transport layer. Map them explicitly to application commands and query results so a later service extraction can retain the same contract.
 - During module extraction, a module publishes its own OpenAPI document and generated client package; the V1 combined contract can remain as an API-gateway aggregation until consumers migrate.
 
-## 11. Later-phase service extraction and Kubernetes deployment
+## 11. Phase 1 frontend implementation structure
+
+Three separate Angular applications share common libraries through an Nx monorepo workspace.
+
+```text
+frontend/
+├── apps/
+│   ├── buyer-app/      buyer storefront — search, PDP, cart, checkout, orders, account
+│   ├── seller-app/     seller portal — onboarding, listings, fulfillment, inventory
+│   └── admin-app/      admin portal — KYC queue, moderation queue, seller management
+├── libs/
+│   ├── auth/           shared JWT interceptor, auth guards, token storage
+│   ├── api-client/     generated TypeScript client from OpenAPI spec (do not edit manually)
+│   ├── ui/             shared Angular Material component wrappers and design tokens
+│   └── domain/         shared TypeScript DTO types and enums
+└── nginx/
+    ├── buyer.conf      nginx config for buyer-app
+    ├── seller.conf     nginx config for seller-app
+    └── admin.conf      nginx config for admin-app
+```
+
+Each app has its own Angular router root and lazy-loaded feature modules. Apps share nothing beyond the `libs/` boundary.
+
+### Development ports
+
+| App | `ng serve` port |
+|-----|-----------------|
+| `buyer-app` | 4200 |
+| `seller-app` | 4201 |
+| `admin-app` | 4202 |
+
+Run all three concurrently with `nx run-many -t serve`.
+
+### Production containers
+
+Each app builds to a static artifact served by a dedicated nginx container in Docker Compose. nginx falls back to `index.html` for Angular router history-mode URLs.
+
+| Container | Serves |
+|-----------|--------|
+| `buyer-nginx` | `buyer-app` dist |
+| `seller-nginx` | `seller-app` dist |
+| `admin-nginx` | `admin-app` dist |
+
+### Auth and API access
+
+All three apps target the same NestJS API base URL via `environment.apiBaseUrl`. JWT bearer token is stored in `localStorage` per app origin; refresh rotation is handled by the shared `auth` library interceptor. Route guards enforce role-based access: `admin-app` requires `ADMIN` role; `seller-app` requires `SELLER` role; `buyer-app` allows unauthenticated access on public catalog routes.
+
+## 12. Later-phase service extraction and Kubernetes deployment
 
 V1 is intentionally a modular monolith. Its module boundaries, PostgreSQL schemas, repository interfaces, and Kafka event contracts are extraction seams—not separate deployables yet.
 
@@ -235,13 +285,13 @@ Extraction must happen incrementally, beginning with low-coupling consumers such
 
 Each service deployment will have independent resource requests/limits, readiness/liveness probes, horizontal-autoscaling policy where justified, configuration and secrets, structured logs, metrics, and distributed tracing with propagated correlation IDs. Kubernetes plus Istio remains a post-V1 concern.
 
-## 12. Explicit Phase 1 boundaries
+## 13. Explicit Phase 1 boundaries
 
 - This is a modular monolith, not a microservice deployment.
 - Recommendations, review authoring, wishlists, real payment, real carrier shipping, seller analytics, native apps, Kubernetes, and i18n are excluded.
 - B2B uses the same buyer workflow as B2C; only approved branding differences apply.
 
-## 13. Phase-specific technical design
+## 14. Phase-specific technical design
 
 This project-level overview is complete. Detailed design is maintained within the relevant phase under `phase-N/technical-design/`, where it can evolve with that phase's approved requirements.
 

@@ -7,7 +7,7 @@ Maps to BRD FR-B-* functional requirements. See [README](README.md) for format l
 ---
 
 ## US-B-00 — Login and session management
-**As a** registered user, **I want** to sign in with my credentials or OAuth, **so that** I can access my cart, orders, and seller/admin dashboard.
+**As a** registered user, **I want** to sign in with my credentials or OAuth, **so that** I can access my cart, orders, and seller/admin dashboard.  
 Priority: Must — trace: FR-B-01, NFR-05, NFR-06
 
 **Acceptance criteria**
@@ -26,15 +26,15 @@ Priority: Must — trace: FR-B-01, NFR-05, NFR-06
 - Given I click "Continue with Facebook"
   When Facebook returns a verified email matching an existing account
   Then I am signed in.
+- OAuth login (Google/Facebook) is available on the buyer portal only. Seller and admin portals are separate and use email/password exclusively; OAuth buttons are not present on those pages.
 - JWT access token expires after a short TTL (configurable via env var, default 15 min); the client silently refreshes using the refresh token without requiring re-login.
 - Refresh token rotation: each use of a refresh token issues a new refresh token and invalidates the prior one. Token family detection: reuse of an invalidated refresh token invalidates the entire family (all sessions for that account).
 - Single-device logout: invalidates the current session's refresh token only.
 - All-sessions logout (accessible from Account → Security): invalidates all refresh tokens for the account.
-- Role-based routing on login success:
+- Role-based routing on login success (buyer portal `/login` only):
   - `BUYER` / `BUSINESS_BUYER` → buyer home.
-  - `SELLER` (approved) → seller dashboard (US-S-00).
-  - `ADMIN` → admin dashboard (US-A-00).
-  - A single account may hold both BUYER and SELLER roles; the last-used dashboard is remembered.
+  - A single account may hold both BUYER and SELLER roles. The seller portal is accessed via `/seller/login` (email/password only); the buyer portal does not route to the seller dashboard.
+  - Seller and admin accounts are not accessible via the buyer login portal.
 - Admin role is set at account creation via seed script; it is not self-assignable.
 
 **Notes:** OAuth registrations and logins share the same session mechanism as email/password accounts. JWT payload includes `sub` (user ID), `roles`, and `email_verified`.
@@ -42,7 +42,7 @@ Priority: Must — trace: FR-B-01, NFR-05, NFR-06
 ---
 
 ## US-B-01 — Register account
-**As a** visitor, **I want** to register with email/password or Google/Facebook OAuth, **so that** I can save my cart, orders, and addresses across sessions.
+**As a** visitor, **I want** to register with email/password or Google/Facebook OAuth, **so that** I can save my cart, orders, and addresses across sessions.  
 Priority: Must — trace: FR-B-01, NFR-05, NFR-06
 
 **Acceptance criteria**
@@ -63,12 +63,12 @@ Priority: Must — trace: FR-B-01, NFR-05, NFR-06
 - Given I have requested 3 verification email resends within one hour, when I request another, then I see: "Resend limit reached. You can request another verification email after [time remaining]." The response does not confirm whether the email is registered.
 - OAuth registrations are considered pre-verified (provider already verified the email); no additional step required.
 
-**Notes:** B2B account type chosen at register time via checkbox "This is a business account" (branding differ, same UX per FR-P-06d).
+**Notes:** B2B account type chosen at register time via checkbox "This is a business account" (branding differ, same UX per FR-P-06d). OAuth-registered buyer accounts that later apply for seller status must first set a local password (US-B-15), since `/seller/login` requires email/password authentication.
 
 ---
 
 ## US-B-02 — Search products by keyword
-**As a** shopper, **I want** to search products by keyword with typo tolerance, **so that** I can find items even when I misspell.
+**As a** shopper, **I want** to search products by keyword with typo tolerance, **so that** I can find items even when I misspell.  
 Priority: Must — trace: FR-B-02, NFR-02
 
 **Acceptance criteria**
@@ -83,7 +83,7 @@ Priority: Must — trace: FR-B-02, NFR-02
 ---
 
 ## US-B-03 — Filter search results
-**As a** shopper, **I want** to filter by category, price range, and in-stock only, **so that** I narrow to viable options.
+**As a** shopper, **I want** to filter by category, price range, and in-stock only, **so that** I narrow to viable options.  
 Priority: Must — trace: FR-B-03
 
 **Acceptance criteria**
@@ -100,7 +100,7 @@ Priority: Must — trace: FR-B-03
 ---
 
 ## US-B-04 — Sort search results
-**As a** shopper, **I want** to sort by relevance, price asc/desc, or newest, **so that** I can compare offers on my preferred axis.
+**As a** shopper, **I want** to sort by relevance, price asc/desc, or newest, **so that** I can compare offers on my preferred axis.  
 Priority: Must — trace: FR-B-04
 
 **Acceptance criteria**
@@ -115,7 +115,7 @@ Priority: Must — trace: FR-B-04
 ---
 
 ## US-B-05 — View product detail page (PDP)
-**As a** shopper, **I want** to see product images, description, variants, seller info, price, and availability, **so that** I can decide whether to buy.
+**As a** shopper, **I want** to see product images, description, variants, seller info, price, and availability, **so that** I can decide whether to buy.  
 Priority: Must — trace: FR-B-05, FR-P-01, FR-P-05
 
 **Acceptance criteria**
@@ -133,7 +133,7 @@ Priority: Must — trace: FR-B-05, FR-P-01, FR-P-05
 ---
 
 ## US-B-06 — Add to cart
-**As a** shopper, **I want** to add a chosen variant + quantity to my cart, **so that** I can proceed to checkout later.
+**As a** shopper, **I want** to add a chosen variant + quantity to my cart, **so that** I can proceed to checkout later.  
 Priority: Must — trace: FR-B-06
 
 **Acceptance criteria**
@@ -151,7 +151,7 @@ Priority: Must — trace: FR-B-06
 ---
 
 ## US-B-07 — Persistent logged-in cart
-**As a** logged-in buyer, **I want** my cart to persist across devices and sessions, **so that** I don't lose items when I switch phone → laptop.
+**As a** logged-in buyer, **I want** my cart to persist across devices and sessions, **so that** I don't lose items when I switch phone → laptop.  
 Priority: Must — trace: FR-B-07
 
 **Acceptance criteria**
@@ -162,7 +162,7 @@ Priority: Must — trace: FR-B-07
 ---
 
 ## US-B-08 — Guest cart persistence
-**As a** guest, **I want** my cart to survive page reloads and browser tabs, **so that** I don't lose items before deciding to register.
+**As a** guest, **I want** my cart to survive page reloads and browser tabs, **so that** I don't lose items before deciding to register.  
 Priority: Should — trace: FR-B-08
 
 **Acceptance criteria**
@@ -173,7 +173,7 @@ Priority: Should — trace: FR-B-08
 ---
 
 ## US-B-09 — Checkout with fake payment
-**As a** buyer, **I want** to enter shipping address, choose fake payment, and place order, **so that** I complete a purchase.
+**As a** buyer, **I want** to enter shipping address, choose fake payment, and place order, **so that** I complete a purchase.  
 Priority: Must — trace: FR-B-09, FR-P-03, FR-P-04, NFR-14
 
 **Acceptance criteria**
@@ -251,11 +251,11 @@ The first persisted Fulfillment state is `PENDING`; a cart is not an order state
 ---
 
 ## US-B-10 — Order confirmation with mock tracking
-**As a** buyer, **I want** confirmation with a mock tracking number and estimated delivery, **so that** I feel the purchase was received.
+**As a** buyer, **I want** confirmation with a mock tracking number and estimated delivery, **so that** I feel the purchase was received.  
 Priority: Must — trace: FR-B-10
 
 **Acceptance criteria**
-- Confirmation page shown after checkout completes. Shows Order ID (Order ORD-<uuid8>). Order total covers placed fulfillments only — skipped and failed items excluded. Up to three sections:
+- Confirmation page shown after checkout completes. Shows Order ID (Order `ORD-<uuid8>`). Order total covers placed fulfillments only — skipped and failed items excluded. Up to three sections:
   - **Placed items:** each fulfillment with currency total, per-item snapshot pricing, mock tracking `TRK-<uuid8>`, and ETA; grouped by seller.
   - **Skipped items** (if any `skipped_items`): items whose offer was inactive at submit time; shown with product name and reason "No longer available"; remain in cart.
   - **Failed items** (if `PARTIALLY_PLACED`): items that could not be reserved; shown with product name and reason (e.g. "Out of stock"); remain in cart.
@@ -265,11 +265,11 @@ Priority: Must — trace: FR-B-10
 ---
 
 ## US-B-11 — View order history + status
-**As a** buyer, **I want** to see past and current orders with status, **so that** I can track fulfillment.
+**As a** buyer, **I want** to see past and current orders with status, **so that** I can track fulfillment.  
 Priority: Must — trace: FR-B-11
 
 **Acceptance criteria**
-- `/orders` lists past orders paginated, newest first. Each row shows: Order ID (Order ORD-<uuid8>), `placed_at`, fulfillment currency totals, Order status badge, partial-placement warning (if `PARTIALLY_PLACED`), and sub-line "N of M fulfillments shipped" for count context.
+- `/orders` lists past orders paginated, newest first. Each row shows: Order ID (Order `ORD-<uuid8>`), `placed_at`, fulfillment currency totals, Order status badge, partial-placement warning (if `PARTIALLY_PLACED`), and sub-line "N of M fulfillments shipped" for count context.
 - **Empty state:** if buyer has placed no orders, show "No orders yet — browse the catalog to get started" with a Browse CTA.
 - **Order status badge** (derived from placed Fulfillments only; always shown) — see table in US-B-09.
 - **Placement outcome warning** (permanent, set at checkout):
@@ -282,7 +282,7 @@ Priority: Must — trace: FR-B-11
 ---
 
 ## US-B-12 — Order lifecycle email notifications
-**As a** buyer, **I want** to receive email at each key order milestone, **so that** I stay informed without checking the app.
+**As a** buyer, **I want** to receive email at each key order milestone, **so that** I stay informed without checking the app.  
 Priority: Must — trace: FR-B-10, FR-B-11
 
 **Acceptance criteria**
@@ -293,10 +293,10 @@ Priority: Must — trace: FR-B-10, FR-B-11
 | Trigger event | To | Template | Key content |
 |---|---|---|---|
 | Order placement finalized | Buyer | [ET-01](email-templates.md#et-01----order-summary-orderfinalized) | Order ID and placement outcome; placed fulfillments with snapshot pricing, mock tracking numbers, and ETAs; skipped items section (if any) with reason "No longer available"; failed groups section (if partially placed). One email per order regardless of fulfillment count. |
-| Fulfillment shipped | Buyer | [ET-02](email-templates.md#et-02----fulfillment-shipped-fulfillmentshipped) | Order ORD-<uuid8>, seller name, tracking number TRK-<uuid8>, ETA, items in shipment. |
-| Fulfillment delivered | Buyer | [ET-03](email-templates.md#et-03----fulfillment-delivered-fulfillmentdelivered) | Order ORD-<uuid8>, seller name, items delivered. |
-| Fulfillment refunded | Buyer | [ET-04](email-templates.md#et-04----fulfillment-refunded-fulfillmentrefunded) | Order ORD-<uuid8>, seller name, refunded items with snapshot pricing, refund amount. |
-| Order fully completed | Buyer | [ET-05](email-templates.md#et-05----order-completed-ordercompleted) | Order ORD-<uuid8> complete — all items delivered. Only sent when order had ≥ 2 fulfillments; single-fulfillment orders rely on ET-03. |
+| Fulfillment shipped | Buyer | [ET-02](email-templates.md#et-02----fulfillment-shipped-fulfillmentshipped) | Order `ORD-<uuid8>`, seller name, tracking number TRK-<uuid8>, ETA, items in shipment. |
+| Fulfillment delivered | Buyer | [ET-03](email-templates.md#et-03----fulfillment-delivered-fulfillmentdelivered) | Order `ORD-<uuid8>`, seller name, items delivered. |
+| Fulfillment refunded | Buyer | [ET-04](email-templates.md#et-04----fulfillment-refunded-fulfillmentrefunded) | Order `ORD-<uuid8>`, seller name, refunded items with snapshot pricing, refund amount. |
+| Order fully completed | Buyer | [ET-05](email-templates.md#et-05----order-completed-ordercompleted) | Order `ORD-<uuid8>` complete — all items delivered. Only sent when order had ≥ 2 fulfillments; single-fulfillment orders rely on ET-03. |
 
 **Notes:**
 - Order placement email fires once per order regardless of fulfillment count.
@@ -306,7 +306,7 @@ Priority: Must — trace: FR-B-10, FR-B-11
 ---
 
 ## US-B-13 — Reset forgotten password
-**As a** registered user, **I want** to reset my forgotten password via email link, **so that** I can regain access to my account without contacting support.
+**As a** registered user, **I want** to reset my forgotten password via email link, **so that** I can regain access to my account without contacting support.  
 Priority: Must — trace: FR-B-01, NFR-05
 
 **Acceptance criteria**
@@ -322,13 +322,13 @@ Priority: Must — trace: FR-B-01, NFR-05
 ---
 
 ## US-B-14 — Manage delivery addresses
-**As a** registered buyer, **I want** to save, edit, and delete delivery addresses in my account, **so that** I can reuse them at checkout without re-entering details.
+**As a** registered buyer, **I want** to save, edit, and delete delivery addresses in my account, **so that** I can reuse them at checkout without re-entering details.  
 Priority: Should — trace: FR-B-09
 
 **Acceptance criteria**
 - Buyer can add a new address: full name, address lines, city, state/province, postal code, country (from allowed list), phone number (optional).
 - Buyer can edit any saved address. Editing does not alter historical order snapshots.
-- Buyer can delete any address. Deleting the current default address prompts the buyer to choose or set a new default first.
+- Buyer can delete any address. Deleting the current default address prompts the buyer to choose or set a new default first. Deleting does not alter historical order snapshots.
 - One address may be designated as the default shipping address.
 - Maximum 10 saved addresses per account; adding beyond the limit shows: "Address limit reached. Remove an address to add a new one."
 - Checkout shipping form pre-fills from the default address. Buyer may switch to any other saved address or enter a one-time address (not persisted unless buyer checks "Save this address").
@@ -337,7 +337,7 @@ Priority: Should — trace: FR-B-09
 ---
 
 ## US-B-15 — Manage account profile
-**As a** registered buyer, **I want** to view and update my profile details, **so that** my name, password, and business information stay current.
+**As a** registered buyer, **I want** to view and update my profile details, **so that** my name, password, and business information stay current.  
 Priority: Should — trace: FR-B-01
 
 **Acceptance criteria**

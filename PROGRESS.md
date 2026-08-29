@@ -9,6 +9,7 @@ Daily log of work on this project. Newest entry on top. One entry per active day
 - Each day gets an explicit `<a id="YYYY-MM-DD"></a>` anchor immediately above its heading so external links resolve reliably (GitHub also auto-anchors the heading, but the explicit id survives renderer differences). Add the new date to the **Index** below.
 
 **Index**
+- [2026-08-29c](#2026-08-29c) — Auth portal design, ET-21, diagram MD files.
 - [2026-08-29b](#2026-08-29b) — Buyer story real-world validation: 3 critical fixes + 3 new stories + minor clarifications.
 - [2026-08-29](#2026-08-29) — Buyer user story clarification + order lifecycle design + cross-doc consistency sweep.
 - [2026-08-22](#2026-08-22) — Phase 1 architecture overview.
@@ -32,6 +33,30 @@ Daily log of work on this project. Newest entry on top. One entry per active day
 **Next:**
 - immediate next steps for the following session
 ```
+
+<a id="2026-08-29c"></a>
+## 2026-08-29 (session 3)
+**Focus:** Auth portal design, ET-21 admin KYC alert, diagram source files.
+
+**Done:**
+- Locked auth portal separation: buyer (`/login`, `/register`), seller (`/seller/login`, `/seller/register`), admin (`/admin/login` only). Seller and admin portals: email/password only, no OAuth.
+- Dual-role confirmed: one account may hold BUYER + SELLER; portals are independent entry points.
+- ET-08 updated: CC admin on every auto-flag (passive moderation queue awareness).
+- ET-21 added to V1: admin KYC alert fires on every KYC submit/resubmit; includes `review_by` SLA deadline (submitted_at + 3 business days).
+- US-A-00b corrected: admin accounts seeded directly in database (not docker-compose); hashed password stored in DB.
+- Created `phase-1/diagrams/` with 6 Mermaid source files (01–06), each with user story references and key invariants.
+- Removed `flows.html`; diagrams now live in standalone MD files.
+- Added `## Git Conventions` to CLAUDE.md: one-line commits only.
+
+**Decisions:**
+- OAuth-only buyer accounts must set local password (US-B-15) before accessing `/seller/register`.
+- ADMIN role never co-held with BUYER or SELLER on the same account.
+
+**Next:**
+- Review seller.md and platform.md stories for real-world gaps (same pass as buyer session 2).
+- Proceed to Phase 1 technical design once all story roles signed off.
+
+---
 
 <a id="2026-08-29b"></a>
 ## 2026-08-29 (session 2)

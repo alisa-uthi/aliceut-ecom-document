@@ -2,7 +2,7 @@
 
 Notification emails triggered by auth, order, and fulfillment lifecycle events (see US-B-12). All amounts shown with explicit currency.
 
-Templates are grouped by audience: **Auth** (ET-18, ET-19, ET-20), **Buyer Order Lifecycle** (ET-01–ET-05, ET-13, ET-16), and **Seller Operations** (ET-06–ET-15, ET-17).
+Templates are grouped by audience: **Auth** (ET-18, ET-19, ET-20), **Buyer Order Lifecycle** (ET-01–ET-05, ET-13, ET-16), **Seller Operations** (ET-06–ET-15, ET-17), and **Admin Notifications** (ET-21).
 
 ---
 
@@ -408,8 +408,8 @@ AliceUT
 
 ## ET-13 — Order Auto-Refunded — Seller Suspended, Buyer Notice (fulfillment.refund_suspended_seller)
 
-**Trigger:** Seller's account is suspended and an order has passed its fulfillment window without being shipped (US-A-05). Same event also sends ET-13b to the seller.
-**To:** buyer
+**Trigger:** Seller's account is suspended and an order has passed its fulfillment window without being shipped (US-A-05). Same event also sends ET-13b to the seller.  
+**To:** buyer  
 **Subject:** `Your order from {{seller_name}} could not be fulfilled — refund issued — Order {{order_id}}`
 
 ```
@@ -470,8 +470,8 @@ AliceUT
 
 ## ET-16 — Order Cancelled by Seller (fulfillment.cancelled)
 
-**Trigger:** Seller cancels a PENDING fulfillment they cannot fulfill (US-S-11)
-**To:** buyer
+**Trigger:** Seller cancels a PENDING fulfillment they cannot fulfill (US-S-11)  
+**To:** buyer  
 **Subject:** `Your order from {{seller_name}} has been cancelled — refund issued — Order {{order_id}}`
 
 ```
@@ -540,9 +540,9 @@ AliceUT
 
 ## ET-06 — KYC Approved (kyc.approved)
 
-**Trigger:** Admin approves seller KYC application (US-A-02)
+**Trigger:** Admin approves seller KYC application (US-A-02)  
 **To:** seller  
-**CC:** admin
+**CC:** admin  
 **Subject:** `Your seller account is approved — start listing on AliceUT`
 
 ```
@@ -580,9 +580,9 @@ AliceUT
 
 ## ET-07 — KYC Rejected (kyc.rejected)
 
-**Trigger:** Admin rejects seller KYC application (US-A-02)
+**Trigger:** Admin rejects seller KYC application (US-A-02)  
 **To:** seller  
-**CC:** admin
+**CC:** admin  
 **Subject:** `Your seller application was not approved — {{seller.business_name}}`
 
 ```
@@ -626,8 +626,9 @@ AliceUT
 
 ## ET-08 — Listing Flagged (listing.flagged)
 
-**Trigger:** Listing auto-flagged by keyword blocklist or prohibited category check (US-A-03, US-S-03, US-S-04)
-**To:** seller
+**Trigger:** Listing auto-flagged by keyword blocklist or prohibited category check (US-A-03, US-S-03, US-S-04)  
+**To:** seller  
+**CC:** admin  
 **Subject:** `Your listing is under review — {{product_title}}`
 
 ```
@@ -670,6 +671,7 @@ AliceUT
 | `product_title` | Title of the flagged listing |
 | `flagged_at` | Timestamp when flag was applied |
 | `flag_reason` | Flag source: `Keyword match` or `Prohibited category` |
+| `admin.email` | Admin email address for CC (from env config) |
 | `base_url` | Website base URL |
 
 ---
@@ -740,9 +742,9 @@ AliceUT
 
 ## ET-10 — Seller Suspended (seller.suspended)
 
-**Trigger:** Admin suspends seller account (US-A-05)
+**Trigger:** Admin suspends seller account (US-A-05)  
 **To:** seller  
-**CC:** admin
+**CC:** admin  
 **Subject:** `Your seller account has been suspended`
 
 ```
@@ -796,9 +798,9 @@ AliceUT
 
 ## ET-11 — Suspension Lifted — Auto-Expiry (seller.suspension_expired)
 
-**Trigger:** Timed suspension reaches `suspended_until` and auto-lifts (US-A-05)
+**Trigger:** Timed suspension reaches `suspended_until` and auto-lifts (US-A-05)  
 **To:** seller  
-**CC:** admin
+**CC:** admin  
 **Subject:** `Your seller account has been reinstated`
 
 ```
@@ -840,9 +842,9 @@ AliceUT
 
 ## ET-12 — Seller Reinstated by Admin (seller.reinstated)
 
-**Trigger:** Admin manually lifts suspension early (US-A-05b)
+**Trigger:** Admin manually lifts suspension early (US-A-05b)  
 **To:** seller  
-**CC:** admin
+**CC:** admin  
 **Subject:** `Your seller account has been reinstated`
 
 ```
@@ -927,8 +929,8 @@ AliceUT
 
 ## ET-14 — KYC Application Received (kyc.received)
 
-**Trigger:** Seller submits or resubmits onboarding application (US-S-01) — fires for both initial submissions and resubmissions
-**To:** seller
+**Trigger:** Seller submits or resubmits onboarding application (US-S-01) — fires for both initial submissions and resubmissions  
+**To:** seller  
 **Subject:** `Your seller application has been received — AliceUT`
 
 ```
@@ -980,8 +982,8 @@ AliceUT
 
 ## ET-15 — Low Stock Alert (inventory.low_stock)
 
-**Trigger:** Available quantity (on_hand − reserved) for a SKU drops at or below the configured threshold (US-S-08)
-**To:** seller
+**Trigger:** Available quantity (on_hand − reserved) for a SKU drops at or below the configured threshold (US-S-08)  
+**To:** seller  
 **Subject:** `Low stock alert — {{product_title}} · {{sku_label}}`
 
 ```
@@ -1084,3 +1086,50 @@ AliceUT
 | `base_url` | Website base URL |
 
 **PII handling:** Shipping address is NOT included in this email. Seller retrieves it by clicking the authenticated order detail link (`{{base_url}}/seller/orders/{{order_id}}`). Access to the address page is logged for audit (NFR-09, US-S-05b).
+
+---
+
+## ET-21 — New KYC Application — Admin Alert (kyc.received)
+
+**Trigger:** Seller submits or resubmits a KYC application (US-S-01) — same event as ET-14; both fire together  
+**To:** admin  
+**Subject:** `New seller application: {{seller.business_name}}{{#if is_resubmission}} (resubmission){{/if}}`
+
+```
+New seller KYC application received.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+APPLICATION DETAILS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Business name: {{seller.business_name}}
+  Seller name:   {{seller.full_name}}
+  Submitted at:  {{submitted_at}}
+  Review by:     {{review_by}}  ⚠ SLA 3 business days
+  {{#if is_resubmission}}
+  ──────────────────────────────
+  Resubmission — prior rejection: {{prior_rejection_date}}
+  {{/if}}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Review application:
+{{base_url}}/admin/kyc/{{application_id}}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+AliceUT
+```
+
+**Variables**
+
+| Variable | Description |
+|---|---|
+| `seller.full_name` | Seller's full name |
+| `seller.business_name` | Registered business name |
+| `submitted_at` | Timestamp of application submission |
+| `review_by` | SLA deadline: `submitted_at` + 3 business days (computed at send time) |
+| `application_id` | KYC application identifier — deep-links directly to the admin review page |
+| `is_resubmission` | Boolean — true when this is a resubmission of a previously rejected application |
+| `prior_rejection_date` | Date of prior rejection (omitted when `is_resubmission` is false) |
+| `base_url` | Website base URL |

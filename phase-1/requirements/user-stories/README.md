@@ -32,7 +32,7 @@ Stories split by role. One file per role for scalability.
 Each story:
 ```
 ID | Title
-As a <persona>, I want <capability>, so that <outcome>.
+As a <persona>, I want <capability>, so that <outcome>.  
 Priority: Must / Should
 BRD trace: FR-x-nn
 Acceptance criteria: Given/When/Then

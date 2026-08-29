@@ -5,7 +5,7 @@ Maps to BRD FR-P-* functional requirements. See [README](README.md) for format l
 ---
 
 ## US-P-01 — Multi-currency offer model
-**As a** seller, **I want** to price my offer in multiple currencies simultaneously, **so that** buyers see native pricing without forced conversion.
+**As a** seller, **I want** to price my offer in multiple currencies simultaneously, **so that** buyers see native pricing without forced conversion.  
 Priority: Must — trace: FR-P-01, FR-P-06a
 
 **Acceptance criteria**
@@ -23,7 +23,7 @@ Priority: Must — trace: FR-P-01, FR-P-06a
 ---
 
 ## US-P-02 — FX display conversion
-**As a** buyer, **I want** foreign-currency prices converted to my preferred currency as an estimate, **so that** I can compare.
+**As a** buyer, **I want** foreign-currency prices converted to my preferred currency as an estimate, **so that** I can compare.  
 Priority: Should — trace: FR-P-02, BRD §12 Decision 5
 
 **Acceptance criteria**
@@ -37,7 +37,7 @@ Priority: Should — trace: FR-P-02, BRD §12 Decision 5
 ---
 
 ## US-P-03 — Order price snapshot immutability
-**As** the platform, **I want** order line items to snapshot price/currency/tax/fx at checkout, **so that** historical amounts never change.
+**As** the platform, **I want** order line items to snapshot price/currency/tax/fx at checkout, **so that** historical amounts never change.  
 Priority: Must — trace: FR-P-03
 
 **Acceptance criteria**
@@ -50,7 +50,7 @@ Priority: Must — trace: FR-P-03
 ---
 
 ## US-P-04 — Decimal money handling end-to-end
-**As** the platform, **I want** all monetary math to use precise decimal arithmetic at every boundary, **so that** rounding drift and float bugs cannot occur.
+**As** the platform, **I want** all monetary math to use precise decimal arithmetic at every boundary, **so that** rounding drift and float bugs cannot occur.  
 Priority: Must — trace: FR-P-04, FR-P-04a, FR-P-04b
 
 **Acceptance criteria**
@@ -63,7 +63,7 @@ Priority: Must — trace: FR-P-04, FR-P-04a, FR-P-04b
 ---
 
 ## US-P-05 — Multi-seller offer selection
-**As a** buyer, **I want** to see all sellers offering the same product with prices, **so that** I can pick the cheapest or preferred seller.
+**As a** buyer, **I want** to see all sellers offering the same product with prices, **so that** I can pick the cheapest or preferred seller.  
 Priority: Should — trace: FR-P-05
 
 **Acceptance criteria**
@@ -74,7 +74,7 @@ Priority: Should — trace: FR-P-05
 ---
 
 ## US-P-06 — Seed 100 curated products
-**As** the platform, **I want** a 100-product seed from Kaggle "Amazon Product Data" across categories, **so that** demos and load tests are realistic.
+**As** the platform, **I want** a 100-product seed from Kaggle "Amazon Product Data" across categories, **so that** demos and load tests are realistic.  
 Priority: Must — trace: FR-P-06, NFR-03
 
 **Acceptance criteria**
@@ -87,7 +87,7 @@ Priority: Must — trace: FR-P-06, NFR-03
 ---
 
 ## US-P-07 — B2B account branding differentiation
-**As a** business buyer, **I want** my account visibly marked as business, **so that** invoices carry business branding while the shopping UX stays the same.
+**As a** business buyer, **I want** my account visibly marked as business, **so that** invoices carry business branding while the shopping UX stays the same.  
 Priority: Must — trace: FR-P-06d
 
 **Acceptance criteria**
@@ -99,7 +99,7 @@ Priority: Must — trace: FR-P-06d
 ---
 
 ## US-P-08 — Secrets in env only
-**As** the platform, **I want** all secrets injected via environment variables, **so that** no credential leaks into version control.
+**As** the platform, **I want** all secrets injected via environment variables, **so that** no credential leaks into version control.  
 Priority: Must — trace: FR-P-07, NFR-10
 
 **Acceptance criteria**
@@ -110,7 +110,7 @@ Priority: Must — trace: FR-P-07, NFR-10
 ---
 
 ## US-P-09 — DTO validation on every endpoint
-**As** the platform, **I want** every API endpoint to validate its input, **so that** malformed input is rejected uniformly.
+**As** the platform, **I want** every API endpoint to validate its input, **so that** malformed input is rejected uniformly.  
 Priority: Must — trace: FR-P-08, NFR-07
 
 **Acceptance criteria**
@@ -121,7 +121,7 @@ Priority: Must — trace: FR-P-08, NFR-07
 ---
 
 ## US-P-10 — Transactional outbox for domain events
-**As** the platform, **I want** every state-change to reliably trigger its downstream event even if the server crashes mid-operation, **so that** no events are lost.
+**As** the platform, **I want** every state-change to reliably trigger its downstream event even if the server crashes mid-operation, **so that** no events are lost.  
 Priority: Must — trace: FR-P-09, NFR-14
 
 **Acceptance criteria**
@@ -132,7 +132,7 @@ Priority: Must — trace: FR-P-09, NFR-14
 ---
 
 ## US-P-11 — Async search index update
-**As** the platform, **I want** the search index updated asynchronously from product/offer/inventory changes, **so that** search failures don't block catalog writes.
+**As** the platform, **I want** the search index updated asynchronously from product/offer/inventory changes, **so that** search failures don't block catalog writes.  
 Priority: Must — trace: FR-P-10, NFR-13
 
 **Acceptance criteria**
@@ -145,7 +145,7 @@ Priority: Must — trace: FR-P-10, NFR-13
 ---
 
 ## US-P-12 — Notifications via async consumers
-**As** the platform, **I want** email and in-app notifications decoupled from request handling, **so that** slow email delivery doesn't block user requests.
+**As** the platform, **I want** email and in-app notifications decoupled from request handling, **so that** slow email delivery doesn't block user requests.  
 Priority: Must — trace: FR-P-11
 
 **Acceptance criteria**
@@ -156,7 +156,7 @@ Priority: Must — trace: FR-P-11
 ---
 
 ## US-P-13 — Event envelope + idempotency
-**As** the platform, **I want** every event to carry a unique ID and consumers to be idempotent, **so that** at-least-once delivery is safe.
+**As** the platform, **I want** every event to carry a unique ID and consumers to be idempotent, **so that** at-least-once delivery is safe.  
 Priority: Must — trace: FR-P-12, NFR-14
 
 **Acceptance criteria**
@@ -168,7 +168,7 @@ Priority: Must — trace: FR-P-12, NFR-14
 ---
 
 ## US-P-14 — Dead-letter topics
-**As** the platform, **I want** poison messages routed to a dead-letter queue, **so that** one bad message doesn't stall all notification processing.
+**As** the platform, **I want** poison messages routed to a dead-letter queue, **so that** one bad message doesn't stall all notification processing.  
 Priority: Should — trace: FR-P-13, NFR-15
 
 **Acceptance criteria**
@@ -179,7 +179,7 @@ Priority: Should — trace: FR-P-13, NFR-15
 ---
 
 ## US-P-15 — Mock delivery scheduler
-**As** the platform, **I want** a background process to automatically transition `SHIPPED` fulfillments to `DELIVERED` when their ETA is reached, **so that** the order lifecycle completes without manual action.
+**As** the platform, **I want** a background process to automatically transition `SHIPPED` fulfillments to `DELIVERED` when their ETA is reached, **so that** the order lifecycle completes without manual action.  
 Priority: Must — trace: FR-B-10, FR-S-05
 
 **Acceptance criteria**
@@ -194,7 +194,7 @@ Priority: Must — trace: FR-B-10, FR-S-05
 ---
 
 ## US-P-16 — Auto-refund monitor for suspended-seller orders
-**As** the platform, **I want** to automatically refund buyers when a suspended seller's orders pass the fulfillment window unshipped, **so that** buyers are not stuck waiting on inactive sellers.
+**As** the platform, **I want** to automatically refund buyers when a suspended seller's orders pass the fulfillment window unshipped, **so that** buyers are not stuck waiting on inactive sellers.  
 Priority: Should — trace: FR-A-05
 
 **Acceptance criteria**
@@ -213,7 +213,7 @@ Priority: Should — trace: FR-A-05
 ---
 
 ## US-P-17 — Inventory reservation expiry scheduler
-**As** the platform, **I want** expired inventory reservations from abandoned checkouts to be released automatically, **so that** low-stock SKUs do not become permanently unsellable due to abandoned sessions.
+**As** the platform, **I want** expired inventory reservations from abandoned checkouts to be released automatically, **so that** low-stock SKUs do not become permanently unsellable due to abandoned sessions.  
 Priority: Must — trace: FR-P-03, FR-B-09
 
 **Acceptance criteria**
@@ -227,7 +227,7 @@ Priority: Must — trace: FR-P-03, FR-B-09
 ---
 
 ## US-P-18 — Suspension expiry scheduler
-**As** the platform, **I want** timed seller suspensions to auto-lift at their expiry time, **so that** sellers are not permanently blocked by a time-limited suspension.
+**As** the platform, **I want** timed seller suspensions to auto-lift at their expiry time, **so that** sellers are not permanently blocked by a time-limited suspension.  
 Priority: Should — trace: FR-A-05
 
 **Acceptance criteria**
@@ -244,7 +244,7 @@ Priority: Should — trace: FR-A-05
 ---
 
 ## US-P-19 — FX rate refresh scheduler
-**As** the platform, **I want** FX rates to be refreshed on a schedule from a public API, **so that** display currency conversions and the Elasticsearch price index stay reasonably current.
+**As** the platform, **I want** FX rates to be refreshed on a schedule from a public API, **so that** display currency conversions and the Elasticsearch price index stay reasonably current.  
 Priority: Should — trace: FR-P-02, BRD §12 Decision 5
 
 **Acceptance criteria**
