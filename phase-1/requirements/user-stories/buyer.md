@@ -198,6 +198,7 @@ Priority: Must — trace: FR-B-09, FR-P-03, FR-P-04, NFR-14
   6. Return order response including fulfillments, skipped items, and failed groups.
 - Submitting the same checkout twice (same idempotency key) returns the original order without creating a new one.
 - **Price revalidation at submit:** Immediately before creating the order, the system re-resolves the effective price for each valid line item. If any price differs from the price shown on the checkout summary page (configurable tolerance, e.g. ±0.01 in offer currency), the submission is halted and the buyer is presented with a "Price updated" notification listing the changed items and their new prices. The buyer must confirm before re-submitting. The order is not created until the buyer confirms the updated prices.
+- If a price changes again after the buyer confirms updated prices but before the order is actually created, the submission is rejected once more and the buyer is shown another "Price updated" notification. The buyer must confirm each time. An order is never created at a price the buyer has not seen and confirmed.
 
 **Order lifecycle**
 

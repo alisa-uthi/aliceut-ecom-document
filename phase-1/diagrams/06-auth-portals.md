@@ -25,7 +25,10 @@ subgraph BUYER_P["BUYER PORTAL — /login · /register"]
     BP3 --> BP6["ET-18 Verification email\nCan browse, cannot place orders until verified"]
     BP6 -->|"Email verified"| BP7["Session: BUYER role\nBuyer home"]
     BP4 --> BP7
-    BP5 --> BP7
+    BP5 --> BP5V{"email_verified?"}
+    BP5V -->|"Verified or OAuth\n(OAuth = pre-verified)"| BP7
+    BP5V -->|"Not verified\n(email/pw only)"| BP5W["Verification-pending prompt\nOne-click resend · Cannot proceed"]
+    BP5W -.->|"After verifying via link"| BP7
 end
 
 subgraph SELLER_P["SELLER PORTAL — /seller/login · /seller/register"]
@@ -57,6 +60,6 @@ classDef warningNode fill:#FEE8E8,stroke:#C0392B,color:#0E1C2A
 classDef infoNode fill:#FEF3CD,stroke:#C8960C,color:#0E1C2A
 
 class BP7,SP_S,AP4 sessionNode
-class SP4 warningNode
+class BP5W,SP4 warningNode
 class D1 infoNode
 ```

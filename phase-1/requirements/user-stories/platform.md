@@ -220,6 +220,7 @@ Priority: Must — trace: FR-P-03, FR-B-09
 - A scheduled job polls for inventory reservations where `reserved_at + reservation_ttl_minutes < now()` and no `PENDING` fulfillment exists referencing that reservation.
 - `reservation_ttl_minutes` is configurable via env var (default `15`, matching the 15-minute TTL in US-B-09 step 4a).
 - On each match: release the reserved quantity back to available stock; publish `inventory.reservation_expired` event via the transactional outbox (US-P-10).
+- **Concurrency safety:** The release must execute inside a Postgres transaction that verifies the reservation's current status is still `ACTIVE` using `SELECT FOR UPDATE` or an optimistic version check. This prevents a race where a concurrent checkout reserves the same stock row at the moment the scheduler is releasing it.
 - The job is idempotent: re-running against an already-released reservation produces no side effects.
 - Tick interval configurable via env var (default `60s`).
 - Job failure does not affect API availability; unprocessed reservations are retried on the next tick.

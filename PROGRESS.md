@@ -9,9 +9,7 @@ Daily log of work on this project. Newest entry on top. One entry per active day
 - Each day gets an explicit `<a id="YYYY-MM-DD"></a>` anchor immediately above its heading so external links resolve reliably (GitHub also auto-anchors the heading, but the explicit id survives renderer differences). Add the new date to the **Index** below.
 
 **Index**
-- [2026-08-29c](#2026-08-29c) — Auth portal design, ET-21, diagram MD files.
-- [2026-08-29b](#2026-08-29b) — Buyer story real-world validation: 3 critical fixes + 3 new stories + minor clarifications.
-- [2026-08-29](#2026-08-29) — Buyer user story clarification + order lifecycle design + cross-doc consistency sweep.
+- [2026-08-29](#2026-08-29) — Requirements deep-dive: order lifecycle, buyer story validation, auth portals, diagrams, BA revalidation.
 - [2026-08-22](#2026-08-22) — Phase 1 architecture overview.
 - [2026-08-19](#2026-08-19) — Requirements freeze + repo scaffolding.
 
@@ -34,81 +32,56 @@ Daily log of work on this project. Newest entry on top. One entry per active day
 - immediate next steps for the following session
 ```
 
-<a id="2026-08-29c"></a>
-## 2026-08-29 (session 3)
-**Focus:** Auth portal design, ET-21 admin KYC alert, diagram source files.
-
-**Done:**
-- Locked auth portal separation: buyer (`/login`, `/register`), seller (`/seller/login`, `/seller/register`), admin (`/admin/login` only). Seller and admin portals: email/password only, no OAuth.
-- Dual-role confirmed: one account may hold BUYER + SELLER; portals are independent entry points.
-- ET-08 updated: CC admin on every auto-flag (passive moderation queue awareness).
-- ET-21 added to V1: admin KYC alert fires on every KYC submit/resubmit; includes `review_by` SLA deadline (submitted_at + 3 business days).
-- US-A-00b corrected: admin accounts seeded directly in database (not docker-compose); hashed password stored in DB.
-- Created `phase-1/diagrams/` with 6 Mermaid source files (01–06), each with user story references and key invariants.
-- Removed `flows.html`; diagrams now live in standalone MD files.
-- Added `## Git Conventions` to CLAUDE.md: one-line commits only.
-
-**Decisions:**
-- OAuth-only buyer accounts must set local password (US-B-15) before accessing `/seller/register`.
-- ADMIN role never co-held with BUYER or SELLER on the same account.
-
-**Next:**
-- Review seller.md and platform.md stories for real-world gaps (same pass as buyer session 2).
-- Proceed to Phase 1 technical design once all story roles signed off.
-
----
-
-<a id="2026-08-29b"></a>
-## 2026-08-29 (session 2)
-**Focus:** Buyer story real-world validation and gap remediation.
-
-**Done:**
-- Validated all 12 existing buyer stories against real-world e-commerce behavior.
-- **Critical fix (US-B-06 vs US-B-09):** removed contradictory "CTA disabled while stale items exist" rule; aligned to US-B-09 skip-at-submit behavior.
-- **Critical gap (US-B-01):** added email verification AC — email/password accounts cannot checkout until verified; OAuth pre-verified.
-- **Added US-B-13** (Reset forgotten password): email link, 60-min TTL, no email enumeration, OAuth set-password variant.
-- **Added US-B-14** (Manage delivery addresses): save/edit/delete, default address, checkout pre-fill, 10-address cap.
-- **Added US-B-15** (Manage account profile): display name, change password, B2B business name, email read-only.
-- **US-B-05 clarifications:** variant-level availability (badge + CTA update on variant select), B2B tier threshold display, imported rating tooltip.
-- **US-B-03 note:** imported rating tooltip to prevent buyer confusion.
-- **US-B-07:** replaced silent merge with toast; quantity-capped variation covered.
-- **US-B-09 note:** guest checkout explicitly deferred to future phase.
-- **US-B-11 note:** no cancel action in V1, placeholder text defined.
-- Updated README.md: buyer count 11 → 15, total 39 → 43, sprint assignments updated, dependency graph updated.
-
-**Decisions:**
-- Email verification gates checkout only (not browsing/cart) — avoids hard friction at registration.
-- Password reset uses no-enumeration response pattern (security).
-- Address book max 10 per account — reasonable V1 cap.
-- Email change deferred (requires re-verification flow not yet scoped).
-
-**Next:**
-- Review seller.md and admin.md stories for same real-world gaps.
-- Proceed to Phase 1 technical design once all story roles signed off.
-
----
-
 <a id="2026-08-29"></a>
 ## 2026-08-29
-**Focus:** Order lifecycle design + cross-doc consistency.
+**Focus:** Full requirements deep-dive across 4 sessions — order lifecycle, buyer story validation, auth portals & diagrams, BA revalidation.
 
 **Done:**
-- Refined buyer stories US-B-06 through US-B-12; added email-templates.md (ET-01–ET-04).
-- Defined entity hierarchy: `Order` (buyer container) → `Fulfillment` (per seller) → `FulfillmentItem` (snapshotted line items). `OrderItem` removed everywhere.
-- Defined `Order.placement_outcome` (`FULLY_PLACED` | `PARTIALLY_PLACED`, immutable) vs `Order.status` (derived from Fulfillment states, projected read model).
-- Kafka events: `order.finalized` (once per Order), `fulfillment.placed/shipped/delivered/refunded` (per Fulfillment).
-- Removed BRD §7 (stack/entities/events belong in architecture-overview + technical-design); renumbered §8–§13 → §7–§12; updated CLAUDE.md refs.
-- Propagated all renames to `BRD.md`, `architecture-overview.md`, `seller.md`, `platform.md`, `email-templates.md`.
+
+_Order lifecycle & cross-doc consistency_
+- Refined buyer stories US-B-06–US-B-12; added `email-templates.md` (ET-01–ET-04).
+- Locked entity hierarchy: `Order` → `Fulfillment` (per seller) → `FulfillmentItem` (snapshotted). `OrderItem` removed everywhere.
+- Defined `Order.placement_outcome` (immutable: `FULLY_PLACED` | `PARTIALLY_PLACED`) vs `Order.status` (projected read model).
+- Kafka events: `order.finalized` (per Order), `fulfillment.placed/shipped/delivered/refunded` (per Fulfillment).
+- Removed BRD §7 (content moved to architecture-overview + technical-design); renumbered §8–§12.
+
+_Buyer story validation (39 → 43 → 59 stories total over the day)_
+- Validated all buyer stories; fixed US-B-06 vs US-B-09 contradiction (skip-at-submit wins, not disabled CTA).
+- US-B-01: email verification gates checkout (not browsing); OAuth accounts pre-verified.
+- Added US-B-13 (password reset, 60-min TTL, no enumeration), US-B-14 (address book, 10-cap), US-B-15 (profile management).
+- US-B-05: variant-level availability, B2B tier display, imported-rating tooltip.
+- US-B-07: silent merge → toast; US-B-09: guest checkout deferred; US-B-11: no cancel in V1.
+
+_Auth portals & diagram source files_
+- Locked auth portal routes: buyer (`/login`, `/register`), seller (`/seller/login`, `/seller/register`), admin (`/admin/login` only). Seller + admin: email/password only, no OAuth.
+- Dual-role confirmed: one account may hold BUYER + SELLER; ADMIN never co-held with either.
+- ET-08: CC admin on every auto-flag. ET-21 added: admin KYC alert on submit/resubmit, `review_by` = submitted_at + 3 business days.
+- US-A-00b: admin accounts seeded in DB (not docker-compose); hashed password in DB.
+- Created `phase-1/diagrams/` — 6 Mermaid source files (01–06) with story refs + invariants; removed `flows.html`.
+- Added Git conventions (one-line commits) to CLAUDE.md.
+
+_BA revalidation (41 findings)_
+- Full pass: 7 critical, 22 major, 12 minor. ERD criticals deferred to tech design.
+- DIAG-01: email verification gate added to diagram 06-auth-portals (`email_verified` branch).
+- README-01: added US-B-00, US-A-00b, US-P-17/18/19; total 54 → 59; sprint + dependency graph updated.
+- Multi-role: `User.roles` is now an array; `SELLER_PENDING` removed in favour of `SellerProfile.kyc_status` gating.
+- FX staleness: `staleness_threshold` aligned to 4 h (was 24 h) in implementation-specs.
+- REAL-06 (US-B-09): second price-change rejection in plain behavior language.
+- REAL-04 (US-P-17): concurrency-safety note on reservation expiry scheduler.
+- REAL-09 (US-A-05): suspended-seller restriction rephrased as observable behavior; API guard spec added.
 
 **Decisions:**
-- Cart cleared only for placed fulfillments; skipped (inactive offer) + failed (stock) items remain in cart.
-- `Order.status` is a projected read model value; `Order.placement_outcome` is the immutable checkout outcome.
-- Email amounts converted to buyer's preferred currency via `fx_rate_used_at_capture`; templates stored as DB rows.
+- Cart cleared only for placed fulfillments; skipped + failed items remain in cart.
+- `Order.status` projected read model; `Order.placement_outcome` immutable checkout record.
+- Email amounts use `fx_rate_used_at_capture`; templates stored as DB rows.
+- Email verification gates checkout only — avoids hard friction at registration.
+- Password reset: no-enumeration response pattern.
+- OAuth-only buyer accounts must set local password (US-B-15) before accessing `/seller/register`.
+- ERD structural corrections deferred to tech design phase.
+- User stories stay behavior-only; implementation detail lives in implementation-specs.
 
 **Next:**
-- Clarify remaining buyer stories US-B-01 through US-B-05.
-- Review seller.md, admin.md, platform.md stories.
-- Proceed to Phase 1 technical design after story sign-off.
+- Begin Phase 1 technical design (`phase-1/technical-design/`).
 
 ---
 

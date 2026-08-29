@@ -103,6 +103,7 @@ Priority: Should — trace: FR-A-05
 - Action requires reason + duration (7 / 30 / 90 days / permanent). Permanent requires explicit confirmation dialog.
 - All listings deactivated on suspension.
 - Seller cannot list new products or access the full seller dashboard (buyer role still active if same account). **Exception — limited fulfillment access:** A suspended seller retains read-only access to the Pending Orders tab (US-S-05) and the Order Detail view (US-S-05b) solely to mark shipment on orders that were placed before the suspension. The seller cannot create listings, access financial summaries, or navigate to any other seller dashboard section while suspended. This limited access is logged for audit.
+- While suspended, the seller can only view their pending orders and mark shipments — all other seller portal actions are blocked and show a "Your account is suspended" message.
 - Seller notified by email (→ ET-10); all listings removed from search; action is auditable.
 - Pending unshipped orders at suspension time remain active; seller retains obligation to fulfill them. If seller remains suspended and an order is not shipped within its expected window, buyer is notified and a refund is issued. (→ ET-13)
 - Suspension expiry: timed suspensions (7/30/90 days) auto-lift at `suspended_until`; listings are reactivated automatically and seller is notified by email (→ ET-11).

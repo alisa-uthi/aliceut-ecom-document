@@ -15,6 +15,12 @@ Pre-decided implementation constraints extracted from user stories (2026-08-29).
 - On password change (profile page): **all refresh tokens revoked except current session**
 - OAuth-only accounts have no local password; reset flow creates a password and links local auth
 
+### Seller suspension API guard
+
+Check `SellerProfile.suspension_status` on every seller-only endpoint:
+- `ACTIVE` → full seller access.
+- `SUSPENDED` → permit only: `GET /seller/orders`, `GET /seller/orders/:id`, `POST /seller/orders/:id/ship`. All other seller endpoints return HTTP 403 `{ "message": "Your account is suspended." }`. Each permitted access under suspension is logged to MongoDB `AuditLog` (`seller_id`, `endpoint`, `timestamp`).
+
 ---
 
 ## Search
@@ -54,6 +60,7 @@ Pre-decided implementation constraints extracted from user stories (2026-08-29).
 
 ### Checkout Postgres tx (per seller/currency group)
 
+0. Re-verify effective price (inside tx) = confirmed price ± tolerance. If mismatch: abort → HTTP 409 with updated prices; buyer re-enters the confirmation flow. (Closes the race between confirmation dialog and tx commit — see US-B-09 price revalidation note.)
 1. Decrement `available_qty` (reserve)
 2. Snapshot `FulfillmentItem`: `unit_price`, `currency`, `tax`, `fx_rate_used_at_capture`, `quantity`
 3. Create `Fulfillment` (`PENDING`)
@@ -148,7 +155,7 @@ Avro per topic in Confluent Schema Registry; BACKWARD compatibility.
 - Frontend: parse via decimal.js; format via `Intl.NumberFormat` at display boundary only
 - Template helpers must not cast to `number`
 - FX rates: hourly cron from `exchangerate.host`
-- FX failure: last-known rate ≤ 24h; else hide conversion
+- FX failure: last-known rate within `staleness_threshold` (default 4 h, configurable via env var); else hide conversion
 
 ---
 
@@ -156,8 +163,8 @@ Avro per topic in Confluent Schema Registry; BACKWARD compatibility.
 
 - `FulfillmentItem`: `unit_price NUMERIC(19,4)`, `currency CHAR(3)`, `tax NUMERIC(19,4)`, `fx_rate_used NUMERIC(19,8) NULL`, `quantity INT`
 - `SellerProfile.status`: `PENDING_KYC` → `APPROVED` | `REJECTED` | `SUSPENDED`
-- `User.role`: `CONSUMER` | `SELLER_PENDING` | `SELLER` | `ADMIN`
-- `User.account_type`: `CONSUMER` | `BUSINESS`
+- `User.roles` (array, multi-value): `BUYER`, `SELLER`, `ADMIN`. One account may hold `BUYER` + `SELLER` simultaneously; `ADMIN` is never co-held with `BUYER` or `SELLER`. `SELLER` role is assigned at seller registration (KYC form submitted); KYC gating uses `SellerProfile.kyc_status`, not a separate role value. JWT payload `roles` is always an array (e.g. `["BUYER","SELLER"]`).
+- `User.account_type`: `CONSUMER` | `BUSINESS` (B2B/B2C distinction; orthogonal to roles)
 - `Offer.status`: `ACTIVE` | `INACTIVE` (soft delete) | `REMOVED` (admin)
 - `Product.status`: `ACTIVE` | `REMOVED` (when all offers removed)
 - Ownership check: `offer.seller_id === current_user.seller_id`; else 403
