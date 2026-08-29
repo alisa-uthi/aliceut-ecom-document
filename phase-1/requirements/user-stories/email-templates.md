@@ -1,14 +1,13 @@
 # Email Templates — Phase 1
 
-Notification emails triggered by Kafka events (see US-B-12). All consumers idempotent; dedupe on `event_id`. Amounts serialized as strings (FR-P-04). Currency shown explicitly on every amount.
+Notification emails triggered by order and fulfillment lifecycle events (see US-B-12). All amounts shown with explicit currency.
 
 ---
 
 ## ET-01 — Order Summary (order.finalized)
 
-**Trigger:** `order.finalized` event  
-**Consumer:** `notification.order-summary`  
-**To:** `buyer.email`  
+**Trigger:** Order placement finalized  
+**To:** buyer  
 **Subject:** `Your order {{order_id}} — summary`
 
 ```
@@ -21,8 +20,7 @@ ORDER ID: {{order_id}}
 Placed: {{placed_at}}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-YOUR ITEMS                     (groups repeated per seller; internal Fulfillment
-                                concept not exposed to buyer)
+YOUR ITEMS                     (groups repeated per seller)
 
   Sold by: {{seller_name}}
   ┌─────────────────────────────────────────────────┐
@@ -48,7 +46,7 @@ PURCHASE TOTAL
   {{≈ if any_fx_applied}}{{session.grand_total_display}} {{buyer.preferred_currency}}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-[SKIPPED ITEMS]                (section omitted if skipped_items is empty)
+[SKIPPED ITEMS]                (section omitted if no skipped items)
 
 The following items were not included because their listing became
 unavailable before checkout completed. They remain in your cart.
@@ -57,7 +55,7 @@ unavailable before checkout completed. They remain in your cart.
   (repeat per skipped item)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-[COULD NOT BE RESERVED]        (section omitted if failed_groups is empty)
+[COULD NOT BE RESERVED]        (section omitted if no failed items)
 
 The following items could not be reserved. They remain in your cart.
 
@@ -74,34 +72,32 @@ AliceUT
 
 **Variables**
 
-| Variable | Source |
+| Variable | Description |
 |---|---|
-| `order_id` | `Order.display_id` (e.g. `ORD-3F2A1B9C`) |
-| `placed_at` | `Order.created_at` |
-| `buyer.full_name` / `buyer.email` | `User` record |
-| `buyer.preferred_currency` | `User.preferred_currency` (ISO 4217) |
-| `seller_name` | `Fulfillment.seller_name` snapshot |
-| `item.product_title` | `FulfillmentItem.product_title` snapshot |
-| `item.quantity` | `FulfillmentItem.quantity` |
-| `item.unit_price_display` | consumer converts `FulfillmentItem.unit_price` to `buyer.preferred_currency` via `FulfillmentItem.fx_rate_used_at_capture` using `decimal.js` (string) |
-| `item.line_total_display` | `item.unit_price_display × item.quantity` (string, `decimal.js`) |
-| `fulfillment.subtotal_display` / `shipping_display` / `tax_display` / `grand_total_display` | consumer converts each `Fulfillment` aggregate field to `buyer.preferred_currency` via snapshot FX rate (strings) |
-| `tracking_number` | `Fulfillment.tracking_number` |
-| `eta` | `Fulfillment.eta` |
-| `order.grand_total_display` | consumer sums all `fulfillment.grand_total_display` values using `decimal.js`; single total in `buyer.preferred_currency` (string) |
-| `any_fx_applied` | `true` if any `FulfillmentItem.fx_rate_used_at_capture` was applied (i.e. order currency ≠ buyer's preferred currency) |
-| `skipped_items[].product_title` | from event payload |
-| `failed_groups[].items[].product_title` | from event payload |
-| `failed_groups[].items[].reason` | from event payload |
-| `base_url` | config (env) |
+| `order_id` | Order identifier |
+| `placed_at` | When the order was placed |
+| `buyer.full_name` / `buyer.email` | Buyer's name and email address |
+| `buyer.preferred_currency` | Buyer's preferred display currency |
+| `seller_name` | Seller's display name |
+| `item.product_title` | Product name |
+| `item.quantity` | Quantity purchased |
+| `item.unit_price_display` | Unit price in buyer's currency |
+| `item.line_total_display` | Total for this line item |
+| `fulfillment.subtotal_display` / `shipping_display` / `tax_display` / `grand_total_display` | Seller group subtotal, shipping, tax, and total |
+| `tracking_number` | Shipment tracking number |
+| `eta` | Estimated delivery date |
+| `session.grand_total_display` | Grand total across all sellers |
+| `any_fx_applied` | True when totals were converted from a different currency (shows `≈` prefix) |
+| `skipped_items[].product_title` | Name of each item skipped at checkout |
+| `failed_groups[].items[].product_title` / `reason` | Name and reason for each item that could not be reserved |
+| `base_url` | Website base URL |
 
 ---
 
 ## ET-02 — Fulfillment Shipped (fulfillment.shipped)
 
-**Trigger:** `fulfillment.shipped` event  
-**Consumer:** `notification.fulfillment-shipped`  
-**To:** `buyer.email`  
+**Trigger:** Seller marks fulfillment as shipped  
+**To:** buyer  
 **Subject:** `Your order from {{seller_name}} has shipped — Order {{order_id}}`
 
 ```
@@ -123,7 +119,7 @@ ITEMS IN THIS SHIPMENT
   │ {{item.product_title}}                          │
   │ Qty: {{item.quantity}}                          │
   └─────────────────────────────────────────────────┘
-  (repeat per FulfillmentItem)
+  (repeat per item)
 
 Track your order at:
 {{base_url}}/orders/{{order_id}}
@@ -133,21 +129,20 @@ AliceUT
 
 **Variables**
 
-| Variable | Source |
+| Variable | Description |
 |---|---|
-| `order_id` | `Order.display_id` via `Fulfillment.order_id` FK (e.g. `ORD-3F2A1B9C`) |
-| `seller_name` | `Fulfillment.seller_name` snapshot |
-| `tracking_number` | `Fulfillment.tracking_number` (assigned at PENDING, unchanged) |
-| `eta` | `Fulfillment.eta` |
-| `item.product_title` / `item.quantity` | `FulfillmentItem` snapshots |
+| `order_id` | Order identifier |
+| `seller_name` | Seller's display name |
+| `tracking_number` | Shipment tracking number |
+| `eta` | Estimated delivery date |
+| `item.product_title` / `item.quantity` | Product name and quantity |
 
 ---
 
 ## ET-03 — Fulfillment Delivered (fulfillment.delivered)
 
-**Trigger:** `fulfillment.delivered` event (mock-delivery scheduler)  
-**Consumer:** `notification.fulfillment-delivered`  
-**To:** `buyer.email`  
+**Trigger:** Mock-delivery scheduler marks fulfillment as delivered  
+**To:** buyer  
 **Subject:** `Your order from {{seller_name}} has been delivered — Order {{order_id}}`
 
 ```
@@ -166,7 +161,7 @@ ITEMS DELIVERED
   │ {{item.product_title}}                          │
   │ Qty: {{item.quantity}}                          │
   └─────────────────────────────────────────────────┘
-  (repeat per FulfillmentItem)
+  (repeat per item)
 
 View your order at:
 {{base_url}}/orders/{{order_id}}
@@ -176,19 +171,18 @@ AliceUT
 
 **Variables**
 
-| Variable | Source |
+| Variable | Description |
 |---|---|
-| `order_id` | `Order.display_id` via `Fulfillment.order_id` FK (e.g. `ORD-3F2A1B9C`) |
-| `seller_name` | `Fulfillment.seller_name` snapshot |
-| `item.product_title` / `item.quantity` | `FulfillmentItem` snapshots |
+| `order_id` | Order identifier |
+| `seller_name` | Seller's display name |
+| `item.product_title` / `item.quantity` | Product name and quantity |
 
 ---
 
 ## ET-04 — Fulfillment Refunded (fulfillment.refunded)
 
-**Trigger:** `fulfillment.refunded` event  
-**Consumer:** `notification.fulfillment-refunded`  
-**To:** `buyer.email`  
+**Trigger:** Seller issues full refund  
+**To:** buyer  
 **Subject:** `Your refund from {{seller_name}} has been processed — Order {{order_id}}`
 
 ```
@@ -210,7 +204,7 @@ REFUNDED ITEMS
   │ {{item.unit_price_display}} {{buyer.preferred_currency}} each       │
   │ Line total: {{item.line_total_display}} {{buyer.preferred_currency}} │
   └─────────────────────────────────────────────────┘
-  (repeat per FulfillmentItem)
+  (repeat per item)
 
 Refund total: {{≈ if fx_applied}}{{fulfillment.grand_total_display}} {{buyer.preferred_currency}}
 
@@ -225,24 +219,23 @@ AliceUT
 
 **Variables**
 
-| Variable | Source |
+| Variable | Description |
 |---|---|
-| `order_id` | `Order.display_id` via `Fulfillment.order_id` FK (e.g. `ORD-3F2A1B9C`) |
-| `seller_name` | `Fulfillment.seller_name` snapshot |
-| `buyer.preferred_currency` | `User.preferred_currency` (ISO 4217) |
-| `refunded_at` | `Fulfillment.refunded_at` |
-| `item.product_title` / `item.quantity` | `FulfillmentItem` snapshots |
-| `item.unit_price_display` / `item.line_total_display` | consumer converts via `FulfillmentItem.fx_rate_used_at_capture` using `decimal.js` (strings) |
-| `fulfillment.grand_total_display` | consumer converts `Fulfillment.grand_total` to `buyer.preferred_currency` via snapshot FX rate (string) |
-| `fx_applied` | `true` if `Fulfillment.currency ≠ buyer.preferred_currency` |
+| `order_id` | Order identifier |
+| `seller_name` | Seller's display name |
+| `buyer.preferred_currency` | Buyer's preferred display currency |
+| `refunded_at` | When the refund was processed |
+| `item.product_title` / `item.quantity` | Product name and quantity |
+| `item.unit_price_display` / `item.line_total_display` | Refunded unit price and line total |
+| `fulfillment.grand_total_display` | Total refund amount |
+| `fx_applied` | True when total was converted from a different currency (shows `≈` prefix) |
 
 ---
 
 ## ET-05 — Order Completed (order.completed)
 
-**Trigger:** `order.completed` event (fires only when Order had ≥ 2 fulfillments)
-**Consumer:** `notification.order-completed`
-**To:** `buyer.email`
+**Trigger:** All fulfillments in an order are delivered (orders with ≥ 2 fulfillments only)  
+**To:** buyer  
 **Subject:** `Everything from order {{order_id}} has been delivered`
 
 ```
@@ -265,21 +258,9 @@ AliceUT
 
 **Variables**
 
-| Variable | Source |
+| Variable | Description |
 |---|---|
-| `order_id` | `Order.display_id` (e.g. `ORD-3F2A1B9C`) |
-| `placed_at` | `Order.created_at` |
-| `buyer.full_name` / `buyer.email` | `User` record |
-| `base_url` | config (env) |
-
----
-
-## Implementation Notes
-
-- **Template storage:** HTML body, plain-text body, and subject line for each template (ET-01 through ET-05) are stored as rows in a `email_template` config table (keyed by `template_key`, e.g. `checkout.summary`). Updating copy, layout, or subject requires only a DB update — no code deploy — provided no new variable placeholders are introduced. Adding a new variable requires a code change in the consumer to pass the new value into the render context.
-- Template rendering: server-side (NestJS consumer) loads the template from DB, merges render context using a templating library (e.g. Handlebars or Mustache). No client-side rendering.
-- All monetary amounts passed to templates as strings; template helpers must not cast to `number`.
-- `{{base_url}}` injected from environment config — not hardcoded.
-- HTML version: styled with inline CSS for email client compatibility; plain-text version required as fallback (multipart/alternative).
-- No unsubscribe link required in V1 (transactional emails only).
-- Review prompts, loyalty points, or upsell blocks are out of scope for V1.
+| `order_id` | Order identifier |
+| `placed_at` | When the order was placed |
+| `buyer.full_name` / `buyer.email` | Buyer's name and email address |
+| `base_url` | Website base URL |

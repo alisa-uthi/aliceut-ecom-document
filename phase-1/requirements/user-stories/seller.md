@@ -10,9 +10,7 @@ Priority: Must — trace: FR-S-01, NFR-09
 
 **Acceptance criteria**
 - Fields: legal business name, business type (LLC / sole prop / corp), tax ID (country regex), country, business address, phone, uploads (business license PDF, ID doc, proof of address).
-- Uploads stored in encrypted bucket (NFR-09); access-logged to Mongo `AuditLog`.
-- On submit → `SellerProfile` created with `status=PENDING_KYC`; user gets `role=SELLER_PENDING`.
-- Publish `seller.kyc.submitted` to Kafka.
+- On submit → application created with pending status; seller receives confirmation that application is under review.
 
 ---
 
@@ -21,7 +19,7 @@ Priority: Must — trace: FR-S-01, NFR-09
 Priority: Must — trace: FR-S-02
 
 **Acceptance criteria**
-- API endpoints for product create/edit reject with 403 if `sellerProfile.status != APPROVED`.
+- Seller cannot create or edit product listings while application is not approved.
 - Seller dashboard shows "Your application is under review" banner while pending.
 - On approval → banner replaced with "You're live — create your first listing" CTA.
 
@@ -33,10 +31,9 @@ Priority: Must — trace: FR-S-03, FR-P-01, FR-P-06a, FR-P-06b, FR-P-06c
 
 **Acceptance criteria**
 - Fields: title (10–200 chars), description (Markdown ≤ 5000 chars), category (from taxonomy tree), images (1–10, JPEG/PNG/WebP, ≤ 5MB each), variants (name + options), inventory per SKU.
-- Pricing sub-form: ≥ 1 `Price` row required. Currencies: USD, THB, JPY, SGD (FR-P-06a). Optional SALE and B2B_TIER rows.
-- Prohibited category guard: category ∈ {weapons, drugs, adult content} → block submit (FR-P-06c). Keyword blocklist scans title/description.
-- On success → `Product` + `Offer` + `Price` rows in same Postgres tx; `product.changed` + `offer.changed` outbox events published; ES indexer projects async (NFR-13 ≤ 5s p95).
-- All prices stored `NUMERIC(19,4)`; UI validates via `decimal.js` (FR-P-04a).
+- Pricing sub-form: at least one price required. Currencies: USD, THB, JPY, SGD (FR-P-06a). Optional SALE and B2B_TIER prices.
+- Prohibited category guard: weapons, drugs, adult content → block submit (FR-P-06c). Keyword blocklist scans title/description.
+- On success → product is live; search index updates within 5 seconds (NFR-13).
 
 ---
 
@@ -45,9 +42,9 @@ Priority: Must — trace: FR-S-03, FR-P-01, FR-P-06a, FR-P-06b, FR-P-06c
 Priority: Must — trace: FR-S-04
 
 **Acceptance criteria**
-- Edit/delete require `offer.seller_id === current_user.seller_id`; else 403.
-- Delete = soft delete (`status=INACTIVE`); preserves historical `FulfillmentItem` FKs.
-- Publishes `offer.changed` (INACTIVE) → search removes from index.
+- Sellers can only edit or delete their own listings; attempting to modify another seller's listing is rejected.
+- Delete = soft delete; listing becomes invisible to buyers but historical order data is preserved.
+- Removing a listing causes it to disappear from search results.
 
 ---
 
@@ -58,9 +55,7 @@ Priority: Must — trace: FR-S-05
 **Acceptance criteria**
 - Tabs: `Pending`, `Shipped`, `Delivered`, `Refunded`.
 - Row: order_id, buyer name masked (`J. Doe`), items, total in offer currency, placed_at, action button.
-- Read from Postgres projection populated by Kafka consumers of order events.
-- p95 load ≤ 2s for ≤ 500 orders.
-- Each row is one seller/currency fulfillment. Its status is the lifecycle state on `Fulfillment`, not on individual `FulfillmentItem`s.
+- Each row is one seller/currency fulfillment and shows its own lifecycle status.
 
 ---
 
@@ -69,12 +64,11 @@ Priority: Must — trace: FR-S-05
 Priority: Must — trace: FR-S-06
 
 **Acceptance criteria**
-- Action button is available only for a `PENDING` fulfillment owned by the current seller. On confirmation it transitions `Fulfillment.status` from `PENDING` to `SHIPPED`.
-- The tracking number was generated at order placement for buyer confirmation and is preserved on shipment; this transition must not create a second tracking number.
-- The status update and one `fulfillment.shipped` outbox event commit in the same transaction with the original `correlation_id`.
-- Repeating a completed shipment action on an already-`SHIPPED` fulfillment returns the existing result without publishing another event; all other source statuses are rejected.
+- Action button is available only for a `PENDING` fulfillment owned by the current seller. On confirmation it transitions the fulfillment status to `SHIPPED`.
+- The tracking number was generated at order placement and is preserved on shipment; this transition must not create a second tracking number.
+- Repeating a shipment action on an already-`SHIPPED` fulfillment returns the existing result without side effects; other source statuses are rejected.
 - Buyer sees updated status within 5s (NFR-13).
-- Email sent to buyer via consumer.
+- Email sent to buyer.
 
 ---
 
@@ -85,12 +79,12 @@ Priority: Must — trace: FR-S-07
 **Acceptance criteria**
 - Refund action is available for the seller-owned `PENDING`, `SHIPPED`, or `DELIVERED` fulfillment; requires reason (≤ 500 chars).
 - On confirm:
-  1. Transition `Fulfillment.status` to `REFUNDED` and create the fake-payment reversal record.
-  2. Publish one `fulfillment.refunded` outbox event → email consumer notifies buyer.
-  3. Restore stock only for a `PENDING` fulfillment, when goods have not shipped. Refunding a `SHIPPED` or `DELIVERED` fulfillment does not restore stock because a return workflow is out of scope.
-- Refund amount = snapshotted `unit_price × quantity` (FR-P-03).
+  1. Transition fulfillment status to `REFUNDED` and create the fake-payment reversal record.
+  2. Buyer is notified by email.
+  3. Stock restored only for a `PENDING` fulfillment (goods have not shipped). Refunding a `SHIPPED` or `DELIVERED` fulfillment does not restore stock.
+- Refund amount = snapshotted unit price × quantity (FR-P-03).
 - Partial refunds deferred; V1 = full item refund only.
-- Repeating a completed refund action on an already-`REFUNDED` fulfillment returns the existing result without a second reversal, stock movement, or event.
+- Repeating a refund action on an already-`REFUNDED` fulfillment returns the existing result without a second reversal or stock movement.
 
 ---
 
@@ -99,10 +93,10 @@ Priority: Must — trace: FR-S-07
 Priority: Must — trace: FR-S-08
 
 **Acceptance criteria**
-- Inventory page: table of variants × `on_hand`, `reserved`, `available = on_hand − reserved`.
-- Threshold configurable per SKU (default 5). Below threshold → `inventory.low_stock` event → email + in-app banner.
-- Manual adjust: `on_hand` editable inline with reason logged.
-- Bulk update via CSV (US-S-09) reuses same event pipeline.
+- Inventory page: table of variants × on_hand, reserved, available (on_hand − reserved).
+- Threshold configurable per SKU (default 5). Below threshold → email + in-app banner alert.
+- Manual adjust: on_hand editable inline with reason logged.
+- Bulk update via CSV (US-S-09) reuses same alert logic.
 
 ---
 
@@ -113,6 +107,6 @@ Priority: Should — trace: FR-S-09
 **Acceptance criteria**
 - CSV columns: `sku, on_hand, low_stock_threshold` (last optional).
 - Preview screen shows diff (before → after) with row-level errors highlighted.
-- On confirm → single Postgres tx; publishes one `inventory.changed` event per SKU.
+- On confirm → inventory updated; search visibility reflects updated stock.
 - File size cap 5MB, ≤ 10k rows.
 - Malformed CSV → validation report downloadable.

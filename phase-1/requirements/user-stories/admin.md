@@ -20,10 +20,10 @@ Priority: Must — trace: FR-A-02, NFR-09
 
 **Acceptance criteria**
 - Doc viewer supports PDF/image inline.
-- Every doc view logs `audit.event` with admin_id, doc_id, timestamp (NFR-09).
+- All document views are logged for audit purposes (NFR-09).
 - Actions: `Approve`, `Reject with reason` (mandatory ≤ 500 chars).
-- Approve → `SellerProfile.status=APPROVED`, role upgraded, publish `seller.kyc.decided` (`decision=APPROVED`).
-- Reject → same event with `decision=REJECTED`, `reason`; seller receives email + can resubmit.
+- Approve → seller account activated; seller can start listing products.
+- Reject → seller receives email with reason and can resubmit.
 
 ---
 
@@ -44,9 +44,9 @@ Priority: Must — trace: FR-A-04
 **Acceptance criteria**
 - Action: `Remove` on a flagged listing.
 - Mandatory reason (dropdown: prohibited category / IP violation / misleading / other + free text).
-- Sets `Offer.status=REMOVED`; `Product.status=REMOVED` if all offers removed.
-- Publishes `moderation.listing.removed` → seller email consumer + search deindex.
-- Auditable via `AuditLog` in Mongo.
+- Listing removed from catalog and search; product removed if all its offers are removed.
+- Seller notified by email with the reason.
+- Action is auditable.
 
 ---
 
@@ -56,6 +56,6 @@ Priority: Should — trace: FR-A-05
 
 **Acceptance criteria**
 - Action requires reason + duration (7 / 30 / 90 days / permanent).
-- Sets `SellerProfile.status=SUSPENDED`; all offers → `INACTIVE`.
+- All listings deactivated on suspension.
 - Seller cannot list new products or log into seller dashboard (buyer role still active if same account).
-- Publishes `seller.suspended` → search deindex, email, audit log.
+- Seller notified by email; all listings removed from search; action is auditable.
