@@ -52,6 +52,12 @@ Priority: Must — trace: FR-S-03, FR-P-01, FR-P-06a, FR-P-06b, FR-P-06c
 - Prohibited category guard: weapons, drugs, adult content → block submit (FR-P-06c). Keyword blocklist scans title and description on every save.
 - On success → product is live; search index updates within 5 seconds (NFR-13).
 - Zero-stock rule: when available quantity (on_hand − reserved) for all SKUs = 0, listing is hidden from search and catalog automatically. Listing reactivates when any SKU's available quantity rises above 0.
+- **Image upload error states:**
+  - Upload failure (network error or storage unavailable): per-image error badge "Upload failed — retry" with individual retry button.
+  - Unsupported format: inline error "Unsupported format — use JPEG, PNG, or WebP" without removing the file slot.
+  - Partial failure (some succeed, some fail): listing remains saveable with successfully uploaded images; failed images show error badges.
+  - Processing delay (thumbnail generation): loading placeholder per image; save CTA blocked until all queued uploads resolve.
+  - All images failed: save CTA remains disabled; summary error "At least 1 image is required."
 
 ---
 
@@ -61,7 +67,7 @@ Priority: Must — trace: FR-S-04
 
 **Acceptance criteria**
 - Sellers can only edit or delete their own listings; attempting to modify another seller's listing is rejected.
-- On every edit save, keyword/category guard re-runs. If triggered, listing is flagged and hidden from search pending admin review; seller notified by in-app alert.
+- On every edit save, keyword/category guard re-runs. If triggered, listing is flagged and hidden from search pending admin review; seller notified by in-app alert AND email (→ ET-08, dispatched via Kafka consumer per FR-P-11).
 - Editing price on an Offer with PENDING orders is allowed (FR-P-03 snapshot protects existing orders); seller sees a warning that price change does not affect in-flight orders.
 - Deleting a variant that has PENDING orders is blocked with an error message; all PENDING orders on that variant must be refunded or fulfilled first.
 - Delete = soft delete; listing becomes invisible to buyers but historical order data is preserved.
@@ -81,6 +87,7 @@ Priority: Must — trace: FR-P-01, FR-P-06a, FR-P-06b
 - B2B_TIER: `min_qty ≥ 2` enforced.
 - Price changes take effect immediately; existing PENDING order snapshots are unaffected (FR-P-03). Seller sees a warning on save.
 - All changes auditable.
+- At most one active LIST price per offer per currency may exist at any time. Attempting to create a second LIST price in the same currency as an existing active LIST price is rejected with: "A LIST price in [currency] already exists for this offer. Edit or delete it before creating a new one."
 
 ---
 
@@ -95,6 +102,7 @@ Priority: Must — trace: FR-S-05, FR-B-10
 - List filterable by date range; searchable by order_id.
 - Orders for removed or admin-flagged listings still appear in the relevant tab with a "Listing removed" badge so the seller retains fulfillment visibility.
 - Seller notified by email when a new order is created for them (→ ET-17).
+- **Empty state:** if no orders exist in the selected tab, show tab-specific guidance: Pending tab → "No pending orders — new orders appear here"; other tabs → "No orders in this status."
 
 ---
 
@@ -128,11 +136,11 @@ Priority: Must — trace: FR-S-06
 Priority: Must — trace: FR-S-07
 
 **Acceptance criteria**
-- Refund action is available for the seller-owned `PENDING`, `SHIPPED`, or `DELIVERED` fulfillment; requires reason (≤ 500 chars).
+- Refund action is available for the seller-owned `PENDING` or `SHIPPED` fulfillment; requires reason (≤ 500 chars). `DELIVERED → REFUNDED` (post-delivery returns) is out of scope for V1 per BRD §3.2.
 - On confirm:
   1. Transition fulfillment status to `REFUNDED` and create the fake-payment reversal record.
   2. Buyer is notified by email (→ ET-04).
-  3. Stock restored only for a `PENDING` fulfillment (goods have not shipped). Refunding a `SHIPPED` or `DELIVERED` fulfillment does not restore stock.
+  3. Stock restored only for a `PENDING` fulfillment (goods have not shipped). Refunding a `SHIPPED` fulfillment does not restore stock.
 - Refund amount = snapshotted unit price × quantity (FR-P-03).
 - Partial refunds deferred; V1 = full item refund only.
 - Repeating a refund action on an already-`REFUNDED` fulfillment returns the existing result without a second reversal or stock movement.
@@ -163,6 +171,8 @@ Priority: Should — trace: FR-S-09
 - On confirm → inventory updated; search visibility reflects updated stock (including zero-stock deactivation).
 - File size cap 5MB, ≤ 10k rows.
 - Malformed CSV → validation report downloadable.
+- Rows referencing SKU IDs not owned by the authenticated seller are flagged as errors "SKU not found or not yours" in the preview diff and are excluded from the confirmed update — they are not processed regardless of explicit confirmation.
+- Rows referencing deleted or inactive variants are flagged as warnings in the preview diff and are excluded from the confirmed update.
 
 ---
 
@@ -171,7 +181,7 @@ Priority: Should — trace: FR-S-09
 Priority: Must — trace: FR-A-03, FR-A-04, FR-S-04
 
 **Acceptance criteria**
-- Listings page shows all listings with a status badge: ACTIVE, FLAGGED, REMOVED, DRAFT.
+- Listings page shows all listings with a status badge: ACTIVE, FLAGGED, REMOVED. (DRAFT status and a save-as-draft/publish workflow are deferred to a future phase; all created listings go live immediately on successful submit per US-S-03.)
 - FLAGGED listings show flag reason (auto: keyword/category; or admin-flagged) and "Under admin review" label.
 - REMOVED listings show admin removal reason, removal date, and admin actor (name or role). Seller cannot reactivate a removed listing; they may create a new compliant one.
 - Seller receives email notification when a listing is flagged (→ ET-08, one email per flagged listing) or removed (→ ET-09, daily digest — one email per day aggregating all removals that day) (via Kafka consumer, FR-P-11).

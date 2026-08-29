@@ -13,18 +13,26 @@ Priority: Must — trace: FR-P-01, FR-P-06a
 - Supported currencies in V1: USD, THB, JPY, SGD.
 - No two active prices for the same offer, currency, and price type may overlap in time.
 - All active prices for an offer are returned by the API; frontend shows the buyer's preferred currency.
+- At most one active LIST price per offer per currency may exist at any time. Attempting to create a second LIST price in the same currency as an existing active LIST price is rejected (see US-S-04b).
+- **Price type resolution priority** (when multiple types are simultaneously applicable for the same offer, currency, and buyer context):
+  1. `B2B_TIER` — if buyer account type is B2B and selected quantity ≥ `min_qty`.
+  2. `SALE` — if current time is within `starts_at`/`ends_at`.
+  3. `LIST` — default fallback.
+  Only the highest-priority applicable type is used; lower-priority types are ignored. This ensures B2B buyers always receive their contracted tier rate even during active sales.
 
 ---
 
 ## US-P-02 — FX display conversion
 **As a** buyer, **I want** foreign-currency prices converted to my preferred currency as an estimate, **so that** I can compare.
-Priority: Should — trace: FR-P-02
+Priority: Should — trace: FR-P-02, BRD §12 Decision 5
 
 **Acceptance criteria**
 - If no price exists in buyer's preferred currency → convert cheapest available via cached FX rate, display with `≈` prefix and tooltip "Estimated in <ccy>, actual charge in <original>".
-- FX rates refreshed periodically.
+- FX rates refreshed by a background scheduler (US-P-19) on a configurable cron interval (default every 60 minutes) via `exchangerate.host` public API for all four V1 currencies (USD, THB, JPY, SGD).
+- Each rate row stores the rate value and a `fetched_at` timestamp. "Recent" is defined as: `fetched_at >= now() - staleness_threshold` where `staleness_threshold` is configurable via env var (default 4 hours).
+- FX unavailable at display time → show last known rate if within staleness threshold; otherwise hide the conversion entirely and show only the offer-currency price.
 - Display-only; checkout captures the original-currency price (FR-P-03).
-- FX unavailable → show last known rate if recent; otherwise hide the conversion entirely.
+- The `display_prices` map in the Elasticsearch index is updated by a Kafka consumer whenever a price-write event or FX-rate-updated event arrives (US-P-11, US-P-19).
 
 ---
 
@@ -33,9 +41,11 @@ Priority: Should — trace: FR-P-02
 Priority: Must — trace: FR-P-03
 
 **Acceptance criteria**
-- Each order line item stores a snapshot of unit price, currency, tax, FX rate used, and quantity at checkout.
-- Order history totals are computed from these snapshots only — never from live pricing.
-- Regression test: mutating a price after order placement must not change the order total.
+- Each order line item stores a snapshot of: unit price in offer currency, offer currency code, unit price in buyer's preferred currency (computed from offer price × FX rate captured at checkout), buyer currency code, FX rate used at capture, tax, and quantity.
+- Both offer-currency and buyer-currency amounts are derived from the captured FX rate — never from a live rate after order creation.
+- Order history totals are computed from these snapshots only — never from live pricing or current FX rates.
+- Regression test: mutating a price or FX rate after order placement must not change the order total in either currency.
+- **Grand total computation:** The order's grand total in buyer's preferred currency is computed as the sum of `(fulfillment_offer_currency_total × fulfillment_fx_rate_captured_at_checkout)` for each placed fulfillment. Where offer currency equals buyer preferred currency, `fx_rate = 1.000000`. This computation is performed at checkout and stored as `order.buyer_currency_grand_total` snapshot. It is never recomputed from live data after order creation.
 
 ---
 
@@ -72,6 +82,7 @@ Priority: Must — trace: FR-P-06, NFR-03
 - Each product has ≥ 1 offer from a seeded seller with ≥ 1 price (mix of USD, THB, JPY, SGD).
 - Random subset: 10% SALE prices, 5% B2B_TIER prices.
 - Seed command is idempotent (rerun does not duplicate).
+- Seeded sellers: at minimum 3 seeded seller accounts are created. Each seeded seller has `KYC_STATUS = APPROVED` and `ACCOUNT_STATUS = ACTIVE` as set directly by the seed script (bypassing the KYC application queue — seeded sellers are pre-approved for demo purposes). One seeded seller corresponds to the "seller" demo account in BRD §11 (`seller@aliceut.dev`). The KYC onboarding flow (US-S-01) applies only to non-seeded sellers who register post-seed.
 
 ---
 
@@ -128,6 +139,8 @@ Priority: Must — trace: FR-P-10, NFR-13
 - Product, offer, and inventory write APIs return without waiting for the search index to update.
 - Search index reflects changes within 5 seconds of the write (p95, NFR-13).
 - Search service down → writes queue and retry; bad messages are isolated and don't stall processing.
+- Search query path: if Elasticsearch is unavailable at query time, the API returns HTTP 503 with a structured error body; never an unhandled 500. The upstream handler surfaces a user-facing "Search temporarily unavailable" message (US-B-02).
+- A `listing.soft_deleted` event published via the transactional outbox (US-P-10) triggers the search consumer to remove the corresponding product document from the Elasticsearch index. Document removal is idempotent: attempting to remove a document that does not exist produces no error. `listing.soft_deleted` is added to the event catalogue alongside other named domain events.
 
 ---
 
@@ -162,3 +175,85 @@ Priority: Should — trace: FR-P-13, NFR-15
 - Unhandled consumer exceptions route the original message to a per-consumer dead-letter queue and commit the offset (no stall).
 - Dead-letter queue non-empty → alert raised.
 - Manual reprocessing from dead-letter queue is documented.
+
+---
+
+## US-P-15 — Mock delivery scheduler
+**As** the platform, **I want** a background process to automatically transition `SHIPPED` fulfillments to `DELIVERED` when their ETA is reached, **so that** the order lifecycle completes without manual action.
+Priority: Must — trace: FR-B-10, FR-S-05
+
+**Acceptance criteria**
+- A scheduled job polls for `SHIPPED` fulfillments where `eta <= now()`.
+- On each match: transition fulfillment to `DELIVERED`; publish `fulfillment.delivered` event via the transactional outbox (US-P-10).
+- Downstream consumer sends ET-03 to buyer; if all fulfillments in the order are now `DELIVERED`, sends ET-05 (for orders with ≥ 2 fulfillments only).
+- ETA is set at order placement (mock): `placed_at + mock_delivery_days`. `mock_delivery_days` is seeded configuration (e.g. 5 days); it is not a real carrier estimate.
+- Tick interval configurable via env var (default: `60s`).
+- Job is idempotent: re-running against already-`DELIVERED` fulfillments produces no side effects.
+- Job failure does not affect API availability; unprocessed fulfillments are retried on the next tick.
+
+---
+
+## US-P-16 — Auto-refund monitor for suspended-seller orders
+**As** the platform, **I want** to automatically refund buyers when a suspended seller's orders pass the fulfillment window unshipped, **so that** buyers are not stuck waiting on inactive sellers.
+Priority: Should — trace: FR-A-05
+
+**Acceptance criteria**
+- A scheduled job polls for `PENDING` fulfillments where the owning seller is currently `SUSPENDED` and `placed_at + fulfillment_window_days < now()`.
+- `fulfillment_window_days` is seeded configuration (e.g. 7 days); this is the expected ship-by window for mock orders.
+- On each match:
+  1. Transition fulfillment to `REFUNDED`; create fake-payment reversal record.
+  2. Restore stock (goods never shipped).
+  3. Publish `fulfillment.refund_suspended_seller` event via the transactional outbox.
+  4. Downstream consumers send ET-13 (buyer) and ET-13b (seller).
+- Tick interval configurable via env var (default: `3600s`).
+- Job is idempotent: re-running against already-`REFUNDED` fulfillments produces no side effects.
+- Job failure does not affect API availability; unprocessed fulfillments are retried on the next tick.
+- **SHIPPED fulfillments during suspension:** `SHIPPED` fulfillments from a suspended seller are not subject to auto-refund. Goods already in transit proceed normally through the mock delivery scheduler (US-P-15) until `DELIVERED`. Only `PENDING` fulfillments past the fulfillment window are auto-refunded by this job. Explicitly: seller suspension does not interrupt in-transit fulfillments.
+
+---
+
+## US-P-17 — Inventory reservation expiry scheduler
+**As** the platform, **I want** expired inventory reservations from abandoned checkouts to be released automatically, **so that** low-stock SKUs do not become permanently unsellable due to abandoned sessions.
+Priority: Must — trace: FR-P-03, FR-B-09
+
+**Acceptance criteria**
+- A scheduled job polls for inventory reservations where `reserved_at + reservation_ttl_minutes < now()` and no `PENDING` fulfillment exists referencing that reservation.
+- `reservation_ttl_minutes` is configurable via env var (default `15`, matching the 15-minute TTL in US-B-09 step 4a).
+- On each match: release the reserved quantity back to available stock; publish `inventory.reservation_expired` event via the transactional outbox (US-P-10).
+- The job is idempotent: re-running against an already-released reservation produces no side effects.
+- Tick interval configurable via env var (default `60s`).
+- Job failure does not affect API availability; unprocessed reservations are retried on the next tick.
+
+---
+
+## US-P-18 — Suspension expiry scheduler
+**As** the platform, **I want** timed seller suspensions to auto-lift at their expiry time, **so that** sellers are not permanently blocked by a time-limited suspension.
+Priority: Should — trace: FR-A-05
+
+**Acceptance criteria**
+- A scheduled job polls for seller accounts where `suspension_status = SUSPENDED` and `suspended_until <= now()` (timed suspensions only; permanent suspensions have no `suspended_until` and are excluded).
+- On each match:
+  1. Set seller `suspension_status = ACTIVE`; clear `suspended_until`.
+  2. Reactivate all listings whose status was changed to INACTIVE by the suspension action (tracked with `status_changed_reason = 'SUSPENSION'`). Listings in REMOVED status from admin moderation (US-A-04) are not reactivated.
+  3. Publish `seller.suspension_expired` event via the transactional outbox (US-P-10).
+  4. Downstream Kafka consumer sends ET-11 to the seller.
+- The job is idempotent: re-running against an already-active seller produces no side effects.
+- Tick interval configurable via env var (default `3600s`).
+- Job failure does not affect API availability; unprocessed expirations are retried on the next tick.
+
+---
+
+## US-P-19 — FX rate refresh scheduler
+**As** the platform, **I want** FX rates to be refreshed on a schedule from a public API, **so that** display currency conversions and the Elasticsearch price index stay reasonably current.
+Priority: Should — trace: FR-P-02, BRD §12 Decision 5
+
+**Acceptance criteria**
+- A scheduled job fetches exchange rates for all V1 currencies (USD, THB, JPY, SGD) from `exchangerate.host` (or compatible public API configured via env var).
+- Cron interval configurable via env var (default: every 60 minutes).
+- On each successful fetch: persist all four rates with `fetched_at = now()` to the `FxRate` table; publish `fx_rate.updated` event via the transactional outbox (US-P-10).
+- Downstream Kafka consumer processes `fx_rate.updated` and refreshes the `display_prices` map in the Elasticsearch index for all affected offers (US-P-11).
+- On API fetch failure: retain the last known rates (do not clear or zero out rates on failure); log the error and raise an alert if the staleness threshold is exceeded (configurable via env var, default 4 hours).
+- The job is idempotent: re-running does not produce duplicate rate rows; only the latest rate per currency pair is active.
+- Job failure does not affect API availability.
+
+---

@@ -6,6 +6,41 @@ Maps to BRD FR-B-* functional requirements. See [README](README.md) for format l
 
 ---
 
+## US-B-00 — Login and session management
+**As a** registered user, **I want** to sign in with my credentials or OAuth, **so that** I can access my cart, orders, and seller/admin dashboard.
+Priority: Must — trace: FR-B-01, NFR-05, NFR-06
+
+**Acceptance criteria**
+- Given I submit a valid email and password on the login page
+  Then I am signed in and redirected to the page I was trying to reach (or home).
+- Given I submit an incorrect password
+  Then I see: "Incorrect email or password." (no indication of which field is wrong).
+- Given I submit an email that has no account
+  Then I see: "Incorrect email or password." (no email enumeration).
+- Given my account's email is not yet verified
+  When I attempt to log in
+  Then I am shown the verification-pending prompt with a one-click resend action; I cannot proceed until verified.
+- Given I click "Continue with Google"
+  When Google returns a verified email matching an existing account
+  Then I am signed in.
+- Given I click "Continue with Facebook"
+  When Facebook returns a verified email matching an existing account
+  Then I am signed in.
+- JWT access token expires after a short TTL (configurable via env var, default 15 min); the client silently refreshes using the refresh token without requiring re-login.
+- Refresh token rotation: each use of a refresh token issues a new refresh token and invalidates the prior one. Token family detection: reuse of an invalidated refresh token invalidates the entire family (all sessions for that account).
+- Single-device logout: invalidates the current session's refresh token only.
+- All-sessions logout (accessible from Account → Security): invalidates all refresh tokens for the account.
+- Role-based routing on login success:
+  - `BUYER` / `BUSINESS_BUYER` → buyer home.
+  - `SELLER` (approved) → seller dashboard (US-S-00).
+  - `ADMIN` → admin dashboard (US-A-00).
+  - A single account may hold both BUYER and SELLER roles; the last-used dashboard is remembered.
+- Admin role is set at account creation via seed script; it is not self-assignable.
+
+**Notes:** OAuth registrations and logins share the same session mechanism as email/password accounts. JWT payload includes `sub` (user ID), `roles`, and `email_verified`.
+
+---
+
 ## US-B-01 — Register account
 **As a** visitor, **I want** to register with email/password or Google/Facebook OAuth, **so that** I can save my cart, orders, and addresses across sessions.
 Priority: Must — trace: FR-B-01, NFR-05, NFR-06
@@ -22,6 +57,10 @@ Priority: Must — trace: FR-B-01, NFR-05, NFR-06
 - On email/password register: system sends a verification email immediately after account creation. Account may browse catalog and maintain a cart but **cannot place orders** until email is verified. Verification link TTL 24 h; single-use; resend available from login prompt and account settings (rate-limited: 3 resends per hour per email).
 - Given I open an expired or already-used verification link
   Then I see "This link has expired — request a new one" with a one-click resend action.
+- Given I click "Continue with Facebook"
+  When Facebook returns a verified email
+  Then account is created (or linked if email exists) and I am logged in. OAuth accounts are considered pre-verified.
+- Given I have requested 3 verification email resends within one hour, when I request another, then I see: "Resend limit reached. You can request another verification email after [time remaining]." The response does not confirm whether the email is registered.
 - OAuth registrations are considered pre-verified (provider already verified the email); no additional step required.
 
 **Notes:** B2B account type chosen at register time via checkbox "This is a business account" (branding differ, same UX per FR-P-06d).
@@ -38,6 +77,8 @@ Priority: Must — trace: FR-B-02, NFR-02
   Then results include the product (fuzzy match on title + description).
 - Empty query → shows featured / recent products.
 - Zero results → shows "No matches for '<query>'" + suggested categories.
+- If Elasticsearch is unavailable: API returns HTTP 503; buyer sees "Search is temporarily unavailable — try again shortly." Empty-query / featured-products page falls back to a curated static list served from Postgres.
+- Search errors are never surfaced as unhandled exceptions or raw 500 responses.
 
 ---
 
@@ -52,6 +93,7 @@ Priority: Must — trace: FR-B-03
 - Rating is an imported product attribute in V1 and supports a minimum-rating filter; creating or submitting reviews remains out of scope.
 - **UI layout:** left-side sidebar (min-width 240px) with collapsible filter groups: Category (multi-select checkbox tree), Price range (slider with input boxes or configured price bands), Rating (minimum stars), and In-stock (toggle). Mobile: sticky bottom sheet or drawer. Clear all / Apply buttons at bottom.
 - Selected filters show as chips in results header with individual close (×) buttons.
+- **Price filter implementation:** The price range filter is applied against the buyer's preferred-currency display price as pre-indexed in Elasticsearch. The search index maintains a `display_prices` map keyed by ISO currency code, updated whenever a price or FX rate changes (via Kafka consumers consuming price-write and FX-rate events). Filter bounds are applied against this pre-converted value at query time; filter results may lag FX rate changes by up to the search index freshness window (NFR-13).
 
 **Notes:** The mock also depicts Brand Partner and Shipping Speed facets. They are design candidates only: add them to V1 only with a BRD change that defines their data and behaviour. The mock's rating displays do not imply review authoring. Rating stars are imported product attributes from the catalog seed data — the UI displays a tooltip on the star widget: "Based on third-party data — reviews not available in V1."
 
@@ -84,6 +126,7 @@ Priority: Must — trace: FR-B-05, FR-P-01, FR-P-05
 - If multiple sellers offer same product → "Other sellers" section listing offers sorted by lowest price in buyer currency (FR-P-05).
 - Effective price resolved by: account type (B2C uses LIST or SALE; B2B_TIER only if qty ≥ min_qty) × current time × selected qty.
 - If price in buyer currency missing: show cheapest available price converted via FX with "≈" prefix and tooltip "Estimated in <currency>".
+- Product description is rendered as formatted HTML from the Markdown source (bold, italic, ordered/unordered lists, headings, safe links). Rendering uses a sanitised parser (e.g. `marked` + `DOMPurify`) that strips disallowed HTML tags; raw Markdown characters are never displayed to buyers. US-P-09 DTO validation enforces the 5000-character input limit at write time.
 - **UI layout:** show category breadcrumbs, a thumbnail gallery with a primary image, seller name, price/list-price treatment, availability/fulfilment message, quantity control, and the add-to-cart CTA. Specifications may be shown in a product-details tab.
 - Customer-review content or a review tab is excluded from V1 unless separately approved.
 
@@ -113,7 +156,7 @@ Priority: Must — trace: FR-B-07
 
 **Acceptance criteria**
 - Login on a new device → cart hydrates from server.
-- If a guest cart exists at login → merge: sum quantities per offer, cap at available inventory. Show toast: "N item(s) from your guest session were added to your cart." If any quantities were capped, append: "Some quantities adjusted to match available stock."
+- If a guest cart exists at login → merge: sum quantities per offer, cap at available inventory **checked live at merge time** (not at the time the guest originally added the item). Show toast: "N item(s) from your guest session were added to your cart." If any quantities were capped, append: "Some quantities adjusted to match available stock."
 - On offer becoming inactive (seller delisted) → item marked stale in cart with "Unavailable — remove" action.
 
 ---
@@ -154,6 +197,7 @@ Priority: Must — trace: FR-B-09, FR-P-03, FR-P-04, NFR-14
      - `PARTIALLY_PLACED` — ≥ 1 group failed; failed cart items remain in cart.
   6. Return order response including fulfillments, skipped items, and failed groups.
 - Submitting the same checkout twice (same idempotency key) returns the original order without creating a new one.
+- **Price revalidation at submit:** Immediately before creating the order, the system re-resolves the effective price for each valid line item. If any price differs from the price shown on the checkout summary page (configurable tolerance, e.g. ±0.01 in offer currency), the submission is halted and the buyer is presented with a "Price updated" notification listing the changed items and their new prices. The buyer must confirm before re-submitting. The order is not created until the buyer confirms the updated prices.
 
 **Order lifecycle**
 
@@ -167,10 +211,15 @@ The first persisted Fulfillment state is `PENDING`; a cart is not an order state
 | All `SHIPPED` | `SHIPPED` |
 | All `DELIVERED` | `COMPLETED` |
 | All `REFUNDED` | `REFUNDED` |
+| All `CANCELLED` | `CANCELLED` |
+| All `REFUNDED` or `CANCELLED` (mix) | `REFUNDED` |
 | Any `REFUNDED` + any `PENDING` or `SHIPPED` | `IN_PROGRESS` |
+| Any `CANCELLED` + any `PENDING` or `SHIPPED` | `IN_PROGRESS` |
 | `DELIVERED` + `REFUNDED` only | `PARTIALLY_REFUNDED` |
-| Any `DELIVERED` + `PENDING`/`SHIPPED`, no `REFUNDED` | `PARTIALLY_DELIVERED` |
-| `PENDING` + `SHIPPED`, no `DELIVERED`, no `REFUNDED` | `PARTIALLY_SHIPPED` |
+| `DELIVERED` + `CANCELLED` only (no `REFUNDED`) | `PARTIALLY_DELIVERED` |
+| `DELIVERED` + `REFUNDED` + `CANCELLED` | `PARTIALLY_REFUNDED` |
+| Any `DELIVERED` + `PENDING`/`SHIPPED`, no `REFUNDED`, no `CANCELLED` | `PARTIALLY_DELIVERED` |
+| `PENDING` + `SHIPPED`, no `DELIVERED`, no `REFUNDED`, no `CANCELLED` | `PARTIALLY_SHIPPED` |
 | Any other combination | `IN_PROGRESS` |
 
 **Placement outcome**
@@ -187,13 +236,17 @@ The first persisted Fulfillment state is `PENDING`; a cart is not an order state
 | — | Inventory reservation succeeds for a seller group | `PENDING` |
 | — | Inventory reservation fails or TTL expires | (no fulfillment created) |
 | `PENDING` | Seller marks shipment | `SHIPPED` |
-| `SHIPPED` | Mock-delivery scheduler reaches ETA | `DELIVERED` |
+| `SHIPPED` | Mock-delivery scheduler reaches ETA (US-P-15) | `DELIVERED` |
 | `PENDING` | Seller issues full refund | `REFUNDED` |
 | `SHIPPED` | Seller issues full refund | `REFUNDED` |
+| `PENDING` | Seller cancels unfulfillable order (US-S-11) | `CANCELLED` |
+| `PENDING` | Auto-refund monitor: seller suspended + window expired (US-P-16) | `REFUNDED` |
 
-`DELIVERED` and `REFUNDED` are terminal. `DELIVERED → REFUNDED` (post-delivery returns), buyer cancellation, partial refunds, and manual delivery confirmation are out of scope for V1.
+`DELIVERED`, `REFUNDED`, and `CANCELLED` are terminal. `DELIVERED → REFUNDED` (post-delivery returns), buyer cancellation, partial refunds, and manual delivery confirmation are out of scope for V1.
 
 **Note — guest checkout:** Checkout requires an authenticated account. Guest users must register or log in before placing an order. Guest cart survives and merges on login per US-B-07 and US-B-08. Guest checkout is deferred to a future phase.
+
+**Guest checkout interception:** Given a guest navigates to `/checkout` with items in cart, the platform redirects to `/login?next=/checkout` with the prompt "Sign in to complete your purchase." After successful login or registration, the guest cart merges per US-B-07 and the buyer is forwarded to `/checkout`. If the merged cart has no purchasable items after merge, the buyer sees the empty-cart state.
 
 ---
 
@@ -217,6 +270,7 @@ Priority: Must — trace: FR-B-11
 
 **Acceptance criteria**
 - `/orders` lists past orders paginated, newest first. Each row shows: Order ID (Order ORD-<uuid8>), `placed_at`, fulfillment currency totals, Order status badge, partial-placement warning (if `PARTIALLY_PLACED`), and sub-line "N of M fulfillments shipped" for count context.
+- **Empty state:** if buyer has placed no orders, show "No orders yet — browse the catalog to get started" with a Browse CTA.
 - **Order status badge** (derived from placed Fulfillments only; always shown) — see table in US-B-09.
 - **Placement outcome warning** (permanent, set at checkout):
   - `FULLY_PLACED` → no badge.
@@ -256,15 +310,14 @@ Priority: Must — trace: FR-B-10, FR-B-11
 Priority: Must — trace: FR-B-01, NFR-05
 
 **Acceptance criteria**
-- Given I click "Forgot password?" on the login page and submit an email address
-  Then I see: "If an account with that email exists, we sent a reset link." Response is identical whether the email is registered or not (no email enumeration).
-- Reset email contains a single-use link with 60-minute TTL.
-- Given I open a valid reset link
-  When I submit a new password meeting requirements (≥ 8 chars, ≥ 1 letter, ≥ 1 number)
-  Then password is updated, all other active sessions are signed out, and I am redirected to login with a success message.
-- Given I open an expired or already-used reset link
-  Then I see: "This link has expired or was already used. Request a new one."
-- OAuth-only accounts (no local password set) land on a "Set password" variant of the same flow; on completion the account gains local auth alongside OAuth.
+- **Stage 1 — email submission (enumeration-safe):** Given I click "Forgot password?" on the login page and submit any email address, Then I see: "If an account with that email exists, we sent a reset link." The response is identical whether the email is registered, unregistered, or OAuth-only — no email enumeration at this stage.
+- Reset email (ET-19) contains a single-use link with 60-minute TTL. ET-19 is only dispatched when a matching account is found; the generic response is shown regardless.
+- **Stage 2 — link destination (determined by token, not email submission):** The reset link contains a signed token that encodes whether the account has a local password. On click:
+  - Local-auth accounts → standard "Enter new password" form.
+  - OAuth-only accounts (no local password set) → "Set password" variant form; on completion the account gains local auth alongside existing OAuth login.
+- Given I open a valid reset link, When I submit a new password meeting requirements (≥ 8 chars, ≥ 1 letter, ≥ 1 number), Then password is updated, all other active sessions are signed out, and I am redirected to login with a success message "Password updated — please sign in."
+- Given I open an expired or already-used reset link, Then I see: "This link has expired or was already used. Request a new one."
+- On successful password reset or change (US-B-15), an email notification is sent to the account holder (→ ET-20) confirming the change. This fires even if the reset was initiated by the legitimate owner, as a security alert for unauthorized changes.
 
 ---
 
@@ -292,5 +345,6 @@ Priority: Should — trace: FR-B-01
 - Buyer can change password: must provide current password + new password meeting requirements. On success, all other active sessions are signed out.
 - OAuth-only accounts (no local password) see "Set password" instead of "Change password." Setting a password links local auth without disrupting OAuth login.
 - B2B accounts: business name field is editable (max 120 chars); updated value appears on invoice header and "Business" tag in page header.
+- Buyer can set preferred display currency: USD, THB, JPY, SGD, or Auto (default). "Auto" resolves to the currency matching the browser's `Accept-Language` locale at render time; if the resolved currency is not in the supported set, falls back to USD. The setting drives all price display, FX estimates (US-P-02), and the aggregate total in order emails (ET-01). Preference stored server-side; survives logout.
 - Email address is read-only on the profile page (tied to auth identity). Email change is deferred (requires re-verification flow, out of V1 scope).
-- Profile accessible from Account → Profile. Page displays: display name, email (read-only with "Email change — coming soon" label), account type badge (Consumer / Business), and member since date.
+- Profile accessible from Account → Profile. Page displays: display name, email (read-only with "Email change — coming soon" label), preferred display currency selector, account type badge (Consumer / Business), and member since date.

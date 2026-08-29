@@ -15,6 +15,22 @@ Priority: Must — trace: FR-A-01, FR-A-03, FR-A-05
 
 ---
 
+## US-A-00b — Admin account and access control
+**As** the platform, **I want** admin accounts to be provisioned via seed script and all admin endpoints to be protected by a role guard, **so that** only authorised admin users can access admin functionality.
+Priority: Must — trace: FR-A-01, NFR-05, NFR-07
+
+**Acceptance criteria**
+- Admin account is created via the docker-compose seed script with `role: ADMIN` and `KYC_STATUS: N/A` (admin accounts bypass the seller KYC flow entirely). Email and password are set via env vars (not hardcoded).
+- On login, the JWT issued for an admin account includes `roles: ["ADMIN"]` in the payload alongside `sub` and `email_verified`.
+- All NestJS controllers under the `/admin/*` route prefix carry a `@Roles('ADMIN')` guard. Requests without a valid JWT carrying the ADMIN role receive HTTP 403 (not 401, to avoid leaking the existence of admin-only routes to authenticated non-admin users).
+- Buyer and seller routes do not require ADMIN role; the ADMIN role does not grant access to seller-only endpoints unless the admin account also holds a SELLER role (not the case for seeded admin accounts).
+- The admin demo account is one of the four pre-seeded demo accounts described in BRD §11: `admin@aliceut.dev` / `Admin1234!` (credentials from env vars in docker-compose).
+- Admin login uses the same login form as buyers; on success the role-based routing in US-B-00 redirects to the admin dashboard.
+
+**Notes:** There is no self-service admin registration path. New admin accounts must be added via seed script or a one-time database migration. Admin notifications (e.g., for new KYC submissions) are not implemented in V1; admin proactively checks the dashboard. Deferred admin notification (ET-21 new-submission alert) is a V2 item.
+
+---
+
 ## US-A-01 — Pending seller applications queue
 **As an** admin, **I want** to see pending KYC applications sorted by submission time, **so that** I can process oldest first.
 Priority: Must — trace: FR-A-01
@@ -23,6 +39,8 @@ Priority: Must — trace: FR-A-01
 - List paginated, filterable by country, sortable by `submitted_at`.
 - Row: business name, country, submitted_at, days pending (SLA badge red if > 3 days).
 - Resubmissions show a "Resubmit" badge; hovering/expanding reveals the previous rejection reason and date.
+- **Empty state:** if no pending applications, show "No pending applications — all caught up."
+- **V1 limitation:** Admin is not notified by email or push when a new KYC application is submitted. Admin relies on proactively checking the dashboard. The SLA badge (red if > 3 days) and the dashboard count (US-A-00) are the primary awareness mechanisms. Admin email notification for new KYC submissions is deferred to V2.
 
 ---
 
@@ -46,6 +64,7 @@ Priority: Must — trace: FR-A-03, FR-P-06c
 **Acceptance criteria**
 - V1 flag sources: keyword blocklist hit or prohibited category attempt during listing (auto-flag). Buyer report deferred to V2.
 - List sorted by `flagged_at desc`; shows product title, seller, flag reason, snippet.
+- **Empty state:** if no flagged listings pending review, show "No flagged listings — catalog is clean."
 
 ---
 
@@ -82,7 +101,7 @@ Priority: Should — trace: FR-A-05
 **Acceptance criteria**
 - Action requires reason + duration (7 / 30 / 90 days / permanent). Permanent requires explicit confirmation dialog.
 - All listings deactivated on suspension.
-- Seller cannot list new products or log into seller dashboard (buyer role still active if same account).
+- Seller cannot list new products or access the full seller dashboard (buyer role still active if same account). **Exception — limited fulfillment access:** A suspended seller retains read-only access to the Pending Orders tab (US-S-05) and the Order Detail view (US-S-05b) solely to mark shipment on orders that were placed before the suspension. The seller cannot create listings, access financial summaries, or navigate to any other seller dashboard section while suspended. This limited access is logged for audit.
 - Seller notified by email (→ ET-10); all listings removed from search; action is auditable.
 - Pending unshipped orders at suspension time remain active; seller retains obligation to fulfill them. If seller remains suspended and an order is not shipped within its expected window, buyer is notified and a refund is issued. (→ ET-13)
 - Suspension expiry: timed suspensions (7/30/90 days) auto-lift at `suspended_until`; listings are reactivated automatically and seller is notified by email (→ ET-11).
@@ -96,7 +115,7 @@ Priority: Should — trace: FR-A-05
 **Acceptance criteria**
 - Suspended sellers list accessible from admin dashboard (US-A-00) and seller search (US-A-06).
 - Action: `Lift suspension` with mandatory reason (≤ 500 chars).
-- Seller account reactivated; all previously active listings restored to catalog and search.
+- Seller account reactivated. Only listings whose status was changed to INACTIVE by the suspension action (tracked with `status_changed_reason = 'SUSPENSION'`) are reactivated and restored to catalog and search. Listings in REMOVED status from independent admin moderation actions (US-A-04) are not restored and remain REMOVED — suspension reinstatement does not override prior admin content decisions.
 - Seller notified by email with reinstatement reason. (→ ET-12)
 - Action is auditable (supersedes prior suspension record, not replaces it).
 

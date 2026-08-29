@@ -1,6 +1,133 @@
 # Email Templates — Phase 1
 
-Notification emails triggered by order and fulfillment lifecycle events (see US-B-12). All amounts shown with explicit currency.
+Notification emails triggered by auth, order, and fulfillment lifecycle events (see US-B-12). All amounts shown with explicit currency.
+
+Templates are grouped by audience: **Auth** (ET-18, ET-19, ET-20), **Buyer Order Lifecycle** (ET-01–ET-05, ET-13, ET-16), and **Seller Operations** (ET-06–ET-15, ET-17).
+
+---
+
+## ET-18 — Email Verification (auth.email_verification_requested)
+
+**Trigger:** Buyer registers with email/password (US-B-01) — fires immediately on account creation  
+**To:** buyer  
+**Subject:** `Verify your email address — AliceUT`
+
+```
+Hi {{buyer.full_name}},
+
+Thanks for creating an account. Please verify your email address
+to complete registration.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  [VERIFY EMAIL ADDRESS]
+  {{verification_link}}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+This link expires in {{ttl_hours}} hours and can only be used once.
+
+You can browse the catalog and manage your cart without verifying,
+but you cannot place orders until your email is confirmed.
+
+If you didn't create an account, you can ignore this email.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+AliceUT
+```
+
+**Variables**
+
+| Variable | Description |
+|---|---|
+| `buyer.full_name` | Buyer's full name as provided at registration |
+| `verification_link` | Single-use verification URL with embedded token; TTL 24 h |
+| `ttl_hours` | Human-readable TTL label: `24` |
+| `base_url` | Website base URL |
+
+---
+
+## ET-19 — Password Reset (auth.password_reset_requested)
+
+**Trigger:** Buyer submits "Forgot password?" flow (US-B-13) — fires when a matching account is found  
+**To:** buyer  
+**Subject:** `Reset your AliceUT password`
+
+```
+Hi {{buyer.full_name}},
+
+We received a request to reset the password for your account.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  [RESET PASSWORD]
+  {{reset_link}}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+This link expires in {{ttl_minutes}} minutes and can only be used once.
+After resetting, all other active sessions will be signed out.
+
+If you didn't request this, your account is safe — you can
+ignore this email. No changes have been made.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+AliceUT
+```
+
+**Variables**
+
+| Variable | Description |
+|---|---|
+| `buyer.full_name` | Buyer's full name |
+| `reset_link` | Single-use password reset URL with embedded token; TTL 60 min |
+| `ttl_minutes` | Human-readable TTL label: `60` |
+| `base_url` | Website base URL |
+
+---
+
+## ET-20 — Password Changed (auth.password_changed)
+
+**Trigger:** Buyer successfully resets password via email link (US-B-13) OR changes password from account settings (US-B-15) — fires in both cases  
+**To:** buyer  
+**Subject:** `Your AliceUT password has been changed`
+
+```
+Hi {{buyer.full_name}},
+
+Your AliceUT password was changed successfully.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CHANGE DETAILS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Changed at: {{changed_at}}
+  Method:     {{change_method}}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+If you made this change, no action is needed. All other active
+sessions have been signed out as a security measure.
+
+If you did NOT make this change, your account may be compromised.
+Secure your account immediately:
+  {{base_url}}/account/security
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+AliceUT
+```
+
+**Variables**
+
+| Variable | Description |
+|---|---|
+| `buyer.full_name` | Buyer's full name |
+| `changed_at` | Timestamp when the password was changed |
+| `change_method` | `Password reset link` or `Account settings` — indicates how the change was made |
+| `base_url` | Website base URL |
 
 ---
 
@@ -12,7 +139,7 @@ Notification emails triggered by order and fulfillment lifecycle events (see US-
 
 ```
 Hi {{buyer.full_name}},
-
+{{#if buyer.business_logo_url}}<img src="{{buyer.business_logo_url}}" alt="{{buyer.business_name}}" style="max-height:60px;" />{{/if}}
 Thank you for your purchase. Here's your order summary.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -28,6 +155,7 @@ YOUR ITEMS                     (groups repeated per seller)
   │ Qty: {{item.quantity}}                          │
   │ {{item.unit_price_display}} {{buyer.preferred_currency}} each       │
   │ Line total: {{item.line_total_display}} {{buyer.preferred_currency}} │
+  │ {{#if fx_applied}}Offer price: {{item.unit_price_offer_display}} {{fulfillment.offer_currency}}{{/if}} │
   └─────────────────────────────────────────────────┘
   (repeat per item)
 
@@ -35,6 +163,7 @@ YOUR ITEMS                     (groups repeated per seller)
   Shipping (mock):    {{fulfillment.shipping_display}} {{buyer.preferred_currency}}
   Tax:                {{fulfillment.tax_display}} {{buyer.preferred_currency}}
   Seller total:       {{fulfillment.grand_total_display}} {{buyer.preferred_currency}}
+  {{#if fx_applied}}  (Converted from {{fulfillment.offer_currency}} using rate captured at checkout){{/if}}
   Tracking number:    {{tracking_number}}
   Estimated delivery: {{eta}}
 
@@ -43,7 +172,8 @@ YOUR ITEMS                     (groups repeated per seller)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 PURCHASE TOTAL
 
-  {{≈ if any_fx_applied}}{{session.grand_total_display}} {{buyer.preferred_currency}}
+  {{session.grand_total_display}} {{buyer.preferred_currency}}
+  {{#if any_fx_applied}}All amounts converted from seller currencies using rates captured at checkout.{{/if}}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 [SKIPPED ITEMS]                (section omitted if no skipped items)
@@ -77,13 +207,18 @@ AliceUT
 | `order_id` | Order identifier |
 | `placed_at` | When the order was placed |
 | `buyer.full_name` / `buyer.email` | Buyer's name and email address |
-| `buyer.preferred_currency` | Buyer's preferred display currency |
+| `buyer.preferred_currency` | Buyer's preferred display currency — primary for all buyer-facing amounts |
+| `buyer.business_logo_url` | Optional URL of the business logo (B2B accounts only); omit section when absent |
+| `buyer.business_name` | Business name for logo alt text (B2B accounts only) |
+| `fulfillment.offer_currency` | Seller's pricing currency for this fulfillment group — shown as reference when it differs from buyer currency |
 | `seller_name` | Seller's display name |
 | `item.product_title` | Product name |
 | `item.quantity` | Quantity purchased |
-| `item.unit_price_display` | Unit price in buyer's currency |
-| `item.line_total_display` | Total for this line item |
-| `fulfillment.subtotal_display` / `shipping_display` / `tax_display` / `grand_total_display` | Seller group subtotal, shipping, tax, and total |
+| `item.unit_price_display` | Unit price in buyer's preferred currency (snapshot × captured FX rate; exact, not estimated) |
+| `item.line_total_display` | Line total in buyer's preferred currency (snapshot × captured FX rate) |
+| `item.unit_price_offer_display` | Unit price in offer currency — only rendered when `fx_applied` is true |
+| `fulfillment.subtotal_display` / `shipping_display` / `tax_display` / `grand_total_display` | Seller group totals in buyer's preferred currency (snapshot × captured FX rate) |
+| `fx_applied` | True when buyer's preferred currency differs from offer currency; shows offer-currency reference lines |
 | `tracking_number` | Shipment tracking number |
 | `eta` | Estimated delivery date |
 | `session.grand_total_display` | Grand total across all sellers |
@@ -203,10 +338,12 @@ REFUNDED ITEMS
   │ Qty: {{item.quantity}}                          │
   │ {{item.unit_price_display}} {{buyer.preferred_currency}} each       │
   │ Line total: {{item.line_total_display}} {{buyer.preferred_currency}} │
+  │ {{#if fx_applied}}Offer price: {{item.unit_price_offer_display}} {{offer_currency}}{{/if}} │
   └─────────────────────────────────────────────────┘
   (repeat per item)
 
-Refund total: {{≈ if fx_applied}}{{fulfillment.grand_total_display}} {{buyer.preferred_currency}}
+Refund total: {{fulfillment.grand_total_display}} {{buyer.preferred_currency}}
+{{#if fx_applied}}(Converted from {{offer_currency}} using rate captured at checkout){{/if}}
 
 Note: Refunds are processed to your original payment method.
 Processing time depends on your payment provider (mock in V1).
@@ -223,12 +360,14 @@ AliceUT
 |---|---|
 | `order_id` | Order identifier |
 | `seller_name` | Seller's display name |
-| `buyer.preferred_currency` | Buyer's preferred display currency |
+| `buyer.preferred_currency` | Buyer's preferred currency — primary for all buyer-facing amounts |
+| `offer_currency` | Seller's pricing currency — shown as reference when it differs from buyer currency |
 | `refunded_at` | When the refund was processed |
 | `item.product_title` / `item.quantity` | Product name and quantity |
-| `item.unit_price_display` / `item.line_total_display` | Refunded unit price and line total |
-| `fulfillment.grand_total_display` | Total refund amount |
-| `fx_applied` | True when total was converted from a different currency (shows `≈` prefix) |
+| `item.unit_price_display` / `item.line_total_display` | Unit price and line total in buyer's preferred currency (snapshot × captured FX rate) |
+| `item.unit_price_offer_display` | Unit price in offer currency — only rendered when `fx_applied` is true |
+| `fulfillment.grand_total_display` | Total refund amount in buyer's preferred currency |
+| `fx_applied` | True when buyer's preferred currency differs from offer currency; shows offer-currency reference |
 
 ---
 
@@ -263,6 +402,138 @@ AliceUT
 | `order_id` | Order identifier |
 | `placed_at` | When the order was placed |
 | `buyer.full_name` / `buyer.email` | Buyer's name and email address |
+| `base_url` | Website base URL |
+
+---
+
+## ET-13 — Order Auto-Refunded — Seller Suspended, Buyer Notice (fulfillment.refund_suspended_seller)
+
+**Trigger:** Seller's account is suspended and an order has passed its fulfillment window without being shipped (US-A-05). Same event also sends ET-13b to the seller.
+**To:** buyer
+**Subject:** `Your order from {{seller_name}} could not be fulfilled — refund issued — Order {{order_id}}`
+
+```
+Hi {{buyer.full_name}},
+
+We were unable to fulfill part of your order because the seller's
+account is no longer active. We have issued a full refund for the
+affected items.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ORDER ID: {{order_id}}
+Sold by: {{seller_name}}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+REFUNDED ITEMS
+
+  ┌─────────────────────────────────────────────────┐
+  │ {{item.product_title}}                          │
+  │ Qty: {{item.quantity}}                          │
+  │ {{item.unit_price_display}} {{buyer.preferred_currency}} each       │
+  │ Line total: {{item.line_total_display}} {{buyer.preferred_currency}} │
+  │ {{#if fx_applied}}Offer price: {{item.unit_price_offer_display}} {{offer_currency}}{{/if}} │
+  └─────────────────────────────────────────────────┘
+  (repeat per item)
+
+Refund total: {{fulfillment.grand_total_display}} {{buyer.preferred_currency}}
+{{#if fx_applied}}(Converted from {{offer_currency}} using rate captured at checkout){{/if}}
+
+Refunds are processed to your original payment method.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+View your orders at:
+{{base_url}}/orders/{{order_id}}
+
+We apologise for the inconvenience.
+
+AliceUT
+```
+
+**Variables**
+
+| Variable | Description |
+|---|---|
+| `order_id` | Order identifier |
+| `buyer.full_name` | Buyer's full name |
+| `buyer.preferred_currency` | Buyer's preferred currency — primary for all buyer-facing amounts |
+| `offer_currency` | Seller's pricing currency — shown as reference when it differs from buyer currency |
+| `seller_name` | Seller's display name |
+| `item.product_title` / `item.quantity` | Product name and quantity |
+| `item.unit_price_display` / `item.line_total_display` | Unit price and line total in buyer's preferred currency (snapshot × captured FX rate) |
+| `item.unit_price_offer_display` | Unit price in offer currency — only rendered when `fx_applied` is true |
+| `fulfillment.grand_total_display` | Total refund amount in buyer's preferred currency |
+| `fx_applied` | True when buyer's preferred currency differs from offer currency; shows offer-currency reference |
+| `base_url` | Website base URL |
+
+---
+
+## ET-16 — Order Cancelled by Seller (fulfillment.cancelled)
+
+**Trigger:** Seller cancels a PENDING fulfillment they cannot fulfill (US-S-11)
+**To:** buyer
+**Subject:** `Your order from {{seller_name}} has been cancelled — refund issued — Order {{order_id}}`
+
+```
+Hi {{buyer.full_name}},
+
+Your order from {{seller_name}} has been cancelled and a full refund
+has been issued.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ORDER ID: {{order_id}}
+Sold by: {{seller_name}}
+Cancelled at: {{cancelled_at}}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+SELLER'S REASON
+
+  {{cancellation_reason}}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REFUNDED ITEMS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ┌─────────────────────────────────────────────────┐
+  │ {{item.product_title}}                          │
+  │ Qty: {{item.quantity}}                          │
+  │ {{item.unit_price_display}} {{buyer.preferred_currency}} each       │
+  │ Line total: {{item.line_total_display}} {{buyer.preferred_currency}} │
+  │ {{#if fx_applied}}Offer price: {{item.unit_price_offer_display}} {{offer_currency}}{{/if}} │
+  └─────────────────────────────────────────────────┘
+  (repeat per item)
+
+Refund total: {{fulfillment.grand_total_display}} {{buyer.preferred_currency}}
+{{#if fx_applied}}(Converted from {{offer_currency}} using rate captured at checkout){{/if}}
+
+Refunds are processed to your original payment method.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+View your order at:
+{{base_url}}/orders/{{order_id}}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+AliceUT
+```
+
+**Variables**
+
+| Variable | Description |
+|---|---|
+| `order_id` | Order identifier |
+| `buyer.full_name` | Buyer's full name |
+| `buyer.preferred_currency` | Buyer's preferred currency — primary for all buyer-facing amounts |
+| `offer_currency` | Seller's pricing currency — shown as reference when it differs from buyer currency |
+| `seller_name` | Seller's display name |
+| `cancelled_at` | Timestamp of cancellation |
+| `cancellation_reason` | Seller-provided reason (≤ 500 chars) |
+| `item.product_title` / `item.quantity` | Product name and quantity |
+| `item.unit_price_display` / `item.line_total_display` | Unit price and line total in buyer's preferred currency (snapshot × captured FX rate) |
+| `item.unit_price_offer_display` | Unit price in offer currency — only rendered when `fx_applied` is true |
+| `fulfillment.grand_total_display` | Total refund/cancellation amount in buyer's preferred currency |
+| `fx_applied` | True when buyer's preferred currency differs from offer currency; shows offer-currency reference |
 | `base_url` | Website base URL |
 
 ---
@@ -610,64 +881,6 @@ AliceUT
 
 ---
 
-## ET-13 — Order Auto-Refunded — Seller Suspended, Buyer Notice (fulfillment.refund_suspended_seller)
-
-**Trigger:** Seller's account is suspended and an order has passed its fulfillment window without being shipped (US-A-05). Same event also sends ET-13b to the seller.
-**To:** buyer
-**Subject:** `Your order from {{seller_name}} could not be fulfilled — refund issued — Order {{order_id}}`
-
-```
-Hi {{buyer.full_name}},
-
-We were unable to fulfill part of your order because the seller's
-account is no longer active. We have issued a full refund for the
-affected items.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-ORDER ID: {{order_id}}
-Sold by: {{seller_name}}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-REFUNDED ITEMS
-
-  ┌─────────────────────────────────────────────────┐
-  │ {{item.product_title}}                          │
-  │ Qty: {{item.quantity}}                          │
-  │ {{item.unit_price_display}} {{buyer.preferred_currency}} each       │
-  │ Line total: {{item.line_total_display}} {{buyer.preferred_currency}} │
-  └─────────────────────────────────────────────────┘
-  (repeat per item)
-
-Refund total: {{≈ if fx_applied}}{{fulfillment.grand_total_display}} {{buyer.preferred_currency}}
-
-Refunds are processed to your original payment method.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-View your orders at:
-{{base_url}}/orders/{{order_id}}
-
-We apologise for the inconvenience.
-
-AliceUT
-```
-
-**Variables**
-
-| Variable | Description |
-|---|---|
-| `order_id` | Order identifier |
-| `buyer.full_name` | Buyer's full name |
-| `buyer.preferred_currency` | Buyer's preferred display currency |
-| `seller_name` | Seller's display name |
-| `item.product_title` / `item.quantity` | Product name and quantity |
-| `item.unit_price_display` / `item.line_total_display` | Snapshotted unit price and line total |
-| `fulfillment.grand_total_display` | Total refund amount |
-| `fx_applied` | True when total was converted from a different currency (shows `≈` prefix) |
-| `base_url` | Website base URL |
-
----
-
 ## ET-13b — Order Auto-Refunded — Seller Suspended, Seller Notice (fulfillment.refund_suspended_seller)
 
 **Trigger:** Same event as ET-13 (US-A-05). Informational only — seller cannot access seller dashboard while suspended.  
@@ -714,7 +927,7 @@ AliceUT
 
 ## ET-14 — KYC Application Received (kyc.received)
 
-**Trigger:** Seller submits onboarding application (US-S-01)
+**Trigger:** Seller submits or resubmits onboarding application (US-S-01) — fires for both initial submissions and resubmissions
 **To:** seller
 **Subject:** `Your seller application has been received — AliceUT`
 
@@ -730,6 +943,12 @@ APPLICATION DETAILS
   Business name: {{seller.business_name}}
   Submitted at:  {{submitted_at}}
   Status:        Under review
+
+  {{#if is_resubmission}}
+  ──────────────────────────────
+  Resubmission of application {{prior_application_id}}
+  Previously rejected: {{prior_rejection_date}}
+  {{/if}}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 WHAT HAPPENS NEXT
@@ -753,6 +972,9 @@ AliceUT
 | `seller.full_name` | Seller's full name |
 | `seller.business_name` | Registered business name |
 | `submitted_at` | Timestamp of application submission |
+| `is_resubmission` | Boolean — true when this is a resubmission of a previously rejected application |
+| `prior_application_id` | Application reference number of the prior rejected application (omitted when `is_resubmission` is false) |
+| `prior_rejection_date` | Date the prior application was rejected (omitted when `is_resubmission` is false) |
 
 ---
 
@@ -810,72 +1032,6 @@ AliceUT
 
 ---
 
-## ET-16 — Order Cancelled by Seller (fulfillment.cancelled)
-
-**Trigger:** Seller cancels a PENDING fulfillment they cannot fulfill (US-S-11)
-**To:** buyer
-**Subject:** `Your order from {{seller_name}} has been cancelled — refund issued — Order {{order_id}}`
-
-```
-Hi {{buyer.full_name}},
-
-Your order from {{seller_name}} has been cancelled and a full refund
-has been issued.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-ORDER ID: {{order_id}}
-Sold by: {{seller_name}}
-Cancelled at: {{cancelled_at}}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-SELLER'S REASON
-
-  {{cancellation_reason}}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-REFUNDED ITEMS
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-  ┌─────────────────────────────────────────────────┐
-  │ {{item.product_title}}                          │
-  │ Qty: {{item.quantity}}                          │
-  │ {{item.unit_price_display}} {{buyer.preferred_currency}} each       │
-  │ Line total: {{item.line_total_display}} {{buyer.preferred_currency}} │
-  └─────────────────────────────────────────────────┘
-  (repeat per item)
-
-Refund total: {{≈ if fx_applied}}{{fulfillment.grand_total_display}} {{buyer.preferred_currency}}
-
-Refunds are processed to your original payment method.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-View your order at:
-{{base_url}}/orders/{{order_id}}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-AliceUT
-```
-
-**Variables**
-
-| Variable | Description |
-|---|---|
-| `order_id` | Order identifier |
-| `buyer.full_name` | Buyer's full name |
-| `buyer.preferred_currency` | Buyer's preferred display currency |
-| `seller_name` | Seller's display name |
-| `cancelled_at` | Timestamp of cancellation |
-| `cancellation_reason` | Seller-provided reason (≤ 500 chars) |
-| `item.product_title` / `item.quantity` | Product name and quantity |
-| `item.unit_price_display` / `item.line_total_display` | Snapshotted unit price and line total |
-| `fulfillment.grand_total_display` | Total refund amount |
-| `fx_applied` | True when total was converted from a different currency (shows `≈` prefix) |
-| `base_url` | Website base URL |
-
----
-
 ## ET-17 — New Order Received (fulfillment.created)
 
 **Trigger:** New fulfillment created for this seller when an order is finalized (US-S-05)  
@@ -905,18 +1061,8 @@ ITEMS TO SHIP
 Order total: {{fulfillment.grand_total_display}} {{offer_currency}}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-SHIP TO
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  {{shipping_address.full_name}}
-  {{shipping_address.line1}}
-  {{#if shipping_address.line2}}{{shipping_address.line2}}{{/if}}
-  {{shipping_address.city}}, {{shipping_address.state}} {{shipping_address.postal_code}}
-  {{shipping_address.country}}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-Manage this order:
+View shipping address and manage this order:
 {{base_url}}/seller/orders/{{order_id}}
 
 AliceUT
@@ -935,7 +1081,6 @@ AliceUT
 | `item.quantity` | Quantity ordered |
 | `fulfillment.grand_total_display` | Order total in offer currency |
 | `offer_currency` | Seller's pricing currency for this fulfillment |
-| `shipping_address.full_name` | Buyer's full name (PII — access via email is not audited; see NFR-09) |
-| `shipping_address.line1` / `line2` | Street address lines (PII) |
-| `shipping_address.city` / `state` / `postal_code` / `country` | City, state, postal code, country (PII) |
 | `base_url` | Website base URL |
+
+**PII handling:** Shipping address is NOT included in this email. Seller retrieves it by clicking the authenticated order detail link (`{{base_url}}/seller/orders/{{order_id}}`). Access to the address page is logged for audit (NFR-09, US-S-05b).

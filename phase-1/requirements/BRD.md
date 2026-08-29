@@ -61,6 +61,7 @@ A global multi-vendor e-commerce marketplace inspired by Amazon.com. Serves as a
 - Multi-language i18n
 - Native mobile apps
 - Kubernetes + Istio deployment (phase 2)
+- Buyer email address change (requires re-verification flow; deferred post-V1)
 
 ### 3.3 Assumptions
 
@@ -68,6 +69,7 @@ A global multi-vendor e-commerce marketplace inspired by Amazon.com. Serves as a
 - No hard deadline — quality > speed
 - Legal / tax compliance out of scope (learning project, not real commerce)
 - Fake shipping generates mock tracking numbers; no carrier API calls
+- **Direct-ship fulfillment model**: sellers ship directly to buyers using the buyer's delivery address. No platform warehouse, FBA-style centralized fulfillment, or reverse-logistics hub in V1. Buyer shipping address is accessed by the seller through an authenticated, audited order detail view (NFR-09).
 
 ---
 
@@ -256,6 +258,7 @@ A global multi-vendor e-commerce marketplace inspired by Amazon.com. Serves as a
 | 8 | Kafka vs Redpanda | **Kafka** in docker-compose (KRaft mode acceptable if resources tight) |
 | 9 | Schema registry | Confluent Schema Registry, Avro, BACKWARD compatibility |
 | 10 | Kafka UI tool | Yes — `provectus/kafka-ui` in docker-compose |
+| 11 | Fulfillment model | **Direct-ship**: seller ships directly to buyer using buyer's delivery address. No platform warehouse, FBA-style centralized fulfillment, or reverse-logistics hub in V1. Buyer address accessible to seller via authenticated, audited order detail view only (US-S-05b, NFR-09). |
 
 All prior open questions resolved. Ready for detailed design + backlog decomposition.
 
