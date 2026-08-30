@@ -532,18 +532,7 @@ These are allowed in V1 because they preserve a single transactional invariant. 
 
 When a module is extracted later, its schema migrates with it and its service becomes the sole writer. Existing consumers replace cross-schema reads with an API call or a Kafka projection before the foreign-key dependency is removed.
 
-## 6. MongoDB collections
-
-MongoDB is event-fed, append-oriented storage; it is not an order, catalog, or inventory source of truth.
-
-| Collection | Core fields | Indexes / retention |
-|---|---|---|
-| `activity_events` | `_id` UUIDv7, `event_id` UUIDv7, `correlation_id` UUIDv7, actor, event type, aggregate type/id, occurred-at, metadata | Unique `event_id`; indexes on aggregate and occurred-at; retention policy defined before implementation. |
-| `audit_logs` | `_id` UUIDv7, `event_id` UUIDv7, actor, action, entity before/after metadata, request/correlation ID, occurred-at | Unique `event_id`; append-only; indexes on entity, actor, and occurred-at. |
-
-Kafka consumers write these documents idempotently using the event ID. Sensitive data is redacted before persistence; password hashes, refresh-token hashes, payment details, and KYC document content are never copied into activity metadata.
-
-## 7. Critical transactional rules
+## 6. Critical transactional rules
 
 1. A catalog, price, inventory, KYC, moderation, or order state change commits its domain rows and outbox event together.
 2. Checkout locks/updates inventory using the stock `version` (or equivalent row lock), creates the order and per-seller fulfillment groups with immutable item snapshots, records reservations/payment simulation, and inserts `fulfillment.placed` events (one per fulfillment) in one transaction.
@@ -551,7 +540,7 @@ Kafka consumers write these documents idempotently using the event ID. Sensitive
 4. Search documents are rebuilt from catalog/offer/inventory events. They are a read model and may lag the PostgreSQL source of truth by up to the defined NFR target.
 5. The order service rechecks offer status, effective price, availability, and idempotency inside the checkout transaction; cart data alone is never trusted as a price or stock reservation.
 
-## 8. Future-phase seller promotions
+## 7. Future-phase seller promotions
 
 Seller-managed promotions are explicitly deferred from Phase 1. When approved, they belong in a dedicated `promotion` module and PostgreSQL schema rather than being added as more columns to `pricing.offer_price`. This keeps the V1 effective-price model simple while allowing future code-based and scheduled campaigns.
 
@@ -610,61 +599,3 @@ The application must enforce that every attached offer belongs to the promotion'
 2. Lock/update the code redemption count atomically with the order, promotion-redemption snapshot, and outbox event. Idempotent retries must not redeem twice.
 3. Snapshot the applied promotion and discount on the order. Historical orders never recalculate a promotion from the current campaign configuration.
 4. Publish promotion lifecycle and redemption events through the existing outbox/Kafka pattern; reindex changed effective-price fields asynchronously for search.
-
-## 9. Changes made in 2026-08-29 ERD review
-
-During API, auth, and event design the following corrections were applied:
-
-| Area | Change |
-|------|--------|
-| `identity.user.role` | Changed from single-value `user_role` enum (`CONSUMER/SELLER/ADMIN`) to `roles TEXT[]` array. Values renamed: `CONSUMER` → `BUYER`. Allows `BUYER+SELLER` co-ownership per implementation-specs. |
-| `identity.user` | Added `email_verified BOOLEAN`, `preferred_currency CHAR(3)`, and corrected `status` enum values to `ACTIVE/SUSPENDED/BANNED`. |
-| `identity.email_verification_token` | New table (single-use, 24h TTL, SHA-256 hashed). |
-| `identity.password_reset_token` | New table (single-use, 60min TTL, SHA-256 hashed). |
-| `orders.order.idempotency_key_id` | Added FK → `orders.idempotency_key(id)` to enable `order.completed` event grouping. |
-| `orders` hierarchy restructure | Split old single `order` table into correct 3-level hierarchy: `order` (buyer-level) → `fulfillment` (per-seller/currency group) → `fulfillment_item` (line item snapshot). `order_item` removed. |
-| `orders.order` | Removed stale `seller_id`, `status`, `shipping_method`, `shipping_cost`, `tax_total`, `total_amount`, `tracking_number`, `estimated_delivery_at`; added `placement_outcome` (immutable). |
-| `orders.fulfillment` | New table: per-seller/currency fulfillment group with seller, currency, status, shipping, tax, tracking columns. |
-| `orders.fulfillment_item` | Renamed from `order_item`; FK changed from `order_id` to `fulfillment_id`. |
-| `orders.payment_attempt` | `order_id` FK renamed to `fulfillment_id` (payment is per fulfillment group, not per order). |
-| Section 5 cross-schema refs | Updated to reflect fulfillment restructure: `orders.fulfillment → seller.seller_profile`, `orders.fulfillment_item/payment_attempt → orders.fulfillment`, removed `orders.order → seller.seller_profile`. |
-| `notifications.email_template` | New table; stores Handlebars templates keyed by `template_key`. |
-| Schema map | Updated `identity` and `notifications` schema maps. |
-
-## 9.1 Changes made in 2026-08-29 design review (revalidation pass)
-
-| Area | Change |
-|------|--------|
-| `inventory.stock` | Added `low_stock_threshold SMALLINT DEFAULT 5 CHECK > 0`; referenced by `inventory.low_stock` event and CSV import API. |
-| `seller.seller_profile` | Split single `status seller_status` into two independent columns: `kyc_status seller_kyc_status` (`PENDING_KYC/APPROVED/REJECTED`, immutable after decision) and `suspension_status seller_suspension_status` (`ACTIVE/SUSPENDED`, default `ACTIVE`). Allows independent KYC gating and suspension without enum collision. |
-| `orders.fulfillment` | Added `display_id TEXT UNIQUE` (`FUL-<8hex>`); buyer-facing per-seller order identifier distinct from parent `orders.order.display_id` (`ORD-<8hex>`). API `orders[]` in checkout response maps to fulfillments, not order-level rows. |
-| `pricing.offer_price` | Added `CHECK (min_qty >= 1)` constraint (was implicit). |
-| `pricing.fx_rate` | Added `CHECK (rate > 0)` constraint; added `created_at` audit column. |
-| `pricing.currency` | Added `created_at`, `updated_at` audit timestamps. |
-| `orders.fulfillment` monetary columns | Added `CHECK (>= 0)` on `shipping_cost`, `tax_total`, `total_amount`. |
-| `orders.fulfillment_item` monetary columns | Added `CHECK (>= 0)` on `unit_price` and `tax`. |
-| §5 cross-schema refs | Added 5 previously-omitted FK registrations: `identity.user.preferred_currency → pricing.currency`, `admin.moderation_case → catalog.offer`, `admin.moderation_case.decided_by_user_id → identity.user`, `seller.kyc_application.reviewer_user_id → identity.user`, `notifications.in_app_notification.recipient_user_id → identity.user`. |
-| §10 follow-on decisions | Added priority index note for `platform.outbox_event(publication_status)` and `notifications.in_app_notification(recipient_user_id)`. |
-
-## 9.2 Changes made in 2026-08-30 review
-
-| Area | Change |
-|------|--------|
-| `fulfillment_status` enum | Added `CANCELLED` as valid state to `orders.fulfillment.status` column. |
-| `offer_status` enum | Added `FLAGGED` state with transition notes: `ACTIVE → FLAGGED` (case open), `FLAGGED → ACTIVE` (case cleared), `FLAGGED → REMOVED` (case removed). |
-| `orders.fulfillment` state machine | Expanded to explicitly document `PENDING → CANCELLED` (seller cancel, US-S-11) and `PENDING → REFUNDED` (auto-refund monitor for suspended-seller orders, US-P-16). |
-| `orders.fulfillment` columns | Added `seller_name_snapshot VARCHAR(200) NOT NULL` (FR-P-03 snapshot) and `cancelled_at TIMESTAMPTZ NULL`. |
-| `seller.seller_profile` | Added `suspended_until TIMESTAMPTZ NULL` and `suspension_reason TEXT NULL`. |
-| `catalog.offer` | Added `status_changed_reason TEXT NULL` to distinguish suspension-deactivated offers from other inactive offers on reinstatement. |
-| `orders.order` | Added `buyer_currency_grand_total NUMERIC(19,4) NOT NULL` and `buyer_currency_code CHAR(3) NOT NULL` for buyer display-currency snapshot per FR-P-03. |
-| `identity.user` | Added `business_name VARCHAR(120) NULL` and `business_logo_storage_key TEXT NULL` for B2B buyer branding. |
-| `catalog.product` | Added `attributes JSONB NULL`; V1-only seed-data metadata (rating). No write path in V1. |
-| Order aggregate status | Added derived-status table after `orders.order` column table documenting that `orders.order` has no stored `status` column; status is computed from fulfillment states. |
-
-## 10. Follow-on design decisions
-
-1. Define physical SQL migrations, enum strategy, indexing, and row-lock/optimistic-lock approach.
-2. **[RESOLVED]** Object storage: MinIO (S3-compatible, `minio/minio:RELEASE.2024-11-07T00-52-20Z`). Buckets: `product-images` (public read), `kyc-documents` (private, presigned GET URLs), `user-assets` (private). `catalog.product_image.storage_key` and `identity.user.business_logo_storage_key` store the bucket-relative object key; URL is derived at serve time. KYC document references in `seller.kyc_application.document_references` store object keys, never content. Encryption-at-rest and retention policy deferred to physical-migration design (bucket lifecycle rules).
-3. Define Elasticsearch index mapping and alias strategy for zero-downtime reindexing.
-4. Define `available_qty` derived column strategy (materialized vs. computed at query time).
-5. **Priority indexes (P1 before go-live):** `platform.outbox_event(publication_status)` (partial index `WHERE publication_status = 'PENDING'`) for outbox relay polling; `notifications.in_app_notification(recipient_user_id, read_at)` for notification list queries.
