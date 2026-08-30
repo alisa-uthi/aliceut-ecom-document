@@ -1,298 +1,195 @@
-# AliceUT Architecture Overview
+# AliceUT E-Commerce (Amazon Clone) Architecture Overview
 
 **Status:** Complete  
-**Project architecture:** This document defines the project-level architecture and its evolution path.  
-**Phase 1 scope source:** [BRD v1.1](phase-1/requirements/BRD.md) and the Phase 1 user stories.
+**Scope:** Project-level architecture and evolution path. Per-phase implementation detail lives in `phase-N/technical-design/`.
 
 ---
 
 ## 1. Architecture goals
 
-- Deliver the buyer, seller, and admin V1 loops as three separate Angular portal applications (buyer storefront, seller portal, admin portal), each served by its own nginx container and backed by one NestJS API deployment.
+- Deliver buyer, seller, and admin experiences as three separate Angular portal applications backed by one NestJS API.
 - Keep transactional state strongly consistent while supporting asynchronous search and notifications.
-- Make module ownership and contracts explicit so modules can be extracted later without redesigning the data model.
-- Prepare every domain module to become an independently built and deployed Kubernetes service in a later phase.
-- Preserve monetary precision and the price captured at checkout.
-- Run the complete local/demo environment with Docker Compose.
+- Make module ownership and contracts explicit so modules can be extracted later without redesigning the data model or breaking API consumers.
+- Preserve monetary precision and the exact price captured at checkout, across all phases.
+- Run a complete local/demo environment with Docker Compose in Phase 1; graduate to Kubernetes in later phases.
 
-## 2. Project evolution
+## 2. System overview
 
-The signed requirements currently cover Phase 1 only. This overview therefore defines the architectural direction for the whole project while marking V1 implementation decisions explicitly:
+AliceUT E-Commerce is a multi-sided marketplace connecting buyers, sellers, and platform administrators. Mimic Amazon website for learning purpose only.
+
+- **Buyers** browse a product catalog, add items to cart, and complete checkout. Purchases group into per-seller fulfillments with shipping and payment processing.
+- **Sellers** onboard via KYC, manage product listings and offers, set prices in supported currencies, and fulfill orders.
+- **Admins** review KYC applications, moderate listings, and manage seller suspension.
+
+Three Angular applications — buyer storefront, seller portal, and admin portal — are the only browser clients. Each targets the same versioned NestJS REST API.
+
+## 3. Project evolution
+
+Signed requirements currently cover Phase 1 only. This overview defines the architectural direction for the whole project while marking phase-specific implementation choices explicitly.
 
 | Stage | Architecture state |
 |---|---|
-| Phase 1 / V1 | Angular client and NestJS modular monolith, one PostgreSQL database partitioned by module schema, Kafka/event outbox, Elasticsearch, MongoDB, and Docker Compose. |
-| Later phases | Modules are extracted incrementally into independently built and deployed Kubernetes services, progressing to database-per-service without breaking published API or event contracts. |
+| Phase 1 | Angular clients + NestJS modular monolith. One PostgreSQL database partitioned by module schema. Kafka event bus with transactional outbox. Elasticsearch for search. MongoDB for audit/activity. Docker Compose deployment. |
+| Phase 2+ | Modules extracted incrementally into independently deployed Kubernetes services. Database-per-service. Kafka via Strimzi. Service mesh via Istio. Real payment gateway, carrier shipping, and advanced features per approved requirements. |
 
-Future product scope remains governed by its phase requirements document. This overview does not itself approve a new feature or reopen signed-off requirements.
+Future product scope is governed by its phase requirements document. This overview does not itself approve a new feature or reopen signed requirements.
 
-## 3. Phase 1 system context
+## 4. Technology stack
 
-```text
-Browser (buyer)       Browser (seller)       Browser (admin)
-      │ HTTPS                │ HTTPS                │ HTTPS
-      ▼                      ▼                      ▼
-  buyer-app             seller-app             admin-app
- (Angular + AM)        (Angular + AM)         (Angular + AM)
-      │                      │                      │
-      └──────────────────────┴──────────────────────┘
-                             │ REST/JSON + JWT
-                             ▼
-NestJS modular monolith
-  ├── PostgreSQL       transactional system of record + transactional outbox
-  ├── MongoDB          append-only audit and activity records
-  ├── Elasticsearch    product-search read model
-  └── Kafka ─────────── asynchronous domain events
-        │                    │
-        ▼                    ├── search indexer → Elasticsearch
-  Schema Registry            ├── notification consumers → email / in-app records
-  (Avro schemas)             └── audit consumer → MongoDB
+Locked in BRD §12. Not revisable without a BRD amendment.
 
-External integrations: Google/Facebook OAuth; exchangerate.host for display-only FX.
-Fake payment and shipping remain internal V1 adapters; no gateway or carrier is called.
-```
+| Concern | Choice |
+|---|---|
+| Frontend | Angular + Angular Material |
+| Backend | NestJS (modular monolith, microservice-ready) |
+| Primary DB | PostgreSQL (transactional source of truth) |
+| Audit / activity | MongoDB (append-only, event-fed) |
+| Search | Elasticsearch / OpenSearch (self-hosted, single-node in V1) |
+| Event bus | Apache Kafka + Confluent Schema Registry (Avro, BACKWARD compat) + Kafka UI |
+| ORM | TypeORM with raw-SQL migrations + repository interfaces |
+| Auth | Passport.js (local + Google + Facebook), JWT with refresh rotation |
+| Object storage | MinIO (S3-compatible; `product-images`, `kyc-documents`, `user-assets` buckets) |
+| V1 deploy | Docker Compose |
+| V2+ deploy | Kubernetes + Istio; Kafka via Strimzi |
 
-Three Angular applications — buyer storefront, seller portal, and admin portal — are the only browser clients; each targets the same versioned REST API. NestJS exposes versioned REST endpoints and contains the business modules below. Kafka is an internal integration boundary: modules do not synchronously read another module's database or write its tables.
+Redpanda / KRaft mode is an acceptable substitute if Kafka + ZooKeeper is too heavy for local development.
 
-## 4. Phase 1 application modules
+## 5. Application modules
 
-| Module | Responsibilities | Primary persistence / outputs |
-|---|---|---|
-| Identity | Registration, local/OAuth login, JWT refresh rotation, account roles | PostgreSQL: users, refresh sessions |
-| Catalog | Product taxonomy, variants, seller offers, moderation state | PostgreSQL; `product.changed`, `offer.changed` |
-| Pricing | Price rows, effective-price resolution, display FX fallback | PostgreSQL: prices, FX rates |
-| Inventory | Seller stock, availability and low-stock state | PostgreSQL; `inventory.changed` |
-| Search | Search API and facets over the denormalized product index | Elasticsearch (read-only from API) |
-| Cart | Guest and authenticated carts, merge on login | PostgreSQL for authenticated carts; browser local storage for guest cart |
-| Checkout and orders | Address, shipping/payment simulation, inventory reservation, immutable orders and fulfillments | PostgreSQL; `order.finalized`, `fulfillment.placed` |
-| Seller | KYC application, listing and fulfilment operations | PostgreSQL; KYC/order events |
-| Administration | KYC decisions and catalog moderation | PostgreSQL; moderation events |
-| Notifications | Email and in-app notification projections | Kafka consumer; PostgreSQL/Mongo read records as designed later |
-| Platform | Outbox relay, event envelope, idempotency, DLQ handling, audit logging | PostgreSQL outbox + Kafka + MongoDB |
+These bounded contexts are stable across all phases. Module boundaries, PostgreSQL schemas, and Kafka contracts are extraction seams — the same contracts persist when a module becomes an independent service.
 
-Modules communicate in-process through application interfaces for synchronous commands and queries. Every domain state change that needs external propagation writes an outbox record in the same PostgreSQL transaction; the relay publishes it to Kafka. This permits later service extraction without changing the event contract.
+| Module | Responsibilities |
+|---|---|
+| Identity | Registration, local/OAuth login, JWT refresh rotation, account roles, address book |
+| Catalog | Product taxonomy, variants, seller offers, moderation state |
+| Pricing | Price rows, effective-price resolution, display-only FX rates |
+| Inventory | Seller stock, reservation, low-stock state |
+| Search | Search API and facets over the denormalized product index |
+| Cart | Guest (browser) and authenticated (server) carts; merge on login |
+| Checkout and Orders | Address, shipping/payment, inventory reservation, immutable orders and fulfillments |
+| Seller | KYC application, listing and fulfillment operations |
+| Administration | KYC decisions and catalog moderation |
+| Notifications | Email and in-app notification projections |
+| Platform | Outbox relay, event envelope, idempotency, DLQ handling, audit logging |
 
-## 5. Phase 1 data ownership and read models
+Modules communicate in-process through application interfaces for synchronous commands and queries in Phase 1. Every domain state change that needs external propagation writes an outbox record in the same PostgreSQL transaction; the relay publishes it to Kafka.
+
+## 6. Architectural patterns
+
+### Transactional outbox
+
+Every domain state change (catalog, price, inventory, order, KYC, moderation) writes both its domain rows and a `platform.outbox_event` row in one PostgreSQL transaction. An outbox relay process polls pending events and publishes to Kafka. Downstream consumers (search indexer, notification dispatcher, audit writer) are idempotent and deduplicate on `event_id`.
+
+This prevents lost events without distributed transactions and is the primary extraction seam for later microservice decomposition.
+
+### Module ownership contract
+
+A module is the sole writer of its PostgreSQL schema. Other modules may read via its application interface (in-process, Phase 1) or Kafka projections (extracted service, Phase 2+). Cross-schema foreign keys are permitted only for essential transactional references documented in the data model ERD. No module reads another module's tables directly.
+
+### Eventual consistency for search
+
+The Elasticsearch index is rebuilt from Kafka events. It is a read model and may lag the PostgreSQL source of truth by up to the defined SLA (target: ≤5 s p95). API writes never wait for indexing.
+
+### Effective-price resolution
+
+Price is never stored on `Product`. The hierarchy is `Product → Offer (per seller) → Price (per currency, per price_type)`. Cart and fulfillment items reference `Offer`. At checkout, `FulfillmentItem` snapshots `unit_price`, `currency`, `tax`, and `fx_rate_used_at_capture`. Historical orders never re-derive amounts from live FX or current price rows.
+
+## 7. Architectural invariants
+
+These rules apply in all phases and cannot be relaxed without a BRD amendment.
+
+**Money handling**
+- Storage: `NUMERIC(19,4)` + ISO 4217 currency code column. FX rates: `NUMERIC(19,8)`.
+- App code: `decimal.js` or `Big.js`. Never JS `number` for monetary math.
+- API JSON: amounts as strings (`"99.99"`), never numbers.
+- Currency-specific display scale driven by `Currency.minor_unit_scale`; storage always uses 4 fractional digits.
+
+**Order immutability**
+`FulfillmentItem` snapshots are written once at checkout. Unit price, currency, tax, and FX rate are never recalculated from current data after the transaction commits.
+
+**Event envelope**
+Every Kafka event carries: `event_id` (UUIDv7), `event_type`, `event_version`, `occurred_at`, `correlation_id`, `payload`. Consumers commit offsets only after side-effects succeed. Each consumer group has a dedicated DLQ.
+
+**Seller pricing currencies (V1)**
+USD, THB, JPY, SGD only.
+
+**Prohibited categories**
+Weapons, drugs, adult content. Checked at listing time via taxonomy flag and keyword blocklist.
+
+## 8. Data architecture
 
 | Store | Owner / purpose | Rules |
 |---|---|---|
-| PostgreSQL | Source of truth for users, catalog, offers, prices, inventory, carts, addresses, orders, KYC, moderation, FX cache, and outbox | Raw SQL migrations only; repositories isolate TypeORM usage. |
-| MongoDB | High-write, append-only activity and audit data | Populated from events; not the source of truth for order or catalog state. |
-| Elasticsearch | Search documents and filter/sort facets | Updated asynchronously from Kafka only; never written from the request path. |
-| Kafka | Durable domain-event transport | At-least-once delivery. Consumers deduplicate by `event_id`; commit offsets only after side effects succeed. |
-| Confluent Schema Registry | Avro schema compatibility | Self-managed Community License edition: basic registry functionality is free and needs no commercial license key. One `<topic>-value` subject per topic; compatibility mode is `BACKWARD`. |
+| PostgreSQL | Source of truth for users, catalog, offers, prices, inventory, carts, orders, KYC, moderation, and outbox | Raw SQL migrations; one schema per module; repository interfaces isolate ORM usage |
+| MongoDB | Audit logs and activity events (append-only) | Populated from Kafka events; never source of truth for order or catalog state |
+| Elasticsearch | Search documents and facets | Written from Kafka consumers only; never from the API request path |
+| Kafka | Durable domain-event transport | At-least-once delivery; consumers idempotent; BACKWARD-compatible Avro schemas |
+| MinIO | Binary assets (images, documents, user files) | Three buckets: `product-images` (public read), `kyc-documents` (private, presigned GET), `user-assets` (private) |
 
-### PostgreSQL schema boundaries
+PostgreSQL uses one schema per module. The owning module is the sole writer; others use its application interface or subscribe to its events.
 
-V1 uses one PostgreSQL database, with a schema per application module. This keeps Docker Compose and cross-module transactions simple while making ownership boundaries explicit for future service extraction.
+See `phase-1/technical-design/data-model-erd.md` for the full table-level design.
 
-| PostgreSQL schema | Owning module | Example tables |
+## 9. External integration boundaries
+
+| Boundary | V1 design | V2+ intent |
 |---|---|---|
-| `identity` | Identity | `users`, `refresh_sessions`, `addresses` |
-| `catalog` | Catalog | `products`, `product_variants`, `categories`, `offers` |
-| `pricing` | Pricing | `prices`, `currencies`, `fx_rates` |
-| `inventory` | Inventory | `inventory`, `stock_reservations` |
-| `cart` | Cart | `carts`, `cart_items` |
-| `orders` | Checkout and orders | `orders`, `fulfillments`, `fulfillment_items`, `addresses` |
-| `seller` | Seller | `seller_profiles`, `kyc_applications` |
-| `admin` | Administration | `moderation_cases` |
-| `notifications` | Notifications | `in_app_notifications` |
-| `platform` | Platform | `outbox_events`, `processed_events` |
+| OAuth | Passport.js strategies for Google and Facebook | Same |
+| FX rates | Scheduled refresh from exchangerate.host; display-only cache in PostgreSQL | Same or commercial provider |
+| Payment | Fake internal adapter; deterministic mock outcomes | Real payment gateway |
+| Shipping | Fake internal adapter; mock method, cost, ETA, tracking | Real carrier APIs |
+| Email | Kafka-driven outbound SMTP adapter; asynchronous, failure-isolated | Same pattern; provider may change |
+| Object storage | MinIO (self-hosted S3-compatible) | S3 or equivalent managed service |
 
-- A module writes only tables in its owned schema; no domain table belongs in `public`.
-- Raw SQL migrations must qualify their schema and preserve module ownership.
-- Prefer module interfaces and Kafka events over cross-schema writes. Cross-schema foreign keys are permitted only for essential transactional references, such as cart or order items referencing an offer.
-- A future extracted service owns the data currently held by its schema; it must consume published events instead of reading another service's database.
+## 10. Deployment topology
 
-### Money and pricing invariants
+**Phase 1 (Docker Compose):** Three nginx containers serving the Angular apps, NestJS API, NestJS workers (outbox relay + Kafka consumers), PostgreSQL, MongoDB, Elasticsearch, Kafka, Confluent Schema Registry, Kafka UI, and MinIO. Full topology and service configuration in `phase-1/technical-design/docker-compose-topology.md`.
 
-- Store money in PostgreSQL as `NUMERIC(19,4)` with ISO 4217 currency code; use string values at API boundaries and `decimal.js` or `Big.js` in application code.
-- `Product` has no price. The hierarchy is `Product → Offer → Price`; cart and order items reference an `Offer`.
-- Price resolution considers account type, selected quantity, time bounds, price type, and buyer display currency. FX conversion is display-only.
-- At checkout, `FulfillmentItem` snapshots unit price, currency, tax, FX rate used, and quantity. Historical orders never read a current offer price to calculate a total.
+**Phase 2+ (Kubernetes):** One `Deployment` per domain module. Each service owns its data store. Kafka via Strimzi. Service mesh via Istio. Extraction begins with low-coupling consumers (Search, Notifications) and progresses inward. A module extraction is complete when the extracted service is the sole writer of its schema and all consumers use its API or Kafka events instead of direct database access.
 
-## 6. Phase 1 core flows
-
-### Catalog change to searchable product
-
-```text
-Seller/Admin command
-  → Catalog transaction (domain rows + outbox row)
-  → Outbox relay publishes Avro event to Kafka
-  → Search-index consumer updates Elasticsearch document
-  → Buyer search endpoint queries Elasticsearch
-```
-
-Search is therefore eventually consistent. The target propagation lag is no more than five seconds p95; the catalog command response does not wait for indexing.
-
-### Checkout to confirmation
-
-```text
-Buyer checkout request
-  → validate address, cart, prices, stock, and idempotency key
-  → one PostgreSQL transaction per seller/currency group (inside the checkout request):
-       reserve/decrement inventory, create Fulfillment + immutable FulfillmentItem snapshots,
-       record mock shipping/payment result, write fulfillment.placed outbox event
-  → write order.finalized outbox event (same tx as Order status write, after all groups processed)
-  → return confirmation with placed fulfillments, mock tracking, ETAs, and any skipped/failed groups
-  → relay publishes order.finalized and fulfillment.placed events asynchronously
-  → notification, seller, audit, and analytics consumers process each event idempotently
-```
-
-The confirmation is served from the committed order transaction, not from Kafka consumer completion. Outbox relay retries failed publication; poison messages are routed to a consumer-specific DLQ with alerting.
-
-## 7. Phase 1 external boundaries
-
-| Boundary | V1 design |
-|---|---|
-| OAuth | Passport strategies for Google and Facebook. OAuth identity is linked to a user account after verified-email handling. |
-| FX rates | A scheduled adapter refreshes the PostgreSQL FX cache from exchangerate.host. Rates may only be used for display conversion. |
-| Payment | Internal fake-payment adapter returns deterministic mock outcomes. No real payment credentials or provider calls. |
-| Shipping | Internal fake-shipping adapter calculates configured mock method, cost, ETA, and tracking number. No carrier API calls. |
-| Email | Kafka-driven outbound-email adapter. Sending is asynchronous and failure-isolated from user requests. |
-
-## 8. Phase 1 deployment topology
-
-One Docker Compose environment runs three nginx containers serving buyer-app, seller-app, and admin-app; the NestJS API; PostgreSQL; MongoDB; Elasticsearch (single node); Kafka (KRaft acceptable); self-managed Confluent Schema Registry; Kafka UI; and the outbox relay/consumers. Development secrets are injected via environment variables and are never committed.
-
-V1 uses only the registry's free Community License functionality. It excludes commercial Schema Registry features: security-plugin RBAC, Schema Linking/exporters, and broker-side Schema Validation. The Community License is source-available rather than Apache 2.0, and it must not be used to offer a competing hosted schema-registry service.
-
-Ingress terminates TLS in the deployment environment and forwards API calls to NestJS. Health checks are required for the API and each stateful dependency; backup the PostgreSQL volume before schema migrations.
-
-## 9. Quality attributes and guardrails
+## 11. Quality attributes
 
 | Concern | Design response |
 |---|---|
-| Reliability | PostgreSQL transaction + outbox prevents lost state-change events; consumers are idempotent and have DLQs. |
-| Security | DTO validation, parameterized queries, Argon2id passwords, short-lived JWTs with refresh rotation, and secrets in environment variables. |
-| Performance | Elasticsearch serves search; API avoids synchronous indexing; product listing target is ≤2s p95 and search ≤500ms p95. |
-| Scalability | Search model supports 10,000+ products; module interfaces and Kafka contracts are future extraction seams. |
-| Portability | Raw SQL migrations and repository interfaces prevent TypeORM leakage into domain logic. |
-| Observability | Structured JSON logs and correlation IDs on requests and every event; monitor outbox and consumer lag. |
+| Reliability | PostgreSQL transaction + outbox prevents lost state-change events; consumers are idempotent and have DLQs |
+| Security | DTO validation, parameterized queries, Argon2id passwords, short-lived JWTs with refresh rotation, secrets in environment variables |
+| Performance | Elasticsearch serves search; API avoids synchronous indexing; targets: product listing ≤2 s p95, search ≤500 ms p95 |
+| Scalability | Search model supports 10,000+ products; module interfaces and Kafka contracts are future extraction seams |
+| Portability | Raw SQL migrations and repository interfaces prevent ORM leakage into domain logic |
+| Observability | Structured JSON logs and correlation IDs on requests and every event; monitor outbox relay and consumer lag |
 
-## 10. Phase 1 backend implementation structure
+## 12. Implementation structure
 
-V1 ships as one NestJS API deployment, but the backend is a modular monorepo rather than a single undifferentiated application. The API is only a composition root: it wires module packages together and owns shared HTTP concerns. Business logic remains inside the module that owns it.
+**Backend** is a Nx monorepo (`backend/`) with `apps/api`, `apps/workers`, and one `libs/<module>/` per bounded context. `libs/contracts/` holds OpenAPI specs and Avro event definitions; `libs/shared/` holds technical primitives only (logging, error, validation, money, auth) — never domain logic owned by a module. See `phase-1/technical-design/module-architecture.md` for the full structure.
 
-```text
-backend/
-├── apps/
-│   ├── api/                         V1 NestJS HTTP composition root
-│   └── workers/                     outbox relay and Kafka consumer processes
-├── libs/
-│   ├── identity/                    domain, application, infrastructure, HTTP adapter
-│   ├── catalog/                     domain, application, infrastructure, HTTP adapter
-│   ├── pricing/
-│   ├── inventory/
-│   ├── cart/
-│   ├── orders/
-│   ├── seller/
-│   ├── admin/
-│   ├── search/
-│   ├── notifications/
-│   ├── platform/                    outbox, idempotency, audit, observability
-│   ├── contracts/                   OpenAPI specifications, REST DTOs, and Avro event definitions
-│   └── shared/                      technical primitives only; no shared domain logic
-└── migrations/
-    ├── identity/                    raw SQL for the `identity` schema
-    ├── catalog/                     raw SQL for the `catalog` schema
-    └── ...
-```
+**Frontend** is a Nx monorepo (`frontend/`) with `apps/buyer-app`, `apps/seller-app`, `apps/admin-app` and shared libraries under `libs/`, including a generated TypeScript API client from the OpenAPI spec. Generated client files must not be manually edited. See `phase-1/ui-design/` for screen-level design.
 
-Each module has a public application interface (commands, queries, and published events), domain model, infrastructure adapters, and transport adapters. Another module may depend on that public interface or a versioned contract, but it must not import another module's repository, entity, ORM model, or schema-specific infrastructure.
+**REST contract** is OpenAPI 3.x. NestJS generates the spec via `SwaggerModule`; Angular consumes a generated client via OpenAPI Generator (`typescript-angular`). Domain entities are never exposed directly. Breaking changes require a new API version.
 
-- Keep module configuration and secrets namespaced, so a future deployment receives only its own settings.
-- Place all Avro schemas and generated event types in `contracts`; version contracts independently from module implementation.
-- Run the outbox relay and Kafka consumers as separate V1 worker processes, even if Docker Compose initially deploys them beside the API. This makes them independently scalable and directly maps to later Kubernetes Deployments.
-- Keep raw SQL migrations grouped by owning PostgreSQL schema. A migration can reference another schema only for an essential cross-module foreign key and must document that dependency.
-- Treat cross-module transaction flows as explicit V1 composition flows. For extraction, replace them with reservations, idempotent commands, and event-driven saga steps rather than relying on a distributed database transaction.
-- `shared` may contain logging, error, validation, money, authentication, and transport primitives, but never a domain entity or business rule owned by a module.
+## 13. Service extraction roadmap
 
-### OpenAPI contract and generated client
+V1 is a modular monolith. Extraction order in Phase 2+, subject to approved requirements:
 
-The REST contract is OpenAPI 3.x. NestJS controllers and transport DTOs are annotated to produce a versioned OpenAPI document through `SwaggerModule.createDocument`; domain entities and persistence models are never exposed directly. The generated document is published as a build artifact and committed/exported under `libs/contracts/openapi/` for review and compatibility checks.
+1. **Low-coupling consumers first** — Search and Notifications (event consumers with no synchronous upstream callers)
+2. **Mid-tier modules** — Catalog, Pricing, Inventory (strong ownership, clear API surface)
+3. **Core transaction modules last** — Identity, Cart, Orders/Checkout (deepest coupling, most cross-module FK dependencies)
 
-The Angular application consumes a generated TypeScript client, not hand-written `HttpClient` endpoint wrappers. CI runs OpenAPI Generator with the stable `typescript-angular` generator against the versioned specification and writes the result to a generated client library, for example `frontend/libs/api-client/`. Generated files must not be manually edited.
+Extraction prerequisites per module: (a) service becomes the sole writer of its schema, (b) all synchronous callers use its HTTP API, (c) all async consumers subscribe to its Kafka events, (d) cross-schema foreign keys in its migration are replaced by event-driven projections.
 
-```text
-NestJS controllers + transport DTOs
-  → OpenAPI 3.x document (`libs/contracts/openapi/aliceut-v1.json`)
-  → OpenAPI Generator (`typescript-angular`)
-  → generated Angular API client
-  → Angular feature code
-```
+## 14. Phase-specific design documents
 
-- Tag every operation by owning module and use stable, unique `operationId` values; they become generated client method names.
-- Version the contract under `/api/v1` and publish breaking changes only through a new major API version. CI must fail when contract generation or client generation leaves uncommitted changes.
-- Define JWT bearer security, standard error responses, pagination, idempotency headers, and all money fields in the OpenAPI document. Monetary values are JSON strings, never numbers.
-- Keep public request/response DTOs in the transport layer. Map them explicitly to application commands and query results so a later service extraction can retain the same contract.
-- During module extraction, a module publishes its own OpenAPI document and generated client package; the V1 combined contract can remain as an API-gateway aggregation until consumers migrate.
+Detailed design evolves within each phase's directory.
 
-## 11. Phase 1 frontend implementation structure
+### Phase 1
 
-Three separate Angular applications share common libraries through an Nx monorepo workspace.
-
-```text
-frontend/
-├── apps/
-│   ├── buyer-app/      buyer storefront — search, PDP, cart, checkout, orders, account
-│   ├── seller-app/     seller portal — onboarding, listings, fulfillment, inventory
-│   └── admin-app/      admin portal — KYC queue, moderation queue, seller management
-├── libs/
-│   ├── auth/           shared JWT interceptor, auth guards, token storage
-│   ├── api-client/     generated TypeScript client from OpenAPI spec (do not edit manually)
-│   ├── ui/             shared Angular Material component wrappers and design tokens
-│   └── domain/         shared TypeScript DTO types and enums
-└── nginx/
-    ├── buyer.conf      nginx config for buyer-app
-    ├── seller.conf     nginx config for seller-app
-    └── admin.conf      nginx config for admin-app
-```
-
-Each app has its own Angular router root and lazy-loaded feature modules. Apps share nothing beyond the `libs/` boundary.
-
-### Development ports
-
-| App | `ng serve` port |
-|-----|-----------------|
-| `buyer-app` | 4200 |
-| `seller-app` | 4201 |
-| `admin-app` | 4202 |
-
-Run all three concurrently with `nx run-many -t serve`.
-
-### Production containers
-
-Each app builds to a static artifact served by a dedicated nginx container in Docker Compose. nginx falls back to `index.html` for Angular router history-mode URLs.
-
-| Container | Serves |
-|-----------|--------|
-| `buyer-nginx` | `buyer-app` dist |
-| `seller-nginx` | `seller-app` dist |
-| `admin-nginx` | `admin-app` dist |
-
-### Auth and API access
-
-All three apps target the same NestJS API base URL via `environment.apiBaseUrl`. JWT bearer token is stored in `localStorage` per app origin; refresh rotation is handled by the shared `auth` library interceptor. Route guards enforce role-based access: `admin-app` requires `ADMIN` role; `seller-app` requires `SELLER` role; `buyer-app` allows unauthenticated access on public catalog routes.
-
-## 12. Later-phase service extraction and Kubernetes deployment
-
-V1 is intentionally a modular monolith. Its module boundaries, PostgreSQL schemas, repository interfaces, and Kafka event contracts are extraction seams—not separate deployables yet.
-
-The target for a later phase is one independently built container image and Kubernetes `Deployment` per domain module: Identity, Catalog, Pricing, Inventory, Search, Cart, Checkout/Orders, Seller, Administration, Notifications, and Platform workers. Each service exposes only its owned API, uses an internal Kubernetes `Service` for synchronous traffic where necessary, and publishes/consumes its existing Kafka contracts for asynchronous communication. K9s may be used to operate the cluster, but Kubernetes (K8s) is the deployment platform.
-
-Extraction must happen incrementally, beginning with low-coupling consumers such as Search and Notifications. A module is only extracted after its data ownership is enforceable: the extracted service becomes the sole writer of the data in its current PostgreSQL schema, and other services use its API or Kafka events instead of direct database access. The final target is database-per-service, migrated schema by schema; sharing the Phase 1 PostgreSQL database is a temporary transition, not the end state.
-
-Each service deployment will have independent resource requests/limits, readiness/liveness probes, horizontal-autoscaling policy where justified, configuration and secrets, structured logs, metrics, and distributed tracing with propagated correlation IDs. Kubernetes plus Istio remains a post-V1 concern.
-
-## 13. Explicit Phase 1 boundaries
-
-- This is a modular monolith, not a microservice deployment.
-- Recommendations, review authoring, wishlists, real payment, real carrier shipping, seller analytics, native apps, Kubernetes, and i18n are excluded.
-- B2B uses the same buyer workflow as B2C; only approved branding differences apply.
-
-## 14. Phase-specific technical design
-
-This project-level overview is complete. Detailed design is maintained within the relevant phase under `phase-N/technical-design/`, where it can evolve with that phase's approved requirements.
-
-For Phase 1, the next documents are the API contracts, Kafka/Avro event and outbox design, authentication/authorization design, and Docker Compose runbook. Later phases define their own service-extraction, Kubernetes, and data-migration designs when their scope is approved.
+| Document | Location |
+|---|---|
+| Business requirements | `phase-1/requirements/BRD.md` |
+| User stories | `phase-1/requirements/user-stories/` |
+| Data model and ERD | `phase-1/technical-design/data-model-erd.md` |
+| REST API contracts | `phase-1/technical-design/api-design.md` |
+| Kafka / Avro event schemas | `phase-1/technical-design/kafka-events.md` |
+| Docker Compose topology | `phase-1/technical-design/docker-compose-topology.md` |
+| NestJS module architecture | `phase-1/technical-design/module-architecture.md` |
+| Implementation specifications | `phase-1/technical-design/implementation-specs.md` |
+| UI design and screen specs | `phase-1/ui-design/` |

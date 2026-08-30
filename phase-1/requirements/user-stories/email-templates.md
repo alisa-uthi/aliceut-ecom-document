@@ -604,7 +604,7 @@ WHAT TO DO
 You can update your documents and resubmit your application.
 
   Update and resubmit:
-  {{base_url}}/seller/onboarding/resubmit
+  {{base_url}}/seller/kyc
 
 Please address the reason above before resubmitting.
 

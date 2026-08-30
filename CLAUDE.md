@@ -10,15 +10,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```
 architecture-overview.md     project-level architecture and evolution path
+conventions/                 cross-phase technical conventions (auth/JWT, module structure,
+│                            Kafka event envelope, Angular Material design system)
 phase-1/
 ├── requirements/
 │   ├── BRD.md
 │   └── user-stories/
-└── technical-design/     ERD, API specs, event schemas, and other detail designs
-phase-2/                  (future: V2 scope — K8s, real payments, etc.)
+├── technical-design/    phase-specific designs (ERD, API specs, module inventory, event catalog)
+└── ui-design/           phase-specific UI designs (portal wireframes, navigation routing)
+phase-2/                 (future: V2 scope — K8s, real payments, etc.)
 ```
 
-Numeric `phase-N/` prefix sorts by delivery order. Requirements and technical design cleanly separated per phase.
+Numeric `phase-N/` prefix sorts by delivery order. `conventions/` holds stable cross-phase decisions that all phases reference. Requirements and technical design cleanly separated per phase.
 
 Solo developer, learning/portfolio project, no deadline — quality over speed.
 
@@ -43,7 +46,7 @@ When UI/screen/component work is requested without a specified source, default t
 
 - **Frontend:** Angular + Angular Material
 - **Backend:** NestJS (modular monolith, microservice-ready)
-- **DBs:** PostgreSQL (transactional core) + MongoDB (activity/audit/high-write append data)
+- **DBs:** PostgreSQL (transactional core) + MongoDB (activity/audit/high-write append data) + MinIO (store images and documents)
 - **Search:** Elasticsearch/OpenSearch (self-hosted single-node)
 - **Event bus:** Apache Kafka + Confluent Schema Registry (Avro, BACKWARD compat) + Kafka UI (`provectus/kafka-ui`)
 - **ORM:** TypeORM with **raw-SQL migrations** (not decorator schema sync) + repository pattern behind interfaces (portability requirement — NFR-18)

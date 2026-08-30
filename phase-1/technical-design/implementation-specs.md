@@ -86,6 +86,8 @@ Single `order.finalized` outbox event in same tx as `placement_outcome` write.
 | `SHIPPED` | Mock scheduler | `DELIVERED` | `fulfillment.delivered` outbox |
 | `PENDING` | Seller refund | `REFUNDED` | Fake reversal; `fulfillment.refunded` outbox; restore `available_qty` |
 | `SHIPPED` | Seller refund | `REFUNDED` | Fake reversal; `fulfillment.refunded` outbox; stock NOT restored |
+| `PENDING` | Seller cancel action | `CANCELLED` | `fulfillment.cancelled` outbox |
+| `PENDING` | Auto-refund monitor (suspended seller) | `REFUNDED` | Fake reversal; `fulfillment.refund_suspended_seller` outbox; restore `available_qty` |
 
 `order.completed` event fires only when Order had ≥ 2 fulfillments.
 
@@ -113,6 +115,16 @@ Pattern: `outbox_event(id, topic, key, payload, occurred_at, published_at NULL)`
 | `inventory.changed` | Inventory updated |
 | `inventory.low_stock` | SKU below threshold |
 | `moderation.listing.removed` | Admin removes listing |
+| `fulfillment.cancelled` | Seller cancels order |
+| `fulfillment.refund_suspended_seller` | Auto-refund monitor (suspended seller with active fulfillments) |
+| `seller.suspension_expired` | Suspension expiry scheduler |
+| `seller.reinstated` | Admin reinstates seller |
+| `inventory.reservation_expired` | Reservation expiry scheduler |
+| `fx_rate.updated` | FX rate cron |
+| `listing.soft_deleted` | Admin soft-deletes listing |
+| `auth.email_verification_requested` | User registers or requests email verification |
+| `auth.password_reset_requested` | User requests password reset |
+| `auth.password_changed` | User changes password |
 
 ### Event envelope (all events)
 
@@ -131,6 +143,10 @@ Avro per topic in Confluent Schema Registry; BACKWARD compatibility.
 - Unhandled exception → `<consumer_group>.dlq` → commit original offset; DLQ non-empty → alert
 - SMTP failure: retry 3× exponential → `email.outbound.dlq` + alert
 
+### Consumer-triggered outbox writes
+
+Kafka consumers that need to emit downstream events (e.g., the `orders.delivery-tracker` consumer emitting `order.completed`) must write to the `outbox_event` table within a Postgres transaction before committing the Kafka offset. Never publish directly from a consumer to Kafka. Pattern: open Postgres tx → write outbox row → commit tx → commit Kafka offset. The same outbox relay process picks up and publishes. This ensures exactly-once publishing across the consumer→outbox→relay chain.
+
 ### Notification consumers
 
 | Topic | Consumer group | Template |
@@ -140,10 +156,24 @@ Avro per topic in Confluent Schema Registry; BACKWARD compatibility.
 | `fulfillment.delivered` | `notification.fulfillment-delivered` | ET-03 |
 | `fulfillment.refunded` | `notification.fulfillment-refunded` | ET-04 |
 | `order.completed` | `notification.order-completed` | ET-05 |
-| `seller.kyc.decided` | `notification.kyc-decided` | — seller email |
+| `seller.kyc.decided` | `notification.kyc-decided` | ET-06 (`payload.decision === 'APPROVED'`) |
+| `seller.kyc.decided` | `notification.kyc-decided` | ET-07 (`payload.decision === 'REJECTED'`; resubmission link `/seller/kyc`) |
 | `inventory.low_stock` | `notification.low-stock` | — seller alert |
-| `moderation.listing.removed` | `notification.listing-removed` | — seller email + search deindex |
+| `moderation.listing.removed` | `notification.listing-removed` | ET-09 (daily digest; see note below) |
 | `seller.suspended` | `notification.seller-suspended` | — deindex + email + audit |
+| `seller.kyc.submitted` | `notification.kyc-received` | ET-14 (KYC received to seller); ET-21 (admin alert) |
+| `fulfillment.placed` | `notification.fulfillment-seller-alert` | ET-17 (new order to seller) |
+| `fulfillment.cancelled` | `notification.fulfillment-cancelled` | ET-16 (cancellation to buyer) |
+| `seller.suspension_expired` | `notification.suspension-expired` | ET-11 (suspension lifted to seller) |
+| `fulfillment.refund_suspended_seller` | `notification.refund-suspended-seller-buyer` | ET-13 (auto-refund to buyer) |
+| `fulfillment.refund_suspended_seller` | `notification.refund-suspended-seller-seller` | ET-13b (auto-refund to affected seller) |
+| `auth.email_verification_requested` | `notification.email-verification` | ET-18 (email verification link) |
+| `auth.password_reset_requested` | `notification.password-reset` | ET-19 (password reset link) |
+| `auth.password_changed` | `notification.password-changed` | ET-20 (password changed confirmation) |
+
+> **kyc-decided branching:** Consumer branches on `payload.decision` to select ET-06 vs ET-07.
+>
+> **ET-09 daily digest:** The `notification.listing-removed` consumer writes to `pending_listing_removal_digest(seller_id, product_title, removal_category, removal_reason_text, removed_at)` — it does NOT send email immediately. A daily digest cron (23:00 UTC) aggregates rows per seller, renders ET-09, sends email, then deletes processed rows.
 
 ---
 
@@ -162,13 +192,15 @@ Avro per topic in Confluent Schema Registry; BACKWARD compatibility.
 ## Data Entities & Key Fields
 
 - `FulfillmentItem`: `unit_price NUMERIC(19,4)`, `currency CHAR(3)`, `tax NUMERIC(19,4)`, `fx_rate_used NUMERIC(19,8) NULL`, `quantity INT`
-- `SellerProfile.status`: `PENDING_KYC` → `APPROVED` | `REJECTED` | `SUSPENDED`
+- `SellerProfile.kyc_status`: `PENDING_KYC` → `APPROVED` | `REJECTED` (immutable after final decision)
+- `SellerProfile.suspension_status`: `ACTIVE` | `SUSPENDED` (default `ACTIVE`; independent of `kyc_status`; only applicable post-KYC approval)
 - `User.roles` (array, multi-value): `BUYER`, `SELLER`, `ADMIN`. One account may hold `BUYER` + `SELLER` simultaneously; `ADMIN` is never co-held with `BUYER` or `SELLER`. `SELLER` role is assigned at seller registration (KYC form submitted); KYC gating uses `SellerProfile.kyc_status`, not a separate role value. JWT payload `roles` is always an array (e.g. `["BUYER","SELLER"]`).
-- `User.account_type`: `CONSUMER` | `BUSINESS` (B2B/B2C distinction; orthogonal to roles)
+- `User.account_type`: `B2C` | `B2B` (buyer classification; orthogonal to roles)
 - `Offer.status`: `ACTIVE` | `INACTIVE` (soft delete) | `REMOVED` (admin)
 - `Product.status`: `ACTIVE` | `REMOVED` (when all offers removed)
 - Ownership check: `offer.seller_id === current_user.seller_id`; else 403
 - Cart: server-side `CartItem` references `Offer`; keyed by `user_id`
+- `catalog.product.attributes.rating` is a seed-only field. V1 has no mutation endpoint for this field. Any write to it outside the seed import job is a scope violation per BRD §3.2.
 
 ---
 

@@ -1,4 +1,4 @@
-# Project Progress — AliceUT (Amazon Clone)
+# Project Progress — AliceUT E-Commerce
 
 Daily log of work on this project. Newest entry on top. One entry per active day.
 
@@ -9,6 +9,9 @@ Daily log of work on this project. Newest entry on top. One entry per active day
 - Each day gets an explicit `<a id="YYYY-MM-DD"></a>` anchor immediately above its heading so external links resolve reliably (GitHub also auto-anchors the heading, but the explicit id survives renderer differences). Add the new date to the **Index** below.
 
 **Index**
+- [2026-08-30](#2026-08-30) — Full design doc day: consistency review + fixes (116 findings), repo restructure, MinIO, all 81 sequence diagrams, Mermaid validation.
+- [2026-08-29c](#2026-08-29c) — Technical design revalidation: 8 blocking + 6 high-priority fixes applied across all design docs.
+- [2026-08-29b](#2026-08-29b) — Phase 1 technical design + UI design (parallel agent team).
 - [2026-08-29](#2026-08-29) — Requirements deep-dive: order lifecycle, buyer story validation, auth portals, diagrams, BA revalidation.
 - [2026-08-22](#2026-08-22) — Phase 1 architecture overview.
 - [2026-08-19](#2026-08-19) — Requirements freeze + repo scaffolding.
@@ -31,6 +34,112 @@ Daily log of work on this project. Newest entry on top. One entry per active day
 **Next:**
 - immediate next steps for the following session
 ```
+
+<a id="2026-08-30"></a>
+## 2026-08-30
+**Focus:** Full design documentation day — consistency review + 116-finding fix pass, repo restructure, MinIO decision, all 81 sequence diagrams, Mermaid syntax validation.
+
+**Done:**
+
+_Cross-artifact review & fixes_
+- Read and cross-referenced all phase-1 user stories + design docs; produced 39-finding report (7 CRITICAL, 24 MAJOR, 8 MINOR).
+- 3-team parallel review (technical-design, ui-design, cross-validation) surfaced 77 additional findings (10 CRITICAL, 40 MAJOR, 27 MINOR); 8 parallel fix agents applied all fixes across 11 files.
+- Key fixes: 6 new Kafka events, 8 new API endpoints, 10 new ERD columns, consumer group corrections, seller/admin/buyer portal completions, design-system pipes.
+
+_Repo restructure & architecture_
+- Extracted cross-phase conventions into `conventions/`: `auth-jwt-design.md`, `design-system.md`, `module-architecture.md`, `kafka-events.md`.
+- Added MinIO to stack: 3 buckets (`product-images` public, `kyc-documents` + `user-assets` private); added `minio` + `minio-init` services to docker-compose; closed ERD §10 open decision #2.
+- Rewrote `architecture-overview.md` as cross-phase reference (removed Phase-1-specific framing).
+
+_Sequence diagrams — all 11 API modules (~81 diagrams total)_
+- Auth (13 endpoints) + Profile (7): guard chain, outbox writes, refresh reuse-detection, OAuth callback CSRF.
+- Catalog (5), Pricing (2), Search (1 endpoint + 6 ES maintenance): effective price resolution, all ES consumer groups.
+- Seller (21 endpoints): full guard chain, outbox, KYC/suspension gate, bulk CSV inventory, PII access log.
+- Cart (6), Orders (3), Admin (12), Notifications (3 + async section), Health (1): full coverage, all embedded inline per endpoint.
+
+_Mermaid syntax validation_
+- Identified root causes: `<br/>` in `Note over` text (converts to newline mid-parse), `;` in Note/arrow text (treated as statement separator by jison lexer).
+- Fixed 6 files (cart, catalog, pricing, search, seller, auth) via parallel agents; all `<br/>` removed from Note lines, all `;` replaced.
+
+**Decisions:**
+- Diagrams embedded inline per endpoint, not in a separate `sequences/` directory.
+- MongoDB audit writes modeled outside Postgres transaction boundary.
+- Notification consumer idempotency via `platform.processed_event(consumer_group, event_id)`.
+- `FLAGGED` added as explicit `offer_status` enum value (not derived from moderation_case).
+- Auth transactional emails (ET-18/19/20) moved to Kafka outbox — no inline SMTP.
+- ES price fields use `keyword` type; range filters via numeric sub-field.
+- ET-09 daily digest: buffer table + 23:00 UTC cron (not Kafka Streams).
+- `conventions/` classifier: "would phase-2 engineers change this, or just reference it?" — reference-only files move there.
+
+**Next:**
+- Verify diagrams render correctly in GitHub / Mermaid Live.
+- Begin implementation scaffolding (NestJS monorepo init, docker-compose up).
+
+<a id="2026-08-29c"></a>
+## 2026-08-29 (session 3)
+**Focus:** Revalidation fixes — applied all blocking and high-priority findings from parallel agent review across 7 design docs.
+
+**Done:**
+- `data-model-erd.md` — `seller_profile.status` split into `kyc_status` + `suspension_status`; `fulfillment.display_id` added (`FUL-<8hex>`); `low_stock_threshold` added to `inventory.stock`; 5 missing cross-schema FKs added; CHECK constraints; missing timestamps; `platform.outbox_event` partial index note.
+- `kafka-events.md` — BRD version fixed; `order.completed` payload corrected (`fulfillment_ids[]` + `order_id`, partition key `order_id`); delivery-tracker consumer description fixed (queries `orders.fulfillment`); `fulfillment_id` + `display_id` added to all fulfillment event payloads; `order.finalized` `placed_orders` renamed to `placed_fulfillments`; new `seller.reinstated` event added (§2.15); §3 topic summary updated.
+- `api-design.md` — BRD version fixed; guard legend updated to `kyc_status`/`suspension_status`; §9.8 DELETE offer removed (duplicate of PATCH); `orders[]` note added (each element = fulfillment); §8.3 response schema added; 409 price-changed response body added; `PATCH /seller/profile` endpoint added; `GET /admin/sellers/:sellerId` added; §10.4 response schema added; §10.6 reinstate side effects added; §10.9 ES deindex now async via Kafka; notification types `REFUND_ISSUED`, `KYC_SUBMITTED`, `ORDER_COMPLETED`, `SELLER_REINSTATED` added.
+- `auth-jwt-design.md` — BRD version fixed; `seller_status` JWT claim split into `seller_kyc_status` + `seller_suspension_status`; OAuth callbacks fixed from URL fragment to query param + `HttpOnly` Set-Cookie; guard definitions updated; guard matrix extended (OAuth endpoints, resend-verification); §13 design decision updated.
+- `implementation-specs.md` — `SellerProfile.status` split into `kyc_status` + `suspension_status`; `User.account_type` `CONSUMER`/`BUSINESS` → `B2C`/`B2B`.
+- `module-architecture.md` — BRD version fixed; inventory consumer group label clarified (`fulfillment.placed` topic vs `inventory.fulfillment-placed` group); `seller.reinstated` added to admin/search/notifications Kafka columns; Workers module row added.
+- `docker-compose-topology.md` — BRD version fixed; MongoDB auth credentials added (`MONGO_INITDB_ROOT_USERNAME/PASSWORD`); healthcheck updated to authenticate; both `MONGODB_URI` values updated with auth; workers `depends_on` mongodb added; `.env.example` MongoDB section updated; FX URL fixed to `api.exchangerate.host`.
+
+**Decisions:**
+- `seller_kyc_status` and `seller_suspension_status` as separate JWT claims (independent guard composition — a KYC-approved seller can be suspended without affecting their KYC state).
+- `FUL-<8hex>` as fulfillment display ID distinct from order's `ORD-<8hex>` (buyer-facing "orders" in UI are actually fulfillments).
+
+**Next:**
+- Backlog decomposition into implementation tickets, or start implementation scaffolding.
+
+<a id="2026-08-29b"></a>
+## 2026-08-29 (session 2)
+**Focus:** Phase 1 technical design + UI design produced by parallel agent team.
+
+**Done:**
+
+_Technical design (`phase-1/technical-design/`)_
+- `api-design.md` — 67 REST endpoints across all modules; auth guards, request/response shapes, cursor pagination, money as strings.
+- `kafka-events.md` — 14 topics; full Avro schemas (envelope + payload); consumer groups with side effects; BACKWARD compat rules; DLQ topology.
+- `auth-jwt-design.md` — JWT access token (15 min, HS256, `roles[]`, `seller_status` embedded); opaque refresh token (7 days, HttpOnly cookie, SHA-256 stored); refresh rotation + reuse-detection sequence diagrams; Google + Facebook OAuth flows; guard matrix (5 guards × all endpoint groups); argon2id params; rate limits; security headers.
+- `docker-compose-topology.md` — 11 services (3 nginx, api, workers, postgres, mongo, elasticsearch, kafka KRaft, schema-registry, kafka-ui); full `docker-compose.yml` YAML; health checks; `.env.example`.
+- `module-architecture.md` — hexagonal 4-layer structure per module; CQRS-lite (no `@nestjs/cqrs`); repository interface pattern; outbox integration with `EntityManager` tx propagation; OpenAPI generation pipeline; module dependency table.
+- `data-model-erd.md` (updated) — `role` (single) → `roles TEXT[]`; added `email_verification_token`, `password_reset_token`, `email_template` tables; `idempotency_key_id` on order; corrections log.
+
+_UI design (`phase-1/ui-design/`)_
+- `design-system.md` — Indigo/Amber AM theme; 8px grid; CDK breakpoints; Material Icons catalogue; 9 shared `libs/ui/` component specs (ProductCard, StatusBadge, PriceDisplay, CurrencyInput, ConfirmDialog, DataTable, NotificationBell, FileUpload, EmptyState).
+- `buyer-portal.md` — 13 screens (Home, Search, PDP, Cart, 4-step Checkout, Confirmation, Order History, Order Detail, Login, Register, Account Settings, Email Verification Pending, Forgot Password).
+- `seller-portal.md` — 10 screens (Login, Register, KYC, Dashboard, Listings, Create/Edit Product, Order Queue, Order Detail, Inventory, Notifications).
+- `admin-portal.md` — 8 screens (Login, Dashboard, KYC Queue, KYC Detail, Moderation Queue, Moderation Detail, Seller Management, Seller Detail).
+- `navigation-routing.md` — Route trees for all 3 apps; 9 auth guards; guard matrix; deep-link behavior; query param conventions; TitleStrategy; scroll restoration.
+
+_Consistency check (coordinator)_
+- Guards align: UI `AuthGuard`/`KycApprovedGuard`/`NotSuspendedGuard` etc. match architect's guard matrix and JWT `seller_status` claim.
+- Suspended-seller allowed-endpoints match UI's `KycApprovedGuard`-only gate on `/seller/orders`.
+- Route structures consistent with 06-auth-portals diagram.
+
+**Decisions:**
+- Refresh token as HttpOnly cookie (reduces XSS surface; Angular interceptor handles 401→refresh→retry).
+- `seller_status` embedded in JWT (avoids per-request DB lookup; 15-min propagation lag on suspension acceptable for V1).
+- No `@nestjs/cqrs` — plain handler classes sufficient for V1.
+- KRaft Kafka (no ZooKeeper) in docker-compose.
+- `KycApprovedGuard` and `NotSuspendedGuard` show in-route overlays rather than hard redirects.
+- `PreloadAllModules` for buyer-app; `NoPreloading` for seller-app and admin-app.
+
+**Open questions (need product owner input):**
+1. Search results — suppress offers from suspended sellers? (defaulted: yes)
+2. Max saved addresses per buyer? (defaulted: no limit; US-B-14 said 10)
+3. Buyer's currency param at checkout — affects price row selection or display only? (defaulted: display only)
+
+**Next:**
+- Resolve 3 open questions above.
+- Begin backlog decomposition into implementation tasks.
+- Scaffold repo structure (`backend/`, `frontend/`, `migrations/`) when ready to code.
+
+---
 
 <a id="2026-08-29"></a>
 ## 2026-08-29
