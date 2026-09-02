@@ -537,7 +537,7 @@ div.page-header [display: flex; justify-content: space-between; align-items: cen
           <mat-option value="">All</mat-option>
           <mat-option value="ACTIVE">Active</mat-option>
           <mat-option value="SUSPENDED">Suspended</mat-option>
-          <mat-option value="KYC_PENDING">KYC Pending</mat-option>
+          <mat-option value="PENDING_KYC">KYC Pending</mat-option>
         </mat-select>
       </mat-form-field>
     </div>
@@ -551,9 +551,9 @@ div.page-header [display: flex; justify-content: space-between; align-items: cen
   ng-container matColumnDef="country"
     th mat-header-cell — Country
     td mat-cell — {{ row.country }}
-  ng-container matColumnDef="registeredAt"
+  ng-container matColumnDef="createdAt"
     th mat-header-cell mat-sort-header — Registered
-    td mat-cell — {{ row.registeredAt | date:'mediumDate' }}
+    td mat-cell — {{ row.createdAt | date:'mediumDate' }}
   ng-container matColumnDef="kycStatus"
     th mat-header-cell — KYC
     td mat-cell — <aliceut-status-badge [status]="row.kycStatus" [statusType]="'kyc'">
@@ -609,7 +609,7 @@ div.detail-grid [display: grid; grid-template-columns: 1fr 360px; gap: 24px]
         mat-list-item
           mat-icon matListItemIcon — calendar_today
           span mat-list-item-title — Registered
-          span matListItemMeta — {{ seller.registeredAt | date:'mediumDate' }}
+          span matListItemMeta — {{ seller.createdAt | date:'mediumDate' }}
         mat-list-item
           mat-icon matListItemIcon — inventory_2
           span mat-list-item-title — Active Listings

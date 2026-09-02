@@ -36,25 +36,30 @@ Tag: Pricing
 Auth: PUBLIC (buyer account type from JWT if authenticated)
 ```
 **Query params**
-- `currency`: `USD | THB | JPY | SGD` (required)
+- `currency`: `USD | THB | JPY | SGD` (required) — **buyer's requested display currency**
 - `qty`: integer ≥ 1 (default 1)
 - `accountType`: `B2C | B2B` (default B2C; overridden by JWT if authenticated)
 
 **Response 200**
 ```json
 {
-  "offerId": "uuid",
-  "amount": "99.99",
-  "currency": "USD",
-  "priceType": "LIST | SALE | B2B_TIER",
-  "saleEndsAt": "ISO8601 | null",
-  "minQty": 1,
-  "displayInCurrency": "THB",
-  "displayAmount": "3440.00",
-  "fxRate": "34.40000000",
-  "fxRateStaleAt": "ISO8601 | null"
+  "data": {
+    "offerId": "uuid",
+    "amount": "99.99",
+    "currency": "USD",
+    "priceType": "LIST | SALE | B2B_TIER",
+    "saleEndsAt": "ISO8601 | null",
+    "minQty": 1,
+    "displayCurrency": "THB",
+    "displayAmount": "3440.00",
+    "fxRate": "34.40000000",
+    "fxRateStaleAt": "ISO8601 | null"
+  }
 }
 ```
+**Field semantics:**
+- `amount` / `currency` — seller's native pricing currency (the price row stored in `pricing.offer_price`)
+- `displayCurrency` / `displayAmount` / `fxRate` / `fxRateStaleAt` — buyer's requested display currency (FX-converted, display-only). Omitted when `currency` param matches the offer's native currency (no conversion needed). `fxRateStaleAt` is set (and `displayAmount` omitted) when the FX rate is missing or stale.
 **Errors:** 404 offer not found, 422 currency not supported
 
 #### Sequence
@@ -102,7 +107,7 @@ sequenceDiagram
                     PricingService-->>API: effective price with optional FX display conversion
                 end
 
-                API-->>Client: 200 { offerId, amount, currency, priceType, saleEndsAt,<br/>minQty, displayInCurrency, displayAmount, fxRate, fxRateStaleAt }
+                API-->>Client: 200 { data: { offerId, amount, currency, priceType, saleEndsAt,<br/>minQty, displayCurrency, displayAmount, fxRate, fxRateStaleAt } }
             end
         end
     end
@@ -121,10 +126,12 @@ Auth: PUBLIC
 **Response 200**
 ```json
 {
-  "baseCurrency": "USD",
-  "rates": [
-    { "quoteCurrency": "THB", "rate": "34.40000000", "asOf": "ISO8601" }
-  ]
+  "data": {
+    "baseCurrency": "USD",
+    "rates": [
+      { "quoteCurrency": "THB", "rate": "34.40000000", "asOf": "ISO8601" }
+    ]
+  }
 }
 ```
 
@@ -144,5 +151,5 @@ sequenceDiagram
     Postgres-->>PricingService: FX rate rows for seller-allowed currencies (USD, THB, JPY, SGD)
     Note over PricingService: FX rates are a display-only cache. Never used to reprice orders (order repricing uses fulfillment_item.fx_rate_used_at_capture snapshot)
     PricingService-->>API: rates array
-    API-->>Client: 200 { baseCurrency: "USD", rates: [{ quoteCurrency, rate, asOf }] }
+    API-->>Client: 200 { data: { baseCurrency: "USD", rates: [{ quoteCurrency, rate, asOf }] } }
 ```

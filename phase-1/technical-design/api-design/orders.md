@@ -56,36 +56,38 @@ Headers: Idempotency-Key: <client-uuid> (required)
 **Response 201**
 ```json
 {
-  "placementOutcome": "FULLY_PLACED | PARTIALLY_PLACED",
-  "orders": [{
-    "id": "uuid",
-    "displayId": "FUL-3F2A1B9C",
-    "sellerId": "uuid",
-    "sellerName": "string",
-    "status": "PENDING",
-    "currency": "USD",
-    "trackingNumber": "TRK-3F2A1B9C",
-    "estimatedDeliveryAt": "ISO8601",
-    "placedAt": "ISO8601",
-    "items": [{
-      "offerId": "uuid",
-      "productTitle": "string",
-      "variantLabel": "string | null",
-      "quantity": 1,
-      "unitPrice": "99.99",
+  "data": {
+    "placementOutcome": "FULLY_PLACED | PARTIALLY_PLACED",
+    "orders": [{
+      "id": "uuid",
+      "displayId": "FUL-3F2A1B9C",
+      "sellerId": "uuid",
+      "sellerName": "string",
+      "status": "PENDING",
       "currency": "USD",
-      "tax": "7.00",
-      "lineTotal": "106.99"
+      "trackingNumber": "TRK-3F2A1B9C",
+      "estimatedDeliveryAt": "ISO8601",
+      "placedAt": "ISO8601",
+      "items": [{
+        "offerId": "uuid",
+        "productTitle": "string",
+        "variantLabel": "string | null",
+        "quantity": 1,
+        "unitPrice": "99.99",
+        "currency": "USD",
+        "tax": "7.00",
+        "lineTotal": "106.99"
+      }],
+      "shippingCost": "5.00",
+      "taxTotal": "7.00",
+      "totalAmount": "111.99"
     }],
-    "shippingCost": "5.00",
-    "taxTotal": "7.00",
-    "totalAmount": "111.99"
-  }],
-  "failedGroups": [{
-    "sellerId": "uuid",
-    "reason": "PRICE_CHANGED | OUT_OF_STOCK | OFFER_UNAVAILABLE",
-    "items": [{ "offerId": "uuid", "productTitle": "string" }]
-  }]
+    "failedGroups": [{
+      "sellerId": "uuid",
+      "reason": "PRICE_CHANGED | OUT_OF_STOCK | OFFER_UNAVAILABLE",
+      "items": [{ "offerId": "uuid", "productTitle": "string" }]
+    }]
+  }
 }
 ```
 **Errors:**
@@ -245,7 +247,7 @@ sequenceDiagram
     Note over O,A: Response built from committed data.<br/>No Kafka, email, ES, or MongoDB side effects have occurred yet.
     O-->>A: order response DTO
     deactivate O
-    A-->>C: 201 { placementOutcome, orders[], failedGroups[] }<br/>(all monetary amounts as strings)
+    A-->>C: 201 { data: { placementOutcome, orders[], failedGroups[] } }<br/>(all monetary amounts as strings)
     deactivate A
 
     rect rgb(220, 245, 230)
@@ -341,35 +343,37 @@ Auth: BUYER
 **Response 200**
 ```json
 {
-  "id": "uuid",
-  "displayId": "FUL-3F2A1B9C",
-  "status": "PENDING | SHIPPED | DELIVERED | REFUNDED | CANCELLED | IN_PROGRESS | PARTIALLY_SHIPPED | PARTIALLY_DELIVERED | PARTIALLY_REFUNDED | COMPLETED",
-  "sellerId": "uuid",
-  "sellerName": "string",
-  "shippingAddress": {
-    "fullName": "string",
-    "addressLine1": "string",
-    "city": "string",
-    "country": "string",
-    "postalCode": "string"
-  },
-  "trackingNumber": "TRK-... | null",
-  "estimatedDeliveryAt": "ISO8601 | null",
-  "placedAt": "ISO8601",
-  "items": [{
-    "offerId": "uuid",
-    "productTitle": "string",
-    "variantLabel": "string | null",
-    "quantity": 1,
-    "unitPrice": "99.99",
-    "currency": "USD",
-    "tax": "7.00",
-    "lineTotal": "106.99"
-  }],
-  "shippingCost": "5.00",
-  "taxTotal": "7.00",
-  "totalAmount": "111.99",
-  "currency": "USD"
+  "data": {
+    "id": "uuid",
+    "displayId": "FUL-3F2A1B9C",
+    "status": "PENDING | SHIPPED | DELIVERED | REFUNDED | CANCELLED | IN_PROGRESS | PARTIALLY_SHIPPED | PARTIALLY_DELIVERED | PARTIALLY_REFUNDED | COMPLETED",
+    "sellerId": "uuid",
+    "sellerName": "string",
+    "shippingAddress": {
+      "fullName": "string",
+      "addressLine1": "string",
+      "city": "string",
+      "country": "string",
+      "postalCode": "string"
+    },
+    "trackingNumber": "TRK-... | null",
+    "estimatedDeliveryAt": "ISO8601 | null",
+    "placedAt": "ISO8601",
+    "items": [{
+      "offerId": "uuid",
+      "productTitle": "string",
+      "variantLabel": "string | null",
+      "quantity": 1,
+      "unitPrice": "99.99",
+      "currency": "USD",
+      "tax": "7.00",
+      "lineTotal": "106.99"
+    }],
+    "shippingCost": "5.00",
+    "taxTotal": "7.00",
+    "totalAmount": "111.99",
+    "currency": "USD"
+  }
 }
 ```
 **Errors:** 404, 403 (not this buyer's fulfillment)
@@ -412,6 +416,6 @@ sequenceDiagram
     P-->>O: fulfillment_item rows
     O-->>A: fulfillment detail DTO (amounts as strings)
     deactivate O
-    A-->>C: 200 { id, displayId, status, sellerId, sellerName,<br/>  shippingAddress, trackingNumber, estimatedDeliveryAt,<br/>  placedAt, items[], shippingCost, taxTotal, totalAmount, currency }
+    A-->>C: 200 { data: { id, displayId, status, sellerId, sellerName,<br/>  shippingAddress, trackingNumber, estimatedDeliveryAt,<br/>  placedAt, items[], shippingCost, taxTotal, totalAmount, currency } }
     deactivate A
 ```

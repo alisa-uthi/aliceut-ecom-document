@@ -56,6 +56,94 @@ Each topic uses a partition key to co-locate related events and preserve orderin
 
 On unhandled exception: route to `<consumer_group>.dlq`, then commit offset. DLQ non-empty triggers alert.
 
+### 4.1 Processing flow diagram
+
+```mermaid
+flowchart TD
+    A[Kafka poll] --> B[Deserialize Avro\nvia Schema Registry]
+    B --> C{event_id in\nplatform.processed_event?}
+    C -- yes --> D[Skip]
+    D --> G[Commit offset]
+    C -- no --> E[Execute side effect\nsee §4.2 family patterns]
+    E -- success --> F["INSERT processed_event\n(outcome = OK)"]
+    F --> G
+    E -- exception --> H["Route original event\nto &lt;consumer_group&gt;.dlq"]
+    H --> I["INSERT processed_event\n(outcome = FAILED)"]
+    I --> G
+    G --> J{DLQ non-empty?}
+    J -- yes --> K[Alert]
+    J -- no --> A
+```
+
+### 4.2 Consumer family patterns
+
+Each consumer group belongs to one family. The idempotency wrapper (§4) applies to all; the steps below are the side-effect body (step 2 above).
+
+---
+
+#### `notification.*` — email + in-app notification
+
+```
+1. Resolve recipient email
+     - Prefer payload field (e.g. seller_email, buyer_id → look up in DB)
+2. Render email template (ET-XX defined in email-templates.md)
+3. Send via SMTP/mailer with 3× retry + exponential backoff (100 ms, 500 ms, 2 s)
+     - On 3× failure: route to email.outbound.dlq (do NOT route main event to DLQ)
+4. If consumer also creates in-app notification:
+     a. INSERT notifications (user_id, type, payload, created_at) in Postgres
+```
+
+---
+
+#### `search.*` — Elasticsearch index update
+
+```
+1. Build ES document / partial update from event payload
+2. Call ES index / update / delete API
+     - CREATED / UPDATED  →  upsert (index with _id = entity_id)
+     - DEACTIVATED / REMOVED / soft_deleted  →  delete or partial update (active = false)
+3. On ES 409 version conflict: retry once with fresh read from Postgres
+4. On persistent ES error: route to DLQ
+```
+
+---
+
+#### `audit` — MongoDB write
+
+```
+1. Map envelope + payload fields to audit_logs or activity_events schema
+     (schema defined in data-model-mongodb.md)
+2. db.audit_logs.insertOne(doc)  OR  db.activity_events.insertOne(doc)
+3. On MongoDB write failure: route to DLQ
+```
+
+---
+
+#### `inventory.*` — Postgres inventory adjustment
+
+```
+1. BEGIN transaction
+2. SELECT ... FOR UPDATE on inventory.stock row (pessimistic lock)
+3. Apply adjustment (mark reservation CONSUMED, restore stock, etc.)
+4. COMMIT
+5. On constraint violation or deadlock: retry up to 3× with 50 ms back-off
+6. On 3× failure: route to DLQ
+```
+
+---
+
+#### `orders.*` — Postgres order/fulfillment state update
+
+```
+1. BEGIN transaction
+2. UPDATE orders.fulfillment SET status = ? WHERE fulfillment_id = ?
+3. Check follow-up condition (e.g. all sibling fulfillments DELIVERED?)
+4. If condition met: INSERT outbox event row in same transaction
+5. COMMIT
+6. Outbox relay picks up and emits downstream Kafka event
+7. On DB error: rollback, route to DLQ
+```
+
 ---
 
 ## 5. DLQ topology

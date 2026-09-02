@@ -406,7 +406,7 @@ div.cart-layout [display: grid; grid-template-columns: 1fr 340px; gap: 24px; ali
 - **Stale items:** Error banner at top; "Remove" button on each stale item; checkout CTA disabled.
 - **Price changed:** Warning banner at top; "Price updated" label on changed items.
 - **Loading:** Skeleton rows (3 rows) with grey rectangles.
-- **Guest cart:** Normal display; checkout CTA redirects to `/login?next=/checkout`.
+- **Guest cart:** Normal display; checkout CTA redirects to `/login?returnUrl=/checkout`.
 - **Cart merge notification (post-login):** After login redirect, if guest cart items were merged with the logged-in cart, display a `MatSnackBar` at bottom-center for 5 seconds:
   - Primary message: 'N item(s) from your guest session were added to your cart.'
   - Optional second line (if quantities were adjusted): 'Some quantities were adjusted to match available stock.'
@@ -422,7 +422,7 @@ div.cart-layout [display: grid; grid-template-columns: 1fr 340px; gap: 24px; ali
 ## Screen 5 — Checkout
 
 **Route:** `/checkout`  
-**Auth:** Required (redirects to `/login?next=/checkout` if guest)
+**Auth:** Required (redirects to `/login?returnUrl=/checkout` if guest)
 
 ### Layout
 
@@ -794,7 +794,7 @@ div.auth-page [display: flex; justify-content: center; align-items: flex-start; 
         <!-- Email not verified warning -->
         mat-card.warning-banner *ngIf="emailNotVerified" [margin-bottom: 16px]
           mat-icon — warning_amber
-          span — Please verify your email before signing in.
+          span — Please verify your email to place orders.
           button mat-button (click)="resendVerification()" [disabled]="resendDisabled" — Resend verification email
           p mat-caption *ngIf="resendCooldown" — Resend available in {{ resendCooldown }}
 
@@ -823,7 +823,7 @@ div.auth-page [display: flex; justify-content: center; align-items: flex-start; 
 - **Submitting:** Button spinner; form disabled.
 - **Error:** Inline `mat-card.error-banner` with generic "Incorrect email or password." message (no field-level enumeration).
 - **Email not verified:** Warning banner with resend button; resend cooldown countdown.
-- **Checkout intent:** Info banner shown above the form when `hasCheckoutIntent` is true (route's `?next` param contains `/checkout`). Purely contextual — does not change form behavior. `hasCheckoutIntent = this.route.snapshot.queryParams['next']?.includes('/checkout')`.
+- **Checkout intent:** Info banner shown above the form when `hasCheckoutIntent` is true (route's `?returnUrl` param contains `/checkout`). Purely contextual — does not change form behavior. `hasCheckoutIntent = this.route.snapshot.queryParams['returnUrl']?.includes('/checkout')`.
 
 ---
 
@@ -884,7 +884,7 @@ mat-tab-group [orientation=vertical] [on desktop; horizontal on mobile]
           mat-option value="SGD" — SGD — Singapore Dollar
       mat-form-field *ngIf="user.isBusinessAccount" — mat-label "Business Name" — input formControlName="businessName"
       <!-- B2B only: shown when accountType === 'B2B' -->
-      <div *ngIf="isBuyer.accountType === 'B2B'" class="business-logo-section">
+      <div *ngIf="user.isBusinessAccount" class="business-logo-section">
         <label>Business Logo (optional)</label>
         <div *ngIf="currentLogoUrl" class="logo-preview">
           <img [src]="currentLogoUrl" alt="Business logo" style="max-height:64px">
@@ -1003,7 +1003,7 @@ mat-card [max-width: 440px; margin: 48px auto]
 
 ### States
 
-- **Loading:** On mount, calls `POST /auth/validate-reset-token { token }` to verify. Shows spinner while pending.
+- **Loading:** On mount, shows form optimistically. Token validity is determined by the `POST /auth/reset-password` response on submit (400 = expired/used). No separate pre-validation endpoint exists.
 - **Valid token — standard:** Show "Enter new password" + "Confirm password" fields. Password requirements hint. Submit button "Set New Password". On success: redirect to `/login?passwordReset=true`.
 - **Valid token — OAuth-only account:** Same form but `passwordLabel` changes to "Set a password for your account" (user previously had no password hash). Note: shown when account has no existing password hash.
 - **Expired/used token:** Error message "This reset link has expired or already been used." with a "Request a new reset link" action that navigates to `/forgot-password`.
@@ -1033,7 +1033,7 @@ mat-card [max-width: 440px; margin: 48px auto]
 
 - **Loading:** Spinner while calling `POST /auth/verify-email { token }`.
 - **Success:** "Email verified! Redirecting to login..." then auto-redirect to `/login?verified=true` after 2s.
-- **Expired/used token:** "This verification link has expired." with a "Resend verification email" button that calls `POST /auth/resend-verification { email }` (email pre-filled if available from token decode).
+- **Expired/used token:** "This verification link has expired." with a "Resend verification email" button that calls `POST /auth/resend-verification` (JWT-authenticated, no request body; uses the `sub` claim from the session token).
 
 ---
 

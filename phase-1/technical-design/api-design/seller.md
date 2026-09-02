@@ -91,9 +91,11 @@ documents[]: file[] (encrypted in object storage)
 **Response 201**
 ```json
 {
-  "sellerId": "uuid",
-  "status": "PENDING_KYC",
-  "message": "KYC application submitted"
+  "data": {
+    "sellerId": "uuid",
+    "status": "PENDING_KYC",
+    "message": "KYC application submitted"
+  }
 }
 ```
 Side effect: `SELLER` role added to user; `seller.kyc.submitted` Kafka event emitted.  
@@ -146,7 +148,7 @@ sequenceDiagram
     KR->>KO: UPDATE SET publication_status = 'PUBLISHED'
 
     SS-->>A: { sellerId, status: PENDING_KYC }
-    A-->>C: 201 Created { sellerId, status: "PENDING_KYC", message: "KYC application submitted" }
+    A-->>C: 201 Created { data: { sellerId, status: "PENDING_KYC", message: "KYC application submitted" } }
 ```
 
 ---
@@ -161,12 +163,14 @@ Auth: SELLER
 **Response 200**
 ```json
 {
-  "id": "uuid",
-  "businessName": "string",
-  "kycStatus": "PENDING_KYC | APPROVED | REJECTED",
-  "suspensionStatus": "ACTIVE | SUSPENDED",
-  "rejectionReason": "string | null",
-  "createdAt": "ISO8601"
+  "data": {
+    "id": "uuid",
+    "businessName": "string",
+    "kycStatus": "PENDING_KYC | APPROVED | REJECTED",
+    "suspensionStatus": "ACTIVE | SUSPENDED",
+    "rejectionReason": "string | null",
+    "createdAt": "ISO8601"
+  }
 }
 ```
 
@@ -195,7 +199,7 @@ sequenceDiagram
     A->>P: SELECT seller.seller_profile WHERE id = seller.id
     P-->>A: seller_profile row
 
-    A-->>C: 200 OK { id, businessName, kycStatus, suspensionStatus, rejectionReason, createdAt }
+    A-->>C: 200 OK { data: { id, businessName, kycStatus, suspensionStatus, rejectionReason, createdAt } }
 ```
 
 ---
@@ -210,11 +214,13 @@ Auth: SELLER
 **Response 200**
 ```json
 {
-  "id": "uuid",
-  "status": "PENDING | APPROVED | REJECTED",
-  "submittedAt": "ISO8601",
-  "decidedAt": "ISO8601 | null",
-  "decisionReason": "string | null"
+  "data": {
+    "id": "uuid",
+    "status": "PENDING | APPROVED | REJECTED",
+    "submittedAt": "ISO8601",
+    "decidedAt": "ISO8601 | null",
+    "decisionReason": "string | null"
+  }
 }
 ```
 
@@ -243,7 +249,7 @@ sequenceDiagram
     A->>P: SELECT seller.kyc_application WHERE seller_id = seller.id ORDER BY submitted_at DESC LIMIT 1
     P-->>A: kyc_application row
 
-    A-->>C: 200 OK { id, status, submittedAt, decidedAt, decisionReason }
+    A-->>C: 200 OK { data: { id, status, submittedAt, decidedAt, decisionReason } }
 ```
 
 ---
@@ -262,7 +268,7 @@ Auth: SELLER
   "submittedData": "object (optional — business address, contact)"
 }
 ```
-**Response 200** — updated seller profile (same shape as GET /seller/profile)  
+**Response 200** — updated seller profile (`data`-wrapped, same shape as GET /seller/profile)  
 **Errors:** 400 validation
 
 #### Sequence
@@ -295,7 +301,7 @@ sequenceDiagram
     A->>P: UPDATE seller.seller_profile SET business_name=?, updated_at=NOW() WHERE id = seller.id
     P-->>A: updated seller_profile row
 
-    A-->>C: 200 OK { id, businessName, kycStatus, suspensionStatus, rejectionReason, createdAt }
+    A-->>C: 200 OK { data: { id, businessName, kycStatus, suspensionStatus, rejectionReason, createdAt } }
 ```
 
 ---
@@ -317,7 +323,7 @@ documents[]: file[] (encrypted in object storage)
 ```
 **Response 201**
 ```json
-{ "applicationId": "uuid" }
+{ "data": { "applicationId": "uuid" } }
 ```
 Side effect: `seller.kyc.submitted` Kafka event with `is_resubmission: true` via outbox.  
 **Errors:** 409 KYC status is not REJECTED
@@ -370,7 +376,7 @@ sequenceDiagram
     KR->>KO: UPDATE SET publication_status = 'PUBLISHED'
 
     SS-->>A: { applicationId }
-    A-->>C: 201 Created { applicationId }
+    A-->>C: 201 Created { data: { applicationId } }
 ```
 
 ---
@@ -402,12 +408,14 @@ Auth: SELLER_APPROVED + SELLER_ACTIVE
 **Response 201**
 ```json
 {
-  "id": "uuid",
-  "productId": "uuid",
-  "variantId": "uuid | null",
-  "status": "DRAFT",
-  "prices": [...],
-  "stock": { "onHandQty": 50, "availableQty": 50 }
+  "data": {
+    "id": "uuid",
+    "productId": "uuid",
+    "variantId": "uuid | null",
+    "status": "DRAFT",
+    "prices": [...],
+    "stock": { "onHandQty": 50, "availableQty": 50 }
+  }
 }
 ```
 Side effects: `offer.changed` event, `inventory.changed` event via outbox.  
@@ -468,7 +476,7 @@ sequenceDiagram
     KR->>KO: UPDATE SET publication_status = 'PUBLISHED'
 
     OS-->>A: created offer with prices and stock
-    A-->>C: 201 Created { id, productId, variantId, status, prices[], stock{onHandQty, availableQty} }
+    A-->>C: 201 Created { data: { id, productId, variantId, status, prices[], stock{onHandQty, availableQty} } }
 ```
 
 ---
@@ -575,7 +583,7 @@ sequenceDiagram
     A->>P: SELECT inventory.stock WHERE offer_id = :offerId
     P-->>A: offer + all prices + stock
 
-    A-->>C: 200 OK { id, productId, variantId, status, moderationStatus, prices[], stock }
+    A-->>C: 200 OK { data: { id, productId, variantId, status, moderationStatus, prices[], stock } }
 ```
 
 ---
@@ -595,7 +603,7 @@ Auth: SELLER_APPROVED + SELLER_ACTIVE
   "stockAdjustment": { "onHandQty": 100 }
 }
 ```
-**Response 200** — updated offer  
+**Response 200** — updated offer (`data`-wrapped)  
 Side effects: `offer.changed` and/or `inventory.changed` events.
 
 #### Sequence
@@ -656,7 +664,7 @@ sequenceDiagram
     KR->>KO: UPDATE SET publication_status = 'PUBLISHED'
 
     OS-->>A: updated offer
-    A-->>C: 200 OK { updated offer with prices and stock }
+    A-->>C: 200 OK { data: { updated offer with prices and stock } }
 ```
 
 ---
@@ -678,7 +686,7 @@ Auth: SELLER_APPROVED + SELLER_ACTIVE
   "endsAt": "ISO8601 | null"
 }
 ```
-**Response 200** — updated price row  
+**Response 200** — updated price row (`data`-wrapped)  
 **Errors:** 422 currency not in allowed set, 422 SALE price missing time bounds
 
 #### Sequence
@@ -734,7 +742,7 @@ sequenceDiagram
     KR->>KO: UPDATE SET publication_status = 'PUBLISHED'
 
     OS-->>A: updated pricing.offer_price row
-    A-->>C: 200 OK { updated price row }
+    A-->>C: 200 OK { data: { updated price row } }
 ```
 
 ---
@@ -750,7 +758,7 @@ Auth: SELLER_APPROVED + SELLER_ACTIVE
 ```json
 { "onHandQty": 75 }
 ```
-**Response 200** `{ "offerId": "uuid", "onHandQty": 75, "reservedQty": 5, "availableQty": 70 }`  
+**Response 200** `{ "data": { "offerId": "uuid", "onHandQty": 75, "reservedQty": 5, "availableQty": 70 } }`  
 Side effect: `inventory.changed` event; `inventory.low_stock` if below threshold.
 
 #### Sequence
@@ -802,7 +810,7 @@ sequenceDiagram
     KR->>KO: UPDATE SET publication_status = 'PUBLISHED'
 
     IS-->>A: { offerId, onHandQty: 75, reservedQty, availableQty }
-    A-->>C: 200 OK { offerId, onHandQty: 75, reservedQty, availableQty }
+    A-->>C: 200 OK { data: { offerId, onHandQty: 75, reservedQty, availableQty } }
 ```
 
 ---
@@ -819,9 +827,11 @@ Content-Type: multipart/form-data
 **Response 202**
 ```json
 {
-  "accepted": 98,
-  "rejected": 2,
-  "errors": [{ "row": 3, "sku": "SKU-001", "reason": "SKU not found" }]
+  "data": {
+    "accepted": 98,
+    "rejected": 2,
+    "errors": [{ "row": 3, "sku": "SKU-001", "reason": "SKU not found" }]
+  }
 }
 ```
 
@@ -886,7 +896,7 @@ sequenceDiagram
     KR->>KO: UPDATE SET publication_status = 'PUBLISHED'
 
     IS-->>A: { accepted, rejected, errors[] }
-    A-->>C: 202 Accepted { accepted: N, rejected: M, errors: [{ row, sku, reason }] }
+    A-->>C: 202 Accepted { data: { accepted: N, rejected: M, errors: [{ row, sku, reason }] } }
 ```
 
 ---
@@ -942,17 +952,19 @@ Auth: SELLER (suspended sellers may also access)
 **Response 200**
 ```json
 {
-  "id": "uuid",
-  "displayId": "ORD-3F2A1B9C",
-  "status": "PENDING | SHIPPED | DELIVERED | REFUNDED",
-  "buyerName": "string",
-  "shippingAddress": { ... },
-  "trackingNumber": "TRK-...",
-  "estimatedDeliveryAt": "ISO8601",
-  "placedAt": "ISO8601",
-  "items": [...],
-  "totalAmount": "111.99",
-  "currency": "USD"
+  "data": {
+    "id": "uuid",
+    "displayId": "ORD-3F2A1B9C",
+    "status": "PENDING | SHIPPED | DELIVERED | REFUNDED",
+    "buyerName": "string",
+    "shippingAddress": { ... },
+    "trackingNumber": "TRK-...",
+    "estimatedDeliveryAt": "ISO8601",
+    "placedAt": "ISO8601",
+    "items": [...],
+    "totalAmount": "111.99",
+    "currency": "USD"
+  }
 }
 ```
 
@@ -987,7 +999,7 @@ sequenceDiagram
     P-->>A: fulfillment row + fulfillment_item rows
     Note over A: shippingAddress is PII — access logged per NFR-09 (structured log)
 
-    A-->>C: 200 OK { id, displayId, status, buyerName, shippingAddress, trackingNumber, estimatedDeliveryAt, placedAt, items[], totalAmount: "111.99", currency }
+    A-->>C: 200 OK { data: { id, displayId, status, buyerName, shippingAddress, trackingNumber, estimatedDeliveryAt, placedAt, items[], totalAmount: "111.99", currency } }
 ```
 
 ---
@@ -999,7 +1011,7 @@ POST /seller/orders/:orderId/ship
 Tag: Seller
 Auth: SELLER (suspended sellers may also access; order must be PENDING)
 ```
-**Response 200** `{ "status": "SHIPPED" }`  
+**Response 200** `{ "data": { "status": "SHIPPED" } }`  
 Side effect: `fulfillment.shipped` Kafka event  
 **Errors:** 409 order not in PENDING state
 
@@ -1046,7 +1058,7 @@ sequenceDiagram
     KR->>KO: UPDATE SET publication_status = 'PUBLISHED'
 
     OrdS-->>A: { status: "SHIPPED" }
-    A-->>C: 200 OK { status: "SHIPPED" }
+    A-->>C: 200 OK { data: { status: "SHIPPED" } }
 ```
 
 ---
@@ -1058,7 +1070,7 @@ POST /seller/orders/:orderId/refund
 Tag: Seller
 Auth: SELLER_ACTIVE (order must be PENDING or SHIPPED)
 ```
-**Response 200** `{ "status": "REFUNDED" }`  
+**Response 200** `{ "data": { "status": "REFUNDED" } }`  
 Side effect: `fulfillment.refunded` event; if refunding from PENDING: restores `available_qty`  
 **Errors:** 409 order not in PENDING or SHIPPED state
 
@@ -1118,7 +1130,7 @@ sequenceDiagram
     KR->>KO: UPDATE SET publication_status = 'PUBLISHED'
 
     OrdS-->>A: { status: "REFUNDED" }
-    A-->>C: 200 OK { status: "REFUNDED" }
+    A-->>C: 200 OK { data: { status: "REFUNDED" } }
 ```
 
 ---
@@ -1143,7 +1155,7 @@ Auth: SELLER_APPROVED + SELLER_ACTIVE
 ```
 **Response 201**
 ```json
-{ "productId": "uuid" }
+{ "data": { "productId": "uuid" } }
 ```
 **Errors:** 400 validation, 404 category not found, 422 prohibited category
 
@@ -1194,7 +1206,7 @@ sequenceDiagram
     end
 
     PS-->>A: { productId }
-    A-->>C: 201 Created { productId }
+    A-->>C: 201 Created { data: { productId } }
 ```
 
 ---
@@ -1349,7 +1361,7 @@ Auth: SELLER_ACTIVE (fulfillment must be in PENDING status)
 ```json
 { "reason": "string (max 500 chars)" }
 ```
-**Response 200** `{ "fulfillmentId": "uuid", "status": "CANCELLED" }`  
+**Response 200** `{ "data": { "fulfillmentId": "uuid", "status": "CANCELLED" } }`  
 Side effect: `fulfillment.cancelled` Kafka event via outbox; restores `available_qty`.  
 **Errors:** 409 fulfillment not in PENDING state
 
@@ -1405,7 +1417,7 @@ sequenceDiagram
     KR->>KO: UPDATE SET publication_status = 'PUBLISHED'
 
     OrdS-->>A: { fulfillmentId, status: "CANCELLED" }
-    A-->>C: 200 OK { fulfillmentId, status: "CANCELLED" }
+    A-->>C: 200 OK { data: { fulfillmentId, status: "CANCELLED" } }
 ```
 
 ---
@@ -1420,10 +1432,12 @@ Auth: SELLER_APPROVED
 **Response 200**
 ```json
 {
-  "pendingOrders": 0,
-  "activeListings": 0,
-  "flaggedListings": 0,
-  "lowStockAlerts": 0
+  "data": {
+    "pendingOrders": 0,
+    "activeListings": 0,
+    "flaggedListings": 0,
+    "lowStockAlerts": 0
+  }
 }
 ```
 
@@ -1457,5 +1471,5 @@ sequenceDiagram
     A->>P: SELECT COUNT(*) FROM inventory.stock s JOIN catalog.offer o ON s.offer_id = o.id WHERE o.seller_id = seller.id AND o.status = 'ACTIVE' AND (s.on_hand_qty - s.reserved_qty) < s.low_stock_threshold
     P-->>A: four count results
 
-    A-->>C: 200 OK { pendingOrders, activeListings, flaggedListings, lowStockAlerts }
+    A-->>C: 200 OK { data: { pendingOrders, activeListings, flaggedListings, lowStockAlerts } }
 ```

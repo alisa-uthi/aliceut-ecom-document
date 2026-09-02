@@ -46,6 +46,7 @@ The refresh token is an **opaque** random string (32 bytes, `crypto.randomBytes(
 | Rotation | Every `/auth/refresh` call issues a new pair and revokes the old refresh token atomically |
 | Revocation on password reset | All refresh sessions for the user are hard-deleted |
 | Revocation on password change | All refresh sessions except the current one are hard-deleted |
+| Expired row cleanup | `pg_cron` daily job — see [data-lifecycle.md § refresh_session](./data-lifecycle.md) |
 
 ### 1.3 Token storage (client side)
 - `accessToken`: in-memory (JavaScript variable, not localStorage). Reduces XSS token theft surface.
@@ -86,7 +87,7 @@ sequenceDiagram
     A-->>C: 204 No Content
 ```
 
-**Reuse detection:** If a revoked refresh token is presented again (token reuse attack), the server revokes ALL sessions for that user and returns 401. This forces a full re-login.
+**Reuse detection:** If a revoked refresh token is presented again (token reuse attack), the server revokes ALL sessions for that user and returns 401. This forces a full re-login. Reuse detection requires the revoked row to remain until its `expires_at` — do not hard-delete on rotation. Rows are cleaned by the daily `pg_cron` job once expired.
 
 ---
 
@@ -167,7 +168,7 @@ The seller portal uses **email/password only**. No OAuth. Reasons:
 
 | Guard name | Implementation | Check |
 |------------|---------------|-------|
-| `JwtAuthGuard` | NestJS `AuthGuard('jwt')` | Validates signature + expiry of Bearer token |
+| `JwtAuthGuard` | NestJS `AuthGuard('jwt')` + Redis revocation check | Validates signature + expiry of Bearer token; then checks `auth:revoke_before:{sub}` in Redis — rejects if `iat < revokeTimestamp` |
 | `RolesGuard` | Custom decorator + guard | Checks `decodedToken.roles` contains required role(s) |
 | `EmailVerifiedGuard` | Custom guard | Checks `decodedToken.email_verified === true` |
 | `SellerApprovedGuard` | Custom guard | Checks `decodedToken.seller_kyc_status === 'APPROVED'` |
@@ -254,8 +255,64 @@ CORS: origin restricted to `BUYER_APP_URL`, `SELLER_APP_URL`, `ADMIN_APP_URL` en
 
 ---
 
-## 13. [DESIGN DECISIONS]
 
-- **[DESIGN DECISION]** `seller_kyc_status` and `seller_suspension_status` are both embedded in the JWT as independent claims, replacing the previous single `seller_status` field. This allows guards to check each independently (e.g. a seller can be KYC-approved but suspended, or KYC-rejected regardless of suspension). Status changes take up to 15 minutes to propagate to in-flight access tokens (JWT TTL). Acceptable for V1 portfolio scope; production would use short-TTL tokens or a stateful token revocation list.
+## 13. Token revocation — immediate status enforcement
+
+Redis per-user revocation timestamp ensures `seller_kyc_status` and `seller_suspension_status` changes take effect on the next API request, without waiting for the 15-min access token to expire.
+
+### 13.1 Mechanism
+
+**Redis key:** `auth:revoke_before:{userId}` → Unix timestamp in seconds  
+**TTL:** 960 s (access token max lifetime 900 s + 60 s clock-skew buffer)
+
+**On status change** — write the revocation timestamp:
+```typescript
+// Called by SellerService.updateKycStatus() and updateSuspensionStatus()
+await redis.set(
+  `auth:revoke_before:${userId}`,
+  Math.floor(Date.now() / 1000),
+  'EX',
+  960,
+);
+```
+
+**JwtAuthGuard extended check** — runs after signature + expiry validation:
+```typescript
+const revokeTs = await redis.get(`auth:revoke_before:${payload.sub}`);
+if (revokeTs && payload.iat < Number(revokeTs)) {
+  throw new UnauthorizedException('Token revoked');
+}
+```
+
+**On next `/auth/refresh`** — server re-reads `seller_kyc_status` and `seller_suspension_status` from DB and embeds fresh values in the new access token. New token's `iat > revokeTimestamp`, so it passes the check.
+
+### 13.2 Revocation triggers
+
+| Event | Redis write | Notes |
+|-------|-------------|-------|
+| Admin suspends seller | Yes | Blocks seller routes immediately |
+| Admin lifts suspension | Yes | Forces token refresh so fresh `ACTIVE` claim is embedded |
+| KYC approved | Yes | Token refresh embeds `APPROVED` claim immediately |
+| KYC rejected | Yes | Blocks seller routes immediately |
+| Admin force-logout user | Yes | Paired with refresh session hard-delete |
+
+### 13.3 Performance
+
+Redis `GET` on every authenticated request. Key is absent for the vast majority of requests (happy path = cache miss, no revocation). Redis round-trip ~0.1–0.5 ms within same datacenter. Key auto-expires — no manual cleanup required.
+
+### 13.4 Refresh flow interaction
+
+The Angular `auth` interceptor already handles 401 → `POST /auth/refresh` → retry. When a revoked token returns 401:
+1. Interceptor calls `/auth/refresh` with the `HttpOnly` refresh token cookie.
+2. Server re-reads user record from DB and builds a new access token with current `seller_kyc_status` / `seller_suspension_status`.
+3. New `iat` > Redis revoke timestamp → passes future checks.
+4. If the seller is now suspended/rejected, the new access token embeds the new status → `SellerApprovedGuard` / `SellerNotSuspendedGuard` rejects on the retry, returning 403.
+
+---
+
+## 14. [DESIGN DECISIONS]
+
+- **[DESIGN DECISION]** `seller_kyc_status` and `seller_suspension_status` are both embedded in the JWT as independent claims, replacing the previous single `seller_status` field. This allows guards to check each independently (e.g. a seller can be KYC-approved but suspended, or KYC-rejected regardless of suspension). Status changes take effect immediately via Redis per-user revocation — see §14.
 - **[DESIGN DECISION]** Refresh token stored as `HttpOnly` cookie on path `/api/v1/auth/refresh`. The Angular `auth` interceptor handles 401 → refresh → retry automatically.
 - **[DESIGN DECISION]** Reuse detection: presenting a previously revoked refresh token triggers full session revocation for the user. Tradeoff: aggressive but safe.
+- **[DESIGN DECISION]** Token revocation uses a per-user Redis timestamp (`auth:revoke_before:{userId}`) rather than a per-token JTI blocklist. Rationale: status changes (KYC, suspension) affect the user, not a specific token — invalidating all in-flight tokens for that user is the correct semantic. JTI blocklist would require storing one key per issued token; user-timestamp requires one key per revocation event. Redis key TTL matches the access token TTL (≤ 15 min), so no unbounded growth.

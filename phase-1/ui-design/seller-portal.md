@@ -289,7 +289,7 @@ Shows success card: "Application submitted. We'll review it within 3 business da
 ## Screen 4 — Seller Dashboard
 
 **Route:** `/seller/dashboard`  
-**Auth:** SELLER role + KYC_APPROVED (otherwise show KYC overlay)
+**Auth:** SELLER role + APPROVED (otherwise show KYC overlay)
 
 ### KYC Overlay (PENDING_KYC)
 
@@ -402,7 +402,7 @@ div.recent-orders *ngIf="recentPendingOrders.length > 0"
 ## Screen 5 — Product Listings
 
 **Route:** `/seller/listings`  
-**Auth:** SELLER + KYC_APPROVED
+**Auth:** SELLER + APPROVED
 
 ### Layout
 
@@ -491,7 +491,7 @@ div.page-header [display: flex; justify-content: space-between; align-items: cen
 ## Screen 6 — Create / Edit Product
 
 **Route:** `/seller/listings/new` and `/seller/listings/:id/edit`  
-**Auth:** SELLER + KYC_APPROVED (and not suspended)
+**Auth:** SELLER + APPROVED (and not suspended)
 
 ### Layout
 
@@ -819,7 +819,7 @@ div.detail-grid [display: grid; grid-template-columns: 1fr 340px; gap: 24px]
 ## Screen 9 — Inventory
 
 **Route:** `/seller/inventory`  
-**Auth:** SELLER + KYC_APPROVED
+**Auth:** SELLER + APPROVED
 
 ### Layout
 
@@ -910,7 +910,7 @@ Rendered as `NotificationBell` component in toolbar. Notification types relevant
 
 | Event | Icon | Message pattern |
 |-------|------|-----------------|
-| New order | `receipt_long` | "New order [ORD-xxx] placed" |
+| New order | `receipt_long` | "New order [FUL-xxx] placed" |
 | Low stock | `warning_amber` (warn) | "[SKU name] is running low (N left)" |
 | Listing flagged | `flag` (warn) | "'[Product title]' has been flagged for review" |
 | Listing removed | `block` (warn) | "'[Product title]' was removed by admin" |
@@ -923,7 +923,7 @@ Rendered as `NotificationBell` component in toolbar. Notification types relevant
 ## Screen 11 — Offer Pricing
 
 **Route:** `/seller/listings/:id/pricing`  
-**Auth:** SELLER + KYC_APPROVED + Not Suspended (`KycApprovedGuard + SellerActiveGuard`)
+**Auth:** SELLER + APPROVED + Not Suspended (`KycApprovedGuard + SellerActiveGuard`)
 
 ### Layout
 
@@ -942,12 +942,12 @@ div.page-header [display: flex; align-items: center; gap: 16px; margin-bottom: 2
     th mat-header-cell — Amount
     td mat-cell
       <aliceut-price-display [amount]="row.amount" [currency]="row.currency">
-  ng-container matColumnDef="validFrom"
+  ng-container matColumnDef="startsAt"
     th mat-header-cell — Valid From
-    td mat-cell — {{ row.validFrom ? (row.validFrom | date:'mediumDate') : '—' }}
-  ng-container matColumnDef="validUntil"
+    td mat-cell — {{ row.startsAt ? (row.startsAt | date:'mediumDate') : '—' }}
+  ng-container matColumnDef="endsAt"
     th mat-header-cell — Valid Until
-    td mat-cell — {{ row.validUntil ? (row.validUntil | date:'mediumDate') : '—' }}
+    td mat-cell — {{ row.endsAt ? (row.endsAt | date:'mediumDate') : '—' }}
   ng-container matColumnDef="minQty"
     th mat-header-cell — Min Qty
     td mat-cell — {{ row.minQty ?? '—' }}
@@ -998,19 +998,19 @@ mat-card *ngIf="showPriceForm" [padding: 24px; margin-top: 16px]
       ng-container *ngIf="priceForm.get('priceType')?.value === 'SALE'"
         mat-form-field [appearance=outline]
           mat-label — Valid From
-          input matInput [matDatepicker]="validFromPicker" formControlName="validFrom"
-          mat-datepicker-toggle matSuffix [for]="validFromPicker"
-          mat-datepicker #validFromPicker
+          input matInput [matDatepicker]="startsAtPicker" formControlName="startsAt"
+          mat-datepicker-toggle matSuffix [for]="startsAtPicker"
+          mat-datepicker #startsAtPicker
         mat-form-field [appearance=outline]
           mat-label — Valid Until
-          input matInput [matDatepicker]="validUntilPicker" formControlName="validUntil"
-          mat-datepicker-toggle matSuffix [for]="validUntilPicker"
-          mat-datepicker #validUntilPicker
+          input matInput [matDatepicker]="endsAtPicker" formControlName="endsAt"
+          mat-datepicker-toggle matSuffix [for]="endsAtPicker"
+          mat-datepicker #endsAtPicker
       <!-- B2B_TIER field (shown when priceType === 'B2B_TIER') -->
       mat-form-field [appearance=outline; max-width: 140px] *ngIf="priceForm.get('priceType')?.value === 'B2B_TIER'"
         mat-label — Min Quantity
-        input matInput type="number" formControlName="minQty" min="1"
-        mat-error — Min quantity must be ≥ 1
+        input matInput type="number" formControlName="minQty" min="2"
+        mat-error — Min quantity must be ≥ 2
 
     mat-error *ngIf="priceForm.errors?.['duplicate']" [margin-top: 8px] — A price with this type and currency already exists.
     mat-error *ngIf="priceForm.errors?.['saleRange']" [margin-top: 8px] — Valid From must be before Valid Until.
@@ -1048,10 +1048,6 @@ div.auth-page [display: flex; justify-content: center; padding: 48px 16px]
             input matInput type="email" formControlName="email" autocomplete="email"
             mat-error — Enter a valid email address
 
-          mat-card.error-banner *ngIf="notFoundError" [margin-bottom: 16px]
-            mat-icon — error_outline
-            span — No account found with that email address.
-
           button mat-flat-button color="primary" [fullWidth] type="submit" [disabled]="forgotForm.invalid || isLoading"
             mat-spinner *ngIf="isLoading" [diameter]="20"
             span *ngIf="!isLoading" — Send Reset Link
@@ -1064,7 +1060,7 @@ div.auth-page [display: flex; justify-content: center; padding: 48px 16px]
         div [text-align: center; padding: 16px 0]
           mat-icon [font-size: 48px; color: success] — mark_email_read
           h3 mat-h5 [margin-top: 16px] — Check your email
-          p mat-body-2 [margin-top: 8px] — We've sent a password reset link to {{ submittedEmail }}. The link expires in 1 hour.
+          p mat-body-2 [margin-top: 8px] — If an account with that email exists, we sent a reset link. Check your inbox.
           p mat-caption [margin-top: 8px] color="secondary" — Didn't receive it? Check your spam folder or
           button mat-button color="primary" (click)="resend()" — resend the email.
           p mat-body-2 [margin-top: 16px]
@@ -1088,13 +1084,8 @@ div.auth-page [display: flex; justify-content: center; padding: 48px 16px]
       mat-card-title — Reset your password
     mat-card-content
 
-      <!-- Loading state: validating token -->
-      div *ngIf="tokenState === 'loading'" [text-align: center; padding: 24px]
-        mat-spinner [diameter]="40"
-        p mat-body-2 [margin-top: 16px] — Validating your reset link…
-
-      <!-- Valid token: show reset form -->
-      ng-container *ngIf="tokenState === 'valid'"
+      <!-- Form shown optimistically on mount; token validity determined by POST /auth/reset-password response on submit (400 = expired/used). No pre-validation endpoint exists. -->
+      ng-container *ngIf="tokenState !== 'expired' && tokenState !== 'invalid' && tokenState !== 'success'"
         form [formGroup]="resetForm" (ngSubmit)="resetPassword()"
           mat-form-field [appearance=outline; fullWidth; margin-bottom: 16px]
             mat-label — New password
@@ -1114,7 +1105,7 @@ div.auth-page [display: flex; justify-content: center; padding: 48px 16px]
             mat-spinner *ngIf="isSaving" [diameter]="20"
             span *ngIf="!isSaving" — Set New Password
 
-      <!-- Expired / used token -->
+      <!-- Expired / used token (shown after submit returns 400) -->
       ng-container *ngIf="tokenState === 'expired' || tokenState === 'invalid'"
         div [text-align: center; padding: 16px 0]
           mat-icon [font-size: 48px; color: warn] — link_off

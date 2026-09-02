@@ -106,7 +106,7 @@ sequenceDiagram
         CatalogService->>Postgres: SELECT id, parent_id, name, slug FROM catalog.category<br/>WHERE parent_id = :categoryId
         Postgres-->>CatalogService: direct children rows
         CatalogService-->>API: category with children array
-        API-->>Client: 200 { id, parentId, name, slug, children: [...] }
+        API-->>Client: 200 { data: { id, parentId, name, slug, children: [...] } }
     end
 ```
 
@@ -170,8 +170,10 @@ GET /catalog/products/:productId
 Tag: Catalog
 Auth: PUBLIC
 ```
-**Response 200** — product with full variant list, images, and active offers (with effective price per offer)  
+**Response 200** — `data`-wrapped product with full variant list, images, and active offers (with effective price per offer)  
 **Errors:** 404
+
+**Note:** No `currency` query param — `effectivePrice.amount` / `effectivePrice.currency` reflect the seller's native pricing currency only. No FX display conversion. For buyer display currency, use `GET /catalog/products/:id/offers?currency=` or `GET /pricing/offers/:id/effective-price?currency=`.
 
 #### Sequence
 
@@ -199,7 +201,7 @@ sequenceDiagram
         Postgres-->>CatalogService: active offers with all price rows and stock
         Note over CatalogService: Resolve effectivePrice per offer (B2C default, qty = 1): 1. SALE row present AND NOW() BETWEEN starts_at AND ends_at use SALE. 2. Otherwise use LIST
         CatalogService-->>API: product + variants + images + offers with effectivePrice
-        API-->>Client: 200 { id, title, brand, description, variants, images, offers }
+        API-->>Client: 200 { data: { id, title, brand, description, variants, images, offers } }
     end
 ```
 
@@ -212,7 +214,7 @@ GET /catalog/products/:productId/offers
 Tag: Catalog
 Auth: PUBLIC
 ```
-**Query params:** `currency` (ISO 4217, optional — defaults to USD for display)  
+**Query params:** `currency` (ISO 4217, optional — **buyer's display preference currency**, defaults to USD)  
 **Response 200**
 ```json
 {
@@ -226,11 +228,18 @@ Auth: PUBLIC
       "amount": "99.99",
       "currency": "USD",
       "priceType": "LIST | SALE",
-      "saleEndsAt": "ISO8601 | null"
+      "saleEndsAt": "ISO8601 | null",
+      "displayAmount": "3440.00",
+      "displayCurrency": "THB",
+      "fxRate": "34.40000000"
     },
     "availableQty": 10
   }]
 }
+```
+**Field semantics:**
+- `effectivePrice.amount` / `effectivePrice.currency` — seller's native pricing currency (resolved from `pricing.offer_price`)
+- `effectivePrice.displayAmount` / `effectivePrice.displayCurrency` / `effectivePrice.fxRate` — buyer's requested display currency (FX-converted from seller's native price using `pricing.fx_rate`). Omitted when `?currency` matches the offer's native currency.
 ```
 
 #### Sequence
@@ -247,11 +256,16 @@ sequenceDiagram
     API->>CatalogService: getProductOffers(productId, currency)
     CatalogService->>Postgres: SELECT o.id, o.seller_id, o.variant_id, sp.business_name AS seller_name<br/>FROM catalog.offer o<br/>JOIN seller.seller_profile sp ON sp.id = o.seller_id<br/>WHERE o.product_id = :productId AND o.status = 'ACTIVE'<br/>AND sp.kyc_status = 'APPROVED' AND sp.suspension_status = 'ACTIVE'
     Postgres-->>CatalogService: offers from KYC-approved non-suspended sellers only
-    CatalogService->>Postgres: SELECT offer_id, amount, currency_code, price_type, min_qty, starts_at, ends_at<br/>FROM pricing.offer_price<br/>WHERE offer_id IN (:offerIds) AND currency_code = :currency
-    Postgres-->>CatalogService: price rows for requested currency
+    CatalogService->>Postgres: SELECT offer_id, amount, currency_code, price_type, min_qty, starts_at, ends_at<br/>FROM pricing.offer_price<br/>WHERE offer_id IN (:offerIds)
+    Postgres-->>CatalogService: all price rows for all offers (seller's native currencies)
     CatalogService->>Postgres: SELECT offer_id, (on_hand_qty - reserved_qty) AS available_qty<br/>FROM inventory.stock WHERE offer_id IN (:offerIds)
     Postgres-->>CatalogService: available stock per offer
-    Note over CatalogService: Resolve effectivePrice per offer (B2C default, qty = 1): 1. SALE row present AND NOW() BETWEEN starts_at AND ends_at use SALE (saleEndsAt = ends_at). 2. Otherwise use LIST
-    CatalogService-->>API: offers with effectivePrice + availableQty
+    Note over CatalogService: Resolve effectivePrice per offer (B2C default, qty = 1) in seller's native currency: 1. SALE row present AND NOW() BETWEEN starts_at AND ends_at use SALE. 2. Otherwise use LIST
+    alt display currency != seller's native currency for any offer
+        CatalogService->>Postgres: SELECT base_currency_code, quote_currency_code, rate<br/>FROM pricing.fx_rate<br/>WHERE (base_currency_code, quote_currency_code) IN (:pairs)
+        Postgres-->>CatalogService: FX rate rows
+        Note over CatalogService: Compute displayAmount = amount x rate (decimal.js). Populate displayCurrency, fxRate. Omit display fields when seller's native == requested display currency.
+    end
+    CatalogService-->>API: offers with effectivePrice (native + optional display fields) + availableQty
     API-->>Client: 200 { data: [{ id, sellerId, sellerName, variantId, effectivePrice, availableQty }] }
 ```

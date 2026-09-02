@@ -22,6 +22,36 @@ See also: CLAUDE.md § Money handling for storage and arithmetic rules.
 
 ---
 
+## Success Response Shape
+
+All successful responses wrap payload in a `data` field. `meta` is optional on single-resource responses.
+
+**Single resource** (GET one, POST create, PATCH, PUT):
+```json
+{
+  "data": {
+    "id": "uuid",
+    "email": "user@example.com"
+  }
+}
+```
+
+**Collection** (GET list):
+```json
+{
+  "data": [...],
+  "meta": {
+    "nextCursor": "opaque",
+    "hasMore": true
+  }
+}
+```
+
+**Empty success** (DELETE, POST action with no body):
+- HTTP `204 No Content` — no body.
+
+---
+
 ## Pagination
 
 - **Cursor-based** (default for entity lists): `?limit=20&cursor=<opaque>` → `{ data, meta: { nextCursor, hasMore } }`
@@ -74,6 +104,19 @@ Field `errors` is present only for 400 validation failures.
 Suspended sellers may only access: `GET /seller/orders`, `GET /seller/orders/:id`, `POST /seller/orders/:id/ship`.
 
 For the per-endpoint guard matrix see [api-design.md § Guard application matrix](../phase-1/technical-design/api-design.md#15b-guard-application-matrix).
+
+---
+
+## Datetime
+
+All datetime fields in JSON requests and responses use **ISO 8601 UTC** strings with millisecond precision: `"2026-09-02T14:30:00.000Z"`.
+
+- Suffix `Z` (UTC) required. No offsets (`+07:00`) in API payloads.
+- Field naming: `*At` suffix for timestamps (`createdAt`, `updatedAt`, `expiresAt`), `*Date` suffix for calendar-only dates (`birthDate`, `scheduledDate`).
+- Calendar-only dates (no time component): `"YYYY-MM-DD"` format, no time/timezone attached.
+- Storage: Postgres `TIMESTAMPTZ` (store UTC, DB handles offset awareness). MongoDB: native BSON Date.
+- Client displays: frontend converts UTC to local timezone for rendering — server never sends localized times.
+- Duration/intervals: ISO 8601 duration strings where applicable (`"PT24H"`, `"P7D"`).
 
 ---
 

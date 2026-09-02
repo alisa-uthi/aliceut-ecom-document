@@ -46,22 +46,33 @@ Auth: BUYER
 **Response 200**
 ```json
 {
-  "id": "uuid",
-  "items": [{
+  "data": {
     "id": "uuid",
-    "offerId": "uuid",
-    "productTitle": "string",
-    "variantLabel": "string | null",
-    "sellerName": "string",
-    "quantity": 2,
-    "effectivePrice": { "amount": "99.99", "currency": "USD" },
-    "availableQty": 10,
-    "offerStatus": "ACTIVE | INACTIVE | REMOVED"
-  }],
-  "updatedAt": "ISO8601"
+    "items": [{
+      "id": "uuid",
+      "offerId": "uuid",
+      "productTitle": "string",
+      "variantLabel": "string | null",
+      "sellerName": "string",
+      "quantity": 2,
+      "effectivePrice": {
+        "amount": "99.99",
+        "currency": "USD",
+        "displayAmount": "3440.00",
+        "displayCurrency": "THB"
+      },
+      "availableQty": 10,
+      "offerStatus": "ACTIVE | INACTIVE | REMOVED"
+    }],
+    "updatedAt": "ISO8601"
+  }
 }
 ```
 Effective price is resolved live on GET (not cached from add-to-cart time).
+
+**Field semantics:**
+- `effectivePrice.amount` / `effectivePrice.currency` — seller's native pricing currency
+- `effectivePrice.displayAmount` / `effectivePrice.displayCurrency` — buyer's display currency, sourced from `buyer.profile.preferred_currency` (from the JWT claims). Omitted when the buyer's preferred currency matches the seller's native currency, or when the FX rate is unavailable.
 
 #### Sequence
 
@@ -90,12 +101,12 @@ sequenceDiagram
     activate S
     S->>P: SELECT cart.cart WHERE user_id = :buyer_id
     P-->>S: cart row (lazily created if absent)
-    S->>P: SELECT cart.cart_item<br/>JOIN catalog.offer<br/>JOIN pricing.offer_price<br/>JOIN pricing.fx_rate (buyer display currency)<br/>JOIN inventory.stock<br/>WHERE cart_id = :cart_id
-    Note over S,P: Effective price resolved live — never cached from add-to-cart time. Resolution: account_type x current time x qty (LIST / SALE time-bounded / B2B_TIER min_qty)
-    P-->>S: items with live effectivePrice, availableQty, offerStatus
+    S->>P: SELECT cart.cart_item<br/>JOIN catalog.offer<br/>JOIN pricing.offer_price (all price rows — seller's native currency)<br/>JOIN pricing.fx_rate (base=seller native, quote=buyer's preferred_currency from JWT)<br/>JOIN inventory.stock<br/>WHERE cart_id = :cart_id
+    Note over S,P: Effective price resolved live — never cached from add-to-cart time. Resolution: account_type x current time x qty (LIST / SALE time-bounded / B2B_TIER min_qty). effectivePrice.currency = seller's native. displayAmount/displayCurrency populated when buyer preferred_currency != seller native and FX rate available.
+    P-->>S: items with live effectivePrice (native + optional display fields), availableQty, offerStatus
     S-->>A: cart DTO (monetary amounts as strings)
     deactivate S
-    A-->>C: 200 { id, items[], updatedAt }
+    A-->>C: 200 { data: { id, items[], updatedAt } }
     deactivate A
 ```
 
@@ -112,7 +123,7 @@ Auth: BUYER
 ```json
 { "offerId": "uuid", "quantity": 1 }
 ```
-**Response 201** — updated cart  
+**Response 201** — updated cart (`data`-wrapped)  
 **Errors:** 400 invalid quantity, 404 offer not found/inactive, 422 quantity exceeds available stock
 
 #### Sequence
@@ -156,7 +167,7 @@ sequenceDiagram
     P-->>S: cart DTO
     S-->>A: cart DTO
     deactivate S
-    A-->>C: 201 updated cart
+    A-->>C: 201 { data: { updated cart } }
     deactivate A
 ```
 
@@ -173,7 +184,7 @@ Auth: BUYER
 ```json
 { "quantity": 3 }
 ```
-**Response 200** — updated cart item  
+**Response 200** — updated cart item (`data`-wrapped)  
 **Errors:** 400, 404, 422
 
 #### Sequence
@@ -209,7 +220,7 @@ sequenceDiagram
     P-->>S: updated row
     S-->>A: updated cart item DTO (amounts as strings)
     deactivate S
-    A-->>C: 200 updated cart item
+    A-->>C: 200 { data: { updated cart item } }
     deactivate A
 ```
 
@@ -307,7 +318,7 @@ Auth: BUYER
 }
 ```
 Merges guest cart items into the authenticated cart. Duplicate offers: server-side cart quantity is kept (not summed).  
-**Response 200** — merged cart
+**Response 200** — merged cart (`data`-wrapped)
 
 #### Sequence
 
@@ -355,10 +366,10 @@ sequenceDiagram
         end
     end
 
-    S->>P: SELECT cart.cart_item<br/>JOIN catalog.offer<br/>JOIN pricing.offer_price (live price resolution)<br/>JOIN pricing.fx_rate<br/>JOIN inventory.stock<br/>WHERE cart_id = :cart_id
-    P-->>S: merged cart with live prices
+    S->>P: SELECT cart.cart_item<br/>JOIN catalog.offer<br/>JOIN pricing.offer_price (seller's native currency — live resolution)<br/>JOIN pricing.fx_rate (base=seller native, quote=buyer preferred_currency from JWT)<br/>JOIN inventory.stock<br/>WHERE cart_id = :cart_id
+    P-->>S: merged cart with live prices (native + optional display fields)
     S-->>A: merged cart DTO
     deactivate S
-    A-->>C: 200 merged cart
+    A-->>C: 200 { data: { merged cart } }
     deactivate A
 ```

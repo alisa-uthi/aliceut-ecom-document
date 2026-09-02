@@ -64,20 +64,27 @@ Pagination: cursor (Elasticsearch search_after)
       "offerId": "uuid",
       "amount": "99.99",
       "currency": "USD",
-      "priceType": "LIST | SALE"
+      "priceType": "LIST | SALE",
+      "displayAmount": "3440.00",
+      "displayCurrency": "THB",
+      "fxRate": "34.40000000"
     },
     "inStock": true,
     "score": 1.234
   }],
   "facets": {
     "categories": [{ "id": "uuid", "name": "string", "count": 12 }],
-    "priceRange": { "min": "9.99", "max": "999.00", "currency": "USD" }
+    "priceRange": { "min": "9.99", "max": "999.00", "currency": "USD", "displayMin": "344.00", "displayMax": "34400.00", "displayCurrency": "THB" }
   },
   "meta": { "nextCursor": "string | null", "hasMore": true, "total": 250 }
 }
 ```
 
-**Note:** Offers from sellers with `suspension_status = SUSPENDED` or `kyc_status != APPROVED` are excluded from search results. Only offers from KYC-approved, non-suspended sellers appear.
+**Notes:**
+- `lowestOffer.amount` / `lowestOffer.currency` = seller's native price. `displayAmount` / `displayCurrency` / `fxRate` = buyer's requested currency, sourced from the pre-computed `display_prices[currency]` map in ES (kept fresh by `fx_rate.updated` consumer). Omitted when `currency` == offer's native currency (no conversion).
+- `facets.priceRange` `displayMin` / `displayMax` / `displayCurrency` follow the same rule — omitted when no conversion applies.
+- Display prices are for presentation only. Order capture uses `fulfillment_item.fx_rate_used_at_capture` snapshotted at checkout.
+- Offers from sellers with `suspension_status = SUSPENDED` or `kyc_status != APPROVED` are excluded from search results. Only offers from KYC-approved, non-suspended sellers appear.
 
 #### Sequence
 
@@ -91,7 +98,7 @@ sequenceDiagram
     Client->>API: GET /search/products?q=camera&categoryId&priceMin&priceMax&currency=USD&inStock=true&sortBy=relevance&limit=20&cursor
     Note over API: PUBLIC — no auth guard
     API->>SearchService: searchProducts({ q, categoryId, priceMin, priceMax, currency, inStock, sortBy, limit, cursor })
-    Note over SearchService: Build ES bool query: must=multi_match(title,brand,description when q present)#59; filter=status ACTIVE, seller_active=true, category_id/path, prices[currency] range, available_qty>0 (inStock)#59; sort=score|prices[currency].asc|.desc|created_at.desc#59; search_after=decoded cursor#59; size=limit+1#59; aggs=category terms+price stats
+    Note over SearchService: Build ES bool query: must=multi_match(title,brand,description when q present)#59; filter=status ACTIVE, seller_active=true, category_id/path, display_prices[currency] range, available_qty>0 (inStock)#59; sort=score|display_prices[currency].asc|.desc|created_at.desc#59; search_after=decoded cursor#59; size=limit+1#59; aggs=category terms+display_prices[currency] stats
     SearchService->>ES: POST /products/_search { query, sort, search_after, size, aggs }
     ES-->>SearchService: hits[], aggregations, total.value
     Note over SearchService: If hits.length = limit+1: hasMore=true, trim last hit. Encode nextCursor from sort values of last included hit

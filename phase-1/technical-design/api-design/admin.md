@@ -110,12 +110,14 @@ Auth: ADMIN
 **Response 200**
 ```json
 {
-  "id": "uuid",
-  "seller": { "id": "uuid", "businessName": "string", "taxId": "REDACTED_UNLESS_ADMIN" },
-  "submittedData": {},
-  "documentUrls": ["signed-url (short TTL)"],
-  "status": "PENDING",
-  "submittedAt": "ISO8601"
+  "data": {
+    "id": "uuid",
+    "seller": { "id": "uuid", "businessName": "string", "taxId": "REDACTED_UNLESS_ADMIN" },
+    "submittedData": {},
+    "documentUrls": ["signed-url (short TTL)"],
+    "status": "PENDING",
+    "submittedAt": "ISO8601"
+  }
 }
 ```
 Document view logged to MongoDB `audit_logs`.
@@ -143,7 +145,7 @@ sequenceDiagram
         S->>MDB: INSERT audit_logs { action: KYC_DOC_VIEW, actor: adminId, entity: applicationId }
         MDB-->>S: ack
         S-->>API: application with documentUrls
-        API-->>C: 200 { id, seller, submittedData, documentUrls, status }
+        API-->>C: 200 { data: { id, seller, submittedData, documentUrls, status } }
     end
 ```
 
@@ -160,7 +162,7 @@ Auth: ADMIN
 ```json
 { "decision": "APPROVED | REJECTED", "reason": "string (required if REJECTED)" }
 ```
-**Response 200** `{ "status": "APPROVED | REJECTED" }`  
+**Response 200** `{ "data": { "status": "APPROVED | REJECTED" } }`  
 Side effects: `seller.kyc.decided` event, `SellerProfile.kyc_status` updated  
 **Errors:** 409 already decided
 
@@ -196,7 +198,7 @@ sequenceDiagram
             S->>PG: COMMIT TX
             S->>MDB: INSERT audit_logs { KYC_DECIDED, decision, reviewer }
             MDB-->>S: ack
-            S-->>C: 200 { status: APPROVED | REJECTED }
+            S-->>C: 200 { data: { status: APPROVED | REJECTED } }
             Note over Relay: async — independent of response
             Relay-)PG: poll outbox_event WHERE publication_status = PENDING
             Relay-)Relay: publish seller.kyc.decided to Kafka
@@ -269,18 +271,20 @@ Auth: ADMIN
 **Response 200**
 ```json
 {
-  "id": "uuid",
-  "businessName": "string",
-  "taxId": "string",
-  "email": "string",
-  "country": "string (ISO 3166-1)",
-  "kycStatus": "APPROVED",
-  "suspensionStatus": "ACTIVE",
-  "rejectionReason": "string | null",
-  "submittedData": {},
-  "activeListingsCount": 0,
-  "removedListingsCount": 0,
-  "createdAt": "ISO8601"
+  "data": {
+    "id": "uuid",
+    "businessName": "string",
+    "taxId": "string",
+    "email": "string",
+    "country": "string (ISO 3166-1)",
+    "kycStatus": "APPROVED",
+    "suspensionStatus": "ACTIVE",
+    "rejectionReason": "string | null",
+    "submittedData": {},
+    "activeListingsCount": 0,
+    "removedListingsCount": 0,
+    "createdAt": "ISO8601"
+  }
 }
 ```
 **Errors:** 404
@@ -309,7 +313,7 @@ sequenceDiagram
         else found
             PG-->>S: seller row with listing counts
             S-->>API: seller detail
-            API-->>C: 200 { id, businessName, taxId, kycStatus, suspensionStatus, ... }
+            API-->>C: 200 { data: { id, businessName, taxId, kycStatus, suspensionStatus, ... } }
         end
     end
 ```
@@ -330,7 +334,7 @@ Auth: ADMIN
   "durationDays": "number | null (null = permanent; valid values: 7, 30, 90, null)"
 }
 ```
-**Response 200** `{ "status": "SUSPENDED" }`  
+**Response 200** `{ "data": { "status": "SUSPENDED" } }`  
 Side effects: `seller.suspended` event; moderation logged to MongoDB `audit_logs`  
 **Errors:** 409 already suspended, 422 invalid `durationDays` value
 
@@ -369,7 +373,7 @@ sequenceDiagram
             S->>PG: COMMIT TX
             S->>MDB: INSERT audit_logs { SELLER_SUSPENDED, actor, reason, duration }
             MDB-->>S: ack
-            S-->>C: 200 { status: SUSPENDED }
+            S-->>C: 200 { data: { status: SUSPENDED } }
             Note over Relay,ES: async cascade
             Relay-)PG: poll outbox_event WHERE publication_status = PENDING
             Relay-)Relay: publish seller.suspended to Kafka
@@ -388,7 +392,7 @@ POST /admin/sellers/:sellerId/reinstate
 Tag: Admin
 Auth: ADMIN
 ```
-**Response 200** `{ "suspensionStatus": "ACTIVE" }`  
+**Response 200** `{ "data": { "suspensionStatus": "ACTIVE" } }`  
 Side effects: `seller.reinstated` Kafka event emitted; search consumer re-enables seller's active offers in Elasticsearch  
 **Errors:** 409 seller not currently suspended
 
@@ -424,7 +428,7 @@ sequenceDiagram
             S->>PG: UPDATE catalog.offer SET status=ACTIVE WHERE seller_id=? AND status_changed_reason=SUSPENSION
             S->>PG: INSERT outbox_event (seller.reinstated, reactivated offer_ids)
             S->>PG: COMMIT TX
-            S-->>C: 200 { suspensionStatus: ACTIVE }
+            S-->>C: 200 { data: { suspensionStatus: ACTIVE } }
             Note over Relay,ES: async cascade
             Relay-)PG: poll outbox_event WHERE publication_status = PENDING
             Relay-)Relay: publish seller.reinstated to Kafka
@@ -516,7 +520,7 @@ sequenceDiagram
         S->>PG: SELECT moderation_case WHERE id = ?
         PG-->>S: case row
         S-->>API: case detail
-        API-->>C: 200 { id, offerId, reason, source, status, decision, ... }
+        API-->>C: 200 { data: { id, offerId, reason, source, status, decision, ... } }
     end
 ```
 
@@ -566,7 +570,7 @@ sequenceDiagram
                 S->>PG: UPDATE catalog.offer SET status=REMOVED
                 S->>PG: INSERT outbox_event (moderation.listing.removed)
                 S->>PG: COMMIT TX
-                S-->>C: 200 { decision: REMOVE }
+                S-->>C: 200 { data: { decision: REMOVE } }
                 Note over Relay,ES: async cascade
                 Relay-)PG: poll outbox_event WHERE publication_status = PENDING
                 Relay-)Relay: publish moderation.listing.removed to Kafka
@@ -578,7 +582,7 @@ sequenceDiagram
                 S->>PG: UPDATE moderation_case SET status=DISMISSED, decided_at, decided_by_user_id
                 S->>PG: UPDATE catalog.offer SET status=ACTIVE
                 S->>PG: COMMIT TX
-                S-->>C: 200 { decision: DISMISS }
+                S-->>C: 200 { data: { decision: DISMISS } }
             end
         end
     end
@@ -618,7 +622,7 @@ sequenceDiagram
         S->>PG: INSERT moderation_case (offerId, reason, source=MANUAL, status=OPEN)
         S->>PG: UPDATE catalog.offer SET status=FLAGGED WHERE id = offerId
         S->>PG: COMMIT TX
-        S-->>C: 201 { id, offerId, reason, source, status: OPEN }
+        S-->>C: 201 { data: { id, offerId, reason, source, status: OPEN } }
     end
 ```
 
@@ -634,10 +638,12 @@ Auth: ADMIN
 **Response 200**
 ```json
 {
-  "pendingKyc": 0,
-  "flaggedListings": 0,
-  "activeSuspensions": 0,
-  "openModerationCases": 0
+  "data": {
+    "pendingKyc": 0,
+    "flaggedListings": 0,
+    "activeSuspensions": 0,
+    "openModerationCases": 0
+  }
 }
 ```
 
@@ -666,6 +672,6 @@ sequenceDiagram
             S->>PG: COUNT seller_profile WHERE suspension_status = SUSPENDED
         end
         PG-->>S: counts
-        S-->>C: 200 { pendingKyc, flaggedListings, activeSuspensions, openModerationCases }
+        S-->>C: 200 { data: { pendingKyc, flaggedListings, activeSuspensions, openModerationCases } }
     end
 ```

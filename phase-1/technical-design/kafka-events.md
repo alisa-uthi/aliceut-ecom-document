@@ -3,7 +3,9 @@
 **Status:** Draft  
 **Source of truth:** [BRD v1.1](../requirements/BRD.md), [implementation-specs](implementation-specs.md)
 
-Event envelope conventions, schema registry, consumer idempotency template, DLQ topology, and BACKWARD compat protocol: see [conventions/kafka-events.md](../../conventions/kafka-events.md).
+Event envelope conventions, schema registry, consumer idempotency template (including processing flow diagram and per-family step patterns), DLQ topology, and BACKWARD compat protocol: see [conventions/kafka-events.md](../../conventions/kafka-events.md).
+
+Consumer group tables below list **Side effects** (the unique business logic per group). For the generic processing loop and retry/DLQ rules, see conventions §4. The **Pattern** column maps each group to its family pattern in conventions §4.2.
 
 MongoDB audit collection schemas (`audit_logs`, `activity_events`): see [data-model-mongodb.md](data-model-mongodb.md).
 
@@ -85,10 +87,10 @@ MongoDB audit collection schemas (`audit_logs`, `activity_events`): see [data-mo
 
 **Consumer groups**
 
-| Consumer group | Side effects |
-|---------------|--------------|
-| `notification.kyc-submitted` | Sends ET-21 email to admin. Creates in-app notification for admins (type `KYC_SUBMITTED`). |
-| `audit` | Writes `audit_logs` (action=`KYC_SUBMITTED`, entity_type=`SELLER`, actor_id=seller_id). |
+| Consumer group | Pattern | Side effects |
+|---------------|---------|--------------|
+| `notification.kyc-submitted` | `notification.*` | Sends ET-21 email to admin. Creates in-app notification for admins (type `KYC_SUBMITTED`). |
+| `audit` | `audit` | Writes `audit_logs` (action=`KYC_SUBMITTED`, entity_type=`SELLER`, actor_id=seller_id). |
 
 ---
 
@@ -135,10 +137,10 @@ MongoDB audit collection schemas (`audit_logs`, `activity_events`): see [data-mo
 
 **Consumer groups**
 
-| Consumer group | Side effects |
-|---------------|--------------|
-| `notification.kyc-decided` | Sends email to seller (ET-KYC-DECIDED template). Creates in-app notification. |
-| `audit` | Writes `audit_logs` (action=`KYC_APPROVED`/`KYC_REJECTED`, entity_type=`SELLER`, actor_id=reviewer_user_id). |
+| Consumer group | Pattern | Side effects |
+|---------------|---------|--------------|
+| `notification.kyc-decided` | `notification.*` | Sends email to seller (ET-KYC-DECIDED template). Creates in-app notification. |
+| `audit` | `audit` | Writes `audit_logs` (action=`KYC_APPROVED`/`KYC_REJECTED`, entity_type=`SELLER`, actor_id=reviewer_user_id). |
 
 ---
 
@@ -187,11 +189,11 @@ MongoDB audit collection schemas (`audit_logs`, `activity_events`): see [data-mo
 
 **Consumer groups**
 
-| Consumer group | Side effects |
-|---------------|--------------|
-| `notification.seller-suspended` | Sends suspension email to seller. Creates in-app notification. |
-| `search.seller-suspended` | Deindexes all `offer_ids` from Elasticsearch (marks offers as inactive in search index). |
-| `audit` | Writes `audit_logs` (action=`SELLER_SUSPENDED`, entity_type=`SELLER`, actor_id=admin_user_id). |
+| Consumer group | Pattern | Side effects |
+|---------------|---------|--------------|
+| `notification.seller-suspended` | `notification.*` | Sends suspension email to seller. Creates in-app notification. |
+| `search.seller-suspended` | `search.*` | Deindexes all `offer_ids` from Elasticsearch (marks offers as inactive in search index). |
+| `audit` | `audit` | Writes `audit_logs` (action=`SELLER_SUSPENDED`, entity_type=`SELLER`, actor_id=admin_user_id). |
 
 ---
 
@@ -225,7 +227,7 @@ MongoDB audit collection schemas (`audit_logs`, `activity_events`): see [data-mo
           { "name": "display_id",      "type": "string", "doc": "e.g. FUL-3F2A1B9C — fulfillment display ID" },
           { "name": "buyer_id",        "type": "string" },
           { "name": "seller_id",       "type": "string" },
-          { "name": "currency_code",   "type": "string" },
+          { "name": "currency_code",   "type": "string", "doc": "ISO 4217 — fulfillment-level seller's native pricing currency (mirrors orders.fulfillment.currency)" },
           { "name": "tracking_number", "type": "string" },
           { "name": "estimated_delivery_at", "type": "string" },
           { "name": "placed_at",       "type": "string" },
@@ -240,10 +242,10 @@ MongoDB audit collection schemas (`audit_logs`, `activity_events`): see [data-mo
                   { "name": "product_title",   "type": "string" },
                   { "name": "variant_label",   "type": ["null","string"], "default": null },
                   { "name": "quantity",        "type": "int" },
-                  { "name": "unit_price",      "type": "string", "doc": "NUMERIC(19,4) as string" },
-                  { "name": "currency",        "type": "string" },
+                  { "name": "unit_price",      "type": "string", "doc": "NUMERIC(19,4) as string; seller's native currency amount snapshotted at checkout" },
+                  { "name": "currency",        "type": "string", "doc": "ISO 4217 — seller's native pricing currency for this item; pairs with unit_price" },
                   { "name": "tax",             "type": "string" },
-                  { "name": "fx_rate_used_at_capture", "type": ["null","string"], "default": null }
+                  { "name": "fx_rate_used_at_capture", "type": ["null","string"], "default": null, "doc": "NUMERIC(19,8) as string; rate applied at checkout to convert unit_price to buyer's display currency. Null when no conversion was needed (buyer preferred_currency == seller native currency)" }
                 ]
               }
             }
@@ -260,12 +262,12 @@ MongoDB audit collection schemas (`audit_logs`, `activity_events`): see [data-mo
 
 **Consumer groups**
 
-| Consumer group | Side effects |
-|---------------|--------------|
-| `notification.fulfillment-placed` | Creates in-app notification for buyer (type `ORDER_PLACED`). |
-| `notification.fulfillment-seller-alert` | Sends ET-17 to seller (looks up seller email via `seller_id` from payload). |
-| `audit` | Writes `activity_events` (entity_type=`FULFILLMENT`, entity_id=fulfillment_id, actor_id=buyer_id, actor_role=`BUYER`). |
-| `inventory.fulfillment-placed` | Marks stock reservations as CONSUMED for this order. |
+| Consumer group | Pattern | Side effects |
+|---------------|---------|--------------|
+| `notification.fulfillment-placed` | `notification.*` | Creates in-app notification for buyer (type `ORDER_PLACED`). No email (covered by `order.finalized` ET-01). |
+| `notification.fulfillment-seller-alert` | `notification.*` | Sends ET-17 to seller (looks up seller email via `seller_id` from payload). |
+| `audit` | `audit` | Writes `activity_events` (entity_type=`FULFILLMENT`, entity_id=fulfillment_id, actor_id=buyer_id, actor_role=`BUYER`). |
+| `inventory.fulfillment-placed` | `inventory.*` | Marks stock reservations as CONSUMED for this order. |
 
 ---
 
@@ -326,10 +328,10 @@ MongoDB audit collection schemas (`audit_logs`, `activity_events`): see [data-mo
 
 **Consumer groups**
 
-| Consumer group | Side effects |
-|---------------|--------------|
-| `notification.fulfillment-shipped` | Sends ET-02 email to buyer. Creates in-app notification (type `SHIPMENT_UPDATE`). |
-| `audit` | Writes `activity_events` (entity_type=`FULFILLMENT`, entity_id=fulfillment_id, actor_id=seller_id, actor_role=`SELLER`). |
+| Consumer group | Pattern | Side effects |
+|---------------|---------|--------------|
+| `notification.fulfillment-shipped` | `notification.*` | Sends ET-02 email to buyer. Creates in-app notification (type `SHIPMENT_UPDATE`). |
+| `audit` | `audit` | Writes `activity_events` (entity_type=`FULFILLMENT`, entity_id=fulfillment_id, actor_id=seller_id, actor_role=`SELLER`). |
 
 ---
 
@@ -387,11 +389,11 @@ MongoDB audit collection schemas (`audit_logs`, `activity_events`): see [data-mo
 
 **Consumer groups**
 
-| Consumer group | Side effects |
-|---------------|--------------|
-| `notification.fulfillment-delivered` | Sends ET-03 email. Creates in-app notification. |
-| `orders.delivery-tracker` | Updates `orders.fulfillment.status = DELIVERED` for the `fulfillment_id` in the event; then queries `SELECT COUNT(*) FROM orders.fulfillment WHERE order_id = ? AND status != 'DELIVERED'` — if count = 0 AND total fulfillments ≥ 2, emits `order.completed`. |
-| `audit` | Writes `activity_events` (entity_type=`FULFILLMENT`, entity_id=fulfillment_id, actor_role=`SYSTEM`). |
+| Consumer group | Pattern | Side effects |
+|---------------|---------|--------------|
+| `notification.fulfillment-delivered` | `notification.*` | Sends ET-03 email. Creates in-app notification. |
+| `orders.delivery-tracker` | `orders.*` | Updates `orders.fulfillment.status = DELIVERED` for the `fulfillment_id` in the event; then queries `SELECT COUNT(*) FROM orders.fulfillment WHERE order_id = ? AND status != 'DELIVERED'` — if count = 0 AND total fulfillments ≥ 2, emits `order.completed` via outbox. |
+| `audit` | `audit` | Writes `activity_events` (entity_type=`FULFILLMENT`, entity_id=fulfillment_id, actor_role=`SYSTEM`). |
 
 ---
 
@@ -426,12 +428,12 @@ MongoDB audit collection schemas (`audit_logs`, `activity_events`): see [data-mo
           { "name": "buyer_id",        "type": "string" },
           { "name": "seller_id",       "type": "string" },
           { "name": "refunded_at",               "type": "string" },
-          { "name": "refund_amount",             "type": "string" },
-          { "name": "currency_code",             "type": "string" },
+          { "name": "refund_amount",             "type": "string", "doc": "NUMERIC(19,4) as string; total refund amount in seller's native currency (currency_code below)" },
+          { "name": "currency_code",             "type": "string", "doc": "ISO 4217 — seller's native currency; matches fulfillment.placed.currency_code. Refund amount is always in this currency." },
           { "name": "prior_status",              "type": { "type": "enum", "name": "PriorStatus", "symbols": ["PENDING","SHIPPED"] }, "doc": "Stock restored only if PENDING" },
           { "name": "stock_restored",            "type": "boolean" },
           { "name": "seller_name",               "type": "string" },
-          { "name": "buyer_preferred_currency",  "type": "string" },
+          { "name": "buyer_preferred_currency",  "type": "string", "doc": "ISO 4217 — buyer's display preference currency at time of order; used for notification display only, never for refund arithmetic" },
           {
             "name": "items",
             "type": {
@@ -442,9 +444,9 @@ MongoDB audit collection schemas (`audit_logs`, `activity_events`): see [data-mo
                   { "name": "product_title",           "type": "string" },
                   { "name": "variant_label",           "type": ["null","string"], "default": null },
                   { "name": "quantity",                "type": "int" },
-                  { "name": "unit_price",              "type": "string", "doc": "NUMERIC(19,4) as string" },
-                  { "name": "currency_code",           "type": "string" },
-                  { "name": "fx_rate_used_at_capture", "type": "string" }
+                  { "name": "unit_price",              "type": "string", "doc": "NUMERIC(19,4) as string; seller's native currency amount from fulfillment_item snapshot" },
+                  { "name": "currency_code",           "type": "string", "doc": "ISO 4217 — seller's native pricing currency; mirrors fulfillment_item.currency at capture" },
+                  { "name": "fx_rate_used_at_capture", "type": ["null","string"], "default": null, "doc": "NUMERIC(19,8) as string; snapshot from fulfillment_item. Null when buyer preferred_currency == seller native (no FX conversion was applied)" }
                 ]
               }
             }
@@ -458,10 +460,10 @@ MongoDB audit collection schemas (`audit_logs`, `activity_events`): see [data-mo
 
 **Consumer groups**
 
-| Consumer group | Side effects |
-|---------------|--------------|
-| `notification.fulfillment-refunded` | Sends ET-04 email. Creates in-app notification (type `REFUND_ISSUED`). |
-| `audit` | Writes `activity_events` (entity_type=`FULFILLMENT`, entity_id=fulfillment_id, actor_role=`SYSTEM`). |
+| Consumer group | Pattern | Side effects |
+|---------------|---------|--------------|
+| `notification.fulfillment-refunded` | `notification.*` | Sends ET-04 email. Creates in-app notification (type `REFUND_ISSUED`). |
+| `audit` | `audit` | Writes `activity_events` (entity_type=`FULFILLMENT`, entity_id=fulfillment_id, actor_role=`SYSTEM`). |
 
 ---
 
@@ -544,10 +546,10 @@ MongoDB audit collection schemas (`audit_logs`, `activity_events`): see [data-mo
 
 **Consumer groups**
 
-| Consumer group | Side effects |
-|---------------|--------------|
-| `notification.order-summary` | Sends ET-01 order summary email to buyer (includes placed and failed groups). Creates in-app notification. |
-| `audit` | Writes `activity_events` (entity_type=`ORDER`, entity_id=idempotency_key_id, actor_id=buyer_id, actor_role=`BUYER`). |
+| Consumer group | Pattern | Side effects |
+|---------------|---------|--------------|
+| `notification.order-summary` | `notification.*` | Sends ET-01 order summary email to buyer (includes placed and failed groups). Creates in-app notification. |
+| `audit` | `audit` | Writes `activity_events` (entity_type=`ORDER`, entity_id=idempotency_key_id, actor_id=buyer_id, actor_role=`BUYER`). |
 
 ---
 
@@ -593,10 +595,10 @@ Fires when all fulfillments under the same `order_id` reach DELIVERED state, but
 
 **Consumer groups**
 
-| Consumer group | Side effects |
-|---------------|--------------|
-| `notification.order-completed` | Sends ET-05 "All items delivered" email to buyer. |
-| `audit` | Writes `activity_events` (entity_type=`ORDER`, entity_id=order_id, actor_role=`SYSTEM`). |
+| Consumer group | Pattern | Side effects |
+|---------------|---------|--------------|
+| `notification.order-completed` | `notification.*` | Sends ET-05 "All items delivered" email to buyer. |
+| `audit` | `audit` | Writes `activity_events` (entity_type=`ORDER`, entity_id=order_id, actor_role=`SYSTEM`). |
 
 ---
 
@@ -668,10 +670,10 @@ Fires when all fulfillments under the same `order_id` reach DELIVERED state, but
 
 **Consumer groups**
 
-| Consumer group | Side effects |
-|---------------|--------------|
-| `search.product-changed` | Upserts or deletes the product document in Elasticsearch. On REMOVED: removes from index. |
-| `audit` | Writes `activity_events` (entity_type=`PRODUCT`, entity_id=product_id, actor_role=`SYSTEM`). |
+| Consumer group | Pattern | Side effects |
+|---------------|---------|--------------|
+| `search.product-changed` | `search.*` | Upserts or deletes the product document in Elasticsearch. On REMOVED: removes from index. |
+| `audit` | `audit` | Writes `activity_events` (entity_type=`PRODUCT`, entity_id=product_id, actor_role=`SYSTEM`). |
 
 ---
 
@@ -713,7 +715,7 @@ Fires when all fulfillments under the same `order_id` reach DELIVERED state, but
               "items": {
                 "type": "record", "name": "OfferPriceRef",
                 "fields": [
-                  { "name": "currency_code", "type": "string" },
+                  { "name": "currency_code", "type": "string", "doc": "ISO 4217 — seller's native pricing currency for this price row" },
                   { "name": "amount",        "type": "string" },
                   { "name": "price_type",    "type": "string" },
                   { "name": "min_qty",       "type": "int" },
@@ -732,10 +734,10 @@ Fires when all fulfillments under the same `order_id` reach DELIVERED state, but
 
 **Consumer groups**
 
-| Consumer group | Side effects |
-|---------------|--------------|
-| `search.offer-changed` | Updates the offer's price fields in the Elasticsearch product document. On DEACTIVATED/REMOVED: removes offer from search or marks product as out-of-stock if no active offers remain. |
-| `audit` | Writes `activity_events` (entity_type=`OFFER`, entity_id=offer_id, actor_id=seller_id, actor_role=`SELLER`). |
+| Consumer group | Pattern | Side effects |
+|---------------|---------|--------------|
+| `search.offer-changed` | `search.*` | Updates the offer's price fields in the Elasticsearch product document. On DEACTIVATED/REMOVED: removes offer from search or marks product as out-of-stock if no active offers remain. |
+| `audit` | `audit` | Writes `activity_events` (entity_type=`OFFER`, entity_id=offer_id, actor_id=seller_id, actor_role=`SELLER`). |
 
 ---
 
@@ -779,10 +781,10 @@ Fires when all fulfillments under the same `order_id` reach DELIVERED state, but
 
 **Consumer groups**
 
-| Consumer group | Side effects |
-|---------------|--------------|
-| `search.inventory-changed` | Updates `available_qty` and `in_stock` flag in Elasticsearch. |
-| `audit` | Writes `activity_events` (entity_type=`INVENTORY`, entity_id=offer_id, actor_role=`SELLER`/`SYSTEM` per change_reason). |
+| Consumer group | Pattern | Side effects |
+|---------------|---------|--------------|
+| `search.inventory-changed` | `search.*` | Updates `available_qty` and `in_stock` flag in Elasticsearch. |
+| `audit` | `audit` | Writes `activity_events` (entity_type=`INVENTORY`, entity_id=offer_id, actor_role=`SELLER`/`SYSTEM` per change_reason). |
 
 ---
 
@@ -831,10 +833,10 @@ Fires when all fulfillments under the same `order_id` reach DELIVERED state, but
 
 **Consumer groups**
 
-| Consumer group | Side effects |
-|---------------|--------------|
-| `notification.low-stock` | Sends low-stock email to seller. Creates in-app notification (type `LOW_STOCK`). |
-| `audit` | Writes `activity_events` (entity_type=`INVENTORY`, entity_id=offer_id, actor_role=`SYSTEM`). |
+| Consumer group | Pattern | Side effects |
+|---------------|---------|--------------|
+| `notification.low-stock` | `notification.*` | Sends low-stock email to seller. Creates in-app notification (type `LOW_STOCK`). |
+| `audit` | `audit` | Writes `activity_events` (entity_type=`INVENTORY`, entity_id=offer_id, actor_role=`SYSTEM`). |
 
 ---
 
@@ -881,11 +883,11 @@ Fires when all fulfillments under the same `order_id` reach DELIVERED state, but
 
 **Consumer groups**
 
-| Consumer group | Side effects |
-|---------------|--------------|
-| `notification.listing-removed` | Writes to `pending_listing_removal_digest` table for daily cron batch send (ET-09), not direct email. Creates in-app notification (type `LISTING_REMOVED`). |
-| `search.listing-removed` | Removes offer from Elasticsearch index immediately. |
-| `audit` | Writes `audit_logs` (action=`LISTING_REMOVED`, entity_type=`LISTING`, actor_id=admin_user_id). |
+| Consumer group | Pattern | Side effects |
+|---------------|---------|--------------|
+| `notification.listing-removed` | `notification.*` | Writes to `pending_listing_removal_digest` table for daily cron batch send (ET-09), not direct email. Creates in-app notification (type `LISTING_REMOVED`). |
+| `search.listing-removed` | `search.*` | Removes offer from Elasticsearch index immediately. |
+| `audit` | `audit` | Writes `audit_logs` (action=`LISTING_REMOVED`, entity_type=`LISTING`, actor_id=admin_user_id). |
 
 ---
 
@@ -930,11 +932,11 @@ Fires when an admin lifts a seller's suspension (sets `suspension_status = ACTIV
 
 **Consumer groups**
 
-| Consumer group | Side effects |
-|---------------|--------------|
-| `notification.seller-reinstated` | Sends reinstatement notification email to seller. Creates in-app notification (type `SELLER_REINSTATED`). |
-| `search.seller-reinstated` | Re-enables seller's active offers in Elasticsearch index (sets `seller_active = true` on all offer docs). |
-| `audit` | Writes `audit_logs` (action=`SELLER_REINSTATED`, entity_type=`SELLER`, actor_id=admin_id). |
+| Consumer group | Pattern | Side effects |
+|---------------|---------|--------------|
+| `notification.seller-reinstated` | `notification.*` | Sends reinstatement notification email to seller. Creates in-app notification (type `SELLER_REINSTATED`). |
+| `search.seller-reinstated` | `search.*` | Re-enables seller's active offers in Elasticsearch index (sets `seller_active = true` on all offer docs). |
+| `audit` | `audit` | Writes `audit_logs` (action=`SELLER_REINSTATED`, entity_type=`SELLER`, actor_id=admin_id). |
 
 ---
 
@@ -979,11 +981,11 @@ Fires when an admin lifts a seller's suspension (sets `suspension_status = ACTIV
 
 **Consumer groups**
 
-| Consumer group | Side effects |
-|---------------|--------------|
-| `notification.fulfillment-cancelled` | Sends ET-16 email to buyer. Creates in-app notification (type `FULFILLMENT_CANCELLED`). |
-| `inventory.fulfillment-cancelled` | Restores reserved stock for the cancelled fulfillment. |
-| `audit` | Writes `activity_events` (entity_type=`FULFILLMENT`, entity_id=fulfillment_id, actor_id=seller_id, actor_role=`SELLER`). |
+| Consumer group | Pattern | Side effects |
+|---------------|---------|--------------|
+| `notification.fulfillment-cancelled` | `notification.*` | Sends ET-16 email to buyer. Creates in-app notification (type `FULFILLMENT_CANCELLED`). |
+| `inventory.fulfillment-cancelled` | `inventory.*` | Restores reserved stock for the cancelled fulfillment. |
+| `audit` | `audit` | Writes `activity_events` (entity_type=`FULFILLMENT`, entity_id=fulfillment_id, actor_id=seller_id, actor_role=`SELLER`). |
 
 ---
 
@@ -1030,14 +1032,14 @@ Fires when an admin lifts a seller's suspension (sets `suspension_status = ACTIV
                   { "name": "product_title", "type": "string" },
                   { "name": "variant_label", "type": ["null","string"], "default": null },
                   { "name": "quantity",      "type": "int" },
-                  { "name": "unit_price",    "type": "string", "doc": "NUMERIC(19,4) as string" },
-                  { "name": "currency_code", "type": "string" }
+                  { "name": "unit_price",    "type": "string", "doc": "NUMERIC(19,4) as string; seller's native currency amount from fulfillment_item snapshot" },
+                  { "name": "currency_code", "type": "string", "doc": "ISO 4217 — seller's native pricing currency for this item" }
                 ]
               }
             }
           },
-          { "name": "refund_amount",  "type": "string", "doc": "NUMERIC(19,4) as string" },
-          { "name": "currency_code",  "type": "string" },
+          { "name": "refund_amount",  "type": "string", "doc": "NUMERIC(19,4) as string; total refund in seller's native currency (currency_code below)" },
+          { "name": "currency_code",  "type": "string", "doc": "ISO 4217 — seller's native currency; matches fulfillment_item.currency at capture" },
           { "name": "seller_name",    "type": "string" }
         ]
       }
@@ -1048,11 +1050,11 @@ Fires when an admin lifts a seller's suspension (sets `suspension_status = ACTIV
 
 **Consumer groups**
 
-| Consumer group | Side effects |
-|---------------|--------------|
-| `notification.refund-suspended-seller-buyer` | Sends ET-13 email to buyer. Creates in-app notification (type `REFUND_ISSUED`). |
-| `notification.refund-suspended-seller-seller` | Sends ET-13b email to seller. |
-| `audit` | Writes `activity_events` (entity_type=`FULFILLMENT`, entity_id=fulfillment_id, actor_role=`SYSTEM`). |
+| Consumer group | Pattern | Side effects |
+|---------------|---------|--------------|
+| `notification.refund-suspended-seller-buyer` | `notification.*` | Sends ET-13 email to buyer. Creates in-app notification (type `REFUND_ISSUED`). |
+| `notification.refund-suspended-seller-seller` | `notification.*` | Sends ET-13b email to seller. |
+| `audit` | `audit` | Writes `activity_events` (entity_type=`FULFILLMENT`, entity_id=fulfillment_id, actor_role=`SYSTEM`). |
 
 ---
 
@@ -1097,11 +1099,11 @@ Fires when an admin lifts a seller's suspension (sets `suspension_status = ACTIV
 
 **Consumer groups**
 
-| Consumer group | Side effects |
-|---------------|--------------|
-| `notification.suspension-expired` | Sends ET-11 email to seller. Creates in-app notification (type `SUSPENSION_EXPIRED`). |
-| `audit` | Writes `audit_logs` (action=`SUSPENSION_EXPIRED`, entity_type=`SELLER`, actor_role=`SYSTEM`). |
-| `search.suspension-expired` | Re-enables seller's SUSPENSION-deactivated offers in Elasticsearch. |
+| Consumer group | Pattern | Side effects |
+|---------------|---------|--------------|
+| `notification.suspension-expired` | `notification.*` | Sends ET-11 email to seller. Creates in-app notification (type `SUSPENSION_EXPIRED`). |
+| `audit` | `audit` | Writes `audit_logs` (action=`SUSPENSION_EXPIRED`, entity_type=`SELLER`, actor_role=`SYSTEM`). |
+| `search.suspension-expired` | `search.*` | Re-enables seller's SUSPENSION-deactivated offers in Elasticsearch. |
 
 ---
 
@@ -1144,10 +1146,10 @@ Fires when an admin lifts a seller's suspension (sets `suspension_status = ACTIV
 
 **Consumer groups**
 
-| Consumer group | Side effects |
-|---------------|--------------|
-| `audit` | Writes `activity_events` (entity_type=`INVENTORY`, entity_id=offer_id, actor_role=`SYSTEM`). |
-| `search.reservation-expired` | Updates `available_qty` in Elasticsearch offer document. |
+| Consumer group | Pattern | Side effects |
+|---------------|---------|--------------|
+| `audit` | `audit` | Writes `activity_events` (entity_type=`INVENTORY`, entity_id=offer_id, actor_role=`SYSTEM`). |
+| `search.reservation-expired` | `search.*` | Updates `available_qty` in Elasticsearch offer document. |
 
 ---
 
@@ -1176,7 +1178,7 @@ Fires when an admin lifts a seller's suspension (sets `suspension_status = ACTIV
       "type": {
         "type": "record", "name": "FxRateUpdatedPayload",
         "fields": [
-          { "name": "base_currency", "type": "string" },
+          { "name": "base_currency", "type": "string", "doc": "ISO 4217 — seller pricing currency (one of USD, THB, JPY, SGD); the currency being repriced" },
           {
             "name": "rates",
             "type": {
@@ -1184,8 +1186,8 @@ Fires when an admin lifts a seller's suspension (sets `suspension_status = ACTIV
               "items": {
                 "type": "record", "name": "FxRateEntry",
                 "fields": [
-                  { "name": "currency_code", "type": "string" },
-                  { "name": "rate",          "type": "string", "doc": "NUMERIC(19,8) as string" },
+                  { "name": "currency_code", "type": "string", "doc": "ISO 4217 — display/quote currency (buyer's display target)" },
+                  { "name": "rate",          "type": "string", "doc": "NUMERIC(19,8) as string; base_currency → currency_code conversion rate" },
                   { "name": "fetched_at",    "type": "string", "doc": "ISO 8601" }
                 ]
               }
@@ -1200,9 +1202,9 @@ Fires when an admin lifts a seller's suspension (sets `suspension_status = ACTIV
 
 **Consumer groups**
 
-| Consumer group | Side effects |
-|---------------|--------------|
-| `search.fx-rate-updated` | Refreshes `display_prices` map across all offer documents in Elasticsearch for the updated currency pair. |
+| Consumer group | Pattern | Side effects |
+|---------------|---------|--------------|
+| `search.fx-rate-updated` | `search.*` | Refreshes `display_prices` map across all offer documents in Elasticsearch for the updated currency pair. |
 
 ---
 
@@ -1244,10 +1246,10 @@ Fires when an admin lifts a seller's suspension (sets `suspension_status = ACTIV
 
 **Consumer groups**
 
-| Consumer group | Side effects |
-|---------------|--------------|
-| `search.listing-soft-deleted` | Removes product document from Elasticsearch index. |
-| `audit` | Writes `activity_events` (entity_type=`OFFER`, entity_id=offer_id, actor_id=seller_id, actor_role=`SELLER`). |
+| Consumer group | Pattern | Side effects |
+|---------------|---------|--------------|
+| `search.listing-soft-deleted` | `search.*` | Removes product document from Elasticsearch index. |
+| `audit` | `audit` | Writes `activity_events` (entity_type=`OFFER`, entity_id=offer_id, actor_id=seller_id, actor_role=`SELLER`). |
 
 ---
 
@@ -1289,9 +1291,9 @@ Fires when an admin lifts a seller's suspension (sets `suspension_status = ACTIV
 
 **Consumer groups**
 
-| Consumer group | Side effects |
-|---------------|--------------|
-| `notification.email-verification` | Sends ET-18 verification email to user. |
+| Consumer group | Pattern | Side effects |
+|---------------|---------|--------------|
+| `notification.email-verification` | `notification.*` | Sends ET-18 verification email to user. |
 
 ---
 
@@ -1333,9 +1335,9 @@ Fires when an admin lifts a seller's suspension (sets `suspension_status = ACTIV
 
 **Consumer groups**
 
-| Consumer group | Side effects |
-|---------------|--------------|
-| `notification.password-reset` | Sends ET-19 password-reset email to user. |
+| Consumer group | Pattern | Side effects |
+|---------------|---------|--------------|
+| `notification.password-reset` | `notification.*` | Sends ET-19 password-reset email to user. |
 
 ---
 
@@ -1376,9 +1378,9 @@ Fires when an admin lifts a seller's suspension (sets `suspension_status = ACTIV
 
 **Consumer groups**
 
-| Consumer group | Side effects |
-|---------------|--------------|
-| `notification.password-changed` | Sends ET-20 password-changed confirmation email to user. |
+| Consumer group | Pattern | Side effects |
+|---------------|---------|--------------|
+| `notification.password-changed` | `notification.*` | Sends ET-20 password-changed confirmation email to user. |
 
 ---
 

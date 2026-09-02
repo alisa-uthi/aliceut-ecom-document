@@ -9,12 +9,73 @@ Daily log of work on this project. Newest entry on top. One entry per active day
 - Each day gets an explicit `<a id="YYYY-MM-DD"></a>` anchor immediately above its heading so external links resolve reliably (GitHub also auto-anchors the heading, but the explicit id survives renderer differences). Add the new date to the **Index** below.
 
 **Index**
+- [2026-09-02](#2026-09-02) — Conventions + design doc day: API conventions, data lifecycle, UI cross-validation (15 fixes), API response-shape migration (11 files), Kafka consumer patterns, observability stack. Currency clarity pass: labeled seller-native vs buyer-display in all API + Kafka + ERD currency fields; fixed structural bug and incorrect catalog query.
 - [2026-08-30](#2026-08-30) — Full design doc day: consistency review + fixes (116 findings), repo restructure, MinIO, all 81 sequence diagrams, Mermaid validation.
 - [2026-08-29c](#2026-08-29c) — Technical design revalidation: 8 blocking + 6 high-priority fixes applied across all design docs.
 - [2026-08-29b](#2026-08-29b) — Phase 1 technical design + UI design (parallel agent team).
 - [2026-08-29](#2026-08-29) — Requirements deep-dive: order lifecycle, buyer story validation, auth portals, diagrams, BA revalidation.
 - [2026-08-22](#2026-08-22) — Phase 1 architecture overview.
 - [2026-08-19](#2026-08-19) — Requirements freeze + repo scaffolding.
+
+<a id="2026-09-02"></a>
+## 2026-09-02
+**Focus:** Conventions + design doc day — API/data lifecycle conventions, full UI cross-validation, API response migration, Kafka consumer patterns, observability stack.
+
+**Done:**
+
+_Product owner decisions (carry-forward from 2026-08-29b)_
+- Search: suppress offers from suspended sellers — **yes**.
+- Max saved addresses per buyer: **10** (matches US-B-14).
+- Buyer currency param at checkout: **display only** — affects price display, not `Price` row selection.
+
+_`conventions/api-conventions.md`_
+- Added `## Datetime` section: ISO 8601 UTC strings (`Z` required, ms precision), `*At`/`*Date` field naming, `TIMESTAMPTZ` storage, client-side TZ conversion, ISO 8601 duration strings.
+- Added `## Success Response Shape` section: always-envelope `{ data, meta }` for single resource + collection; HTTP 204 for empty success.
+
+_`conventions/data-lifecycle.md` (new file)_
+- Documented all `pg_cron` cleanup jobs: `refresh_session`, `email_verification_token`, `password_reset_token`, `idempotency_key`, `outbox_event`, `processed_event`, `fx_rate` — plus `inventory.expire_reservations()` and `seller.lift_expired_suspensions()` PG functions.
+- Phase 1 job catalog moved to `phase-1/technical-design/cleanup-jobs.md`; conventions file holds cross-phase rule + pointer only.
+
+_`phase-1/technical-design/api-design/` — response envelope migration_
+- All 11 files updated: every non-204 success response wrapped `{ "data": { ... } }`.
+- Applied to JSON blocks and Mermaid sequence diagram inline responses.
+- Files: `auth.md`, `profile.md`, `catalog.md`, `pricing.md`, `cart.md`, `orders.md`, `admin.md`, `notifications.md`, `seller.md` (search + health already correct).
+
+_UI design cross-validation — 15 fixes across 2 passes_
+- `seller-portal.md`: `[ORD-xxx]` → `[FUL-xxx]`; B2B_TIER `min_qty` `≥ 1` → `≥ 2`; no-enumeration pattern on forgot-password (removed `notFoundError` banner); `KYC_APPROVED` → `APPROVED` (5 occurrences); `validFrom`/`validUntil` → `startsAt`/`endsAt`; anti-enumeration success copy; removed non-existent pre-validation spinner.
+- `navigation-routing.md`: `NotSuspendedGuard` source → `seller_suspension_status` JWT claim; removed undefined `AdminGuard` on notifications child route.
+- `buyer-portal.md`: email-verified warning text scoped to checkout only; `accountType === 'B2B'` → `isBusinessAccount`; `?next=` → `?returnUrl=` throughout; removed non-existent `validate-reset-token` endpoint; resend-verification body removed (JWT-authenticated).
+- `admin-portal.md`: `KYC_PENDING` → `PENDING_KYC`; `registeredAt` → `createdAt` (table + detail panel).
+
+_`conventions/kafka-events.md` — consumer processing patterns_
+- Added §4.1 Mermaid flowchart: generic consumer loop (poll → dedupe → side effect → `processed_event` INSERT → offset commit → DLQ).
+- Added §4.2 consumer family patterns: processing bodies for all 5 families (`notification.*`, `search.*`, `audit`, `inventory.*`, `orders.*`).
+- Added `Pattern` column to all 24 event consumer group tables in `phase-1/technical-design/kafka-events.md`.
+
+_`conventions/observability.md` (new file)_
+- Stack: Grafana Alloy (unified collector) → Loki + Prometheus + Tempo → Grafana.
+- NestJS logger: `nestjs-pino` via `LoggerModule.forRootAsync`; structured JSON; `pino-pretty` for dev.
+- Log envelope: mandatory fields (`correlationId`, `service`, `module`, `userId`, `traceId`/`spanId` reserved).
+- Sensitive field masking: pino `redact` for headers; `buildSanitizer()` factory (recursive JSON replacer, case-insensitive, size-guarded) for request + response bodies. Keys + `maxBodyLogBytes` driven by `LOG_SENSITIVE_KEYS` / `LOG_MAX_BODY_BYTES` env vars — add keys by updating `.env` + `docker compose up -d --no-build`, no rebuild.
+- `X-Correlation-ID` propagation: inbound middleware → `AsyncLocalStorage` → Axios interceptor forwards on all outbound calls.
+- `LoggingInterceptor`: captures response body via RxJS `tap`; sanitizes before logging.
+- Alloy `config.alloy`: Docker discovery, JSON parsing, low-cardinality labels (`level`, `service`), `correlationId` as structured metadata (not label).
+- docker-compose snippets for Alloy, Loki, Prometheus, Grafana with provisioning.
+- Playwright E2E correlation strategy: inject `X-Correlation-ID` per test → assert UI + `waitForResponse` + direct DB fixture → post-failure Loki query by `correlationId`.
+
+_Currency field clarity pass_
+- Root problem: every `currency`/`currency_code` field in API responses and Kafka schemas was unlabeled — ambiguous whether it was seller's native pricing currency or buyer's display/preference currency.
+- `search.md`: added `displayAmount`, `displayCurrency`, `fxRate` to `lowestOffer`; added `displayMin`, `displayMax`, `displayCurrency` to `facets.priceRange`; updated ES query note to reference `display_prices[currency]`; added notes block explaining buyer vs seller fields.
+- `pricing.md`: renamed `displayInCurrency` → `displayCurrency` (naming consistency); labeled `currency` param as buyer's requested display currency; added field semantics block.
+- `catalog.md`: `GET /catalog/products/:id/offers` — added `displayAmount`/`displayCurrency`/`fxRate` to `effectivePrice`; fixed incorrect sequence query that filtered `AND currency_code = :currency` (would miss offers priced in a different native currency); added separate FX join step; added field semantics note. `GET /catalog/products/:id` — added note that it returns seller-native only, directs to `/offers?currency=` for display conversion.
+- `cart.md`: added `displayAmount`/`displayCurrency` to `effectivePrice`; added field semantics (display currency from `buyer.profile.preferred_currency` in JWT); updated both sequence diagrams with explicit FX join labeling.
+- `kafka-events.md`: annotated `doc` fields across `fulfillment.placed`, `fulfillment.refunded`, `fulfillment.refund_suspended_seller`, `fx_rate.updated`, `offer.changed` — every `currency_code` now states seller-native vs buyer-display. Bug fix: `RefundedItem.fx_rate_used_at_capture` was non-nullable `"string"` (structural inconsistency vs `fulfillment.placed` where same field is `["null","string"]`); corrected to `["null","string"]` with `"default": null`.
+- `data-model-erd.md`: labeled `pricing.offer_price.currency_code` (seller native); `pricing.fx_rate.base_currency_code` (seller native) and `quote_currency_code` (buyer display); `orders.fulfillment` monetary columns (`shipping_cost`, `tax_total`, `total_amount`) in `currency_code` (seller native); `orders.fulfillment_item.currency_code` (seller native), `unit_price`, `tax` (seller native), `fx_rate_used_at_capture` (base=seller native → quote=buyer display, null when no conversion); `orders.payment_attempt.currency_code` + `amount` (seller native).
+
+**Next:**
+- Backlog decomposition or implementation scaffolding — direction TBD next session.
+
+---
 
 **Entry template**
 ```

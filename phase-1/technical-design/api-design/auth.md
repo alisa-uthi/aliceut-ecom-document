@@ -46,6 +46,8 @@
 | `GET /auth/facebook`, `GET /auth/facebook/callback` | Postgres | `identity.user` (upsert), `identity.oauth_identity` (upsert), `identity.refresh_session` (insert) |
 | `POST /auth/set-password` | Postgres | `identity.user` (`password_hash`) |
 
+> **Guard-layer Redis access:** All JWT-guarded endpoints (marked `JWT` in the Endpoint Index) execute a Redis `GET auth:revoke_before:{userId}` inside `JwtAuthGuard` before the handler runs — not reflected in the Primary DB column above. See [auth-jwt-design §14](../../../conventions/auth-jwt-design.md#14-token-revocation--immediate-status-enforcement).
+
 ---
 
 ## Endpoints
@@ -70,12 +72,14 @@ Rate limit: 5 attempts per IP per 15 min
 **Response 201**
 ```json
 {
-  "userId": "uuid",
-  "email": "string",
-  "message": "Verification email sent"
+  "data": {
+    "userId": "uuid",
+    "email": "string",
+    "message": "Verification email sent"
+  }
 }
 ```
-**Errors:** 400 validation, 409 email already registered
+**Errors:** 400 validation, 401 email already registered (Show Invalid Credentials to user)
 
 #### Sequence
 
@@ -103,8 +107,8 @@ sequenceDiagram
     A->>IS: register(dto)
     IS->>PG: SELECT identity.user WHERE LOWER(email) = LOWER($1)
     alt email already registered
-        IS-->>A: ConflictException
-        A-->>C: 409 Conflict "Email already registered"
+        IS-->>A: BadRequestException
+        A-->>C: 401 Bad Request "Invalid Credentials"
     end
 
     IS->>IS: argon2id.hash(password)
@@ -117,7 +121,7 @@ sequenceDiagram
     IS->>PG: COMMIT
 
     IS-->>A: {userId, email}
-    A-->>C: 201 {userId, email, message: "Verification email sent"}
+    A-->>C: 201 { data: { userId, email, message: "Verification email sent" } }
 
     Note over KO,KR: async — runs after TX commit, outside request cycle
     KR->>PG: Poll platform.outbox_event WHERE publication_status='PENDING'
@@ -143,15 +147,17 @@ Rate limit: 10 attempts per IP per 15 min (lockout after 10 failures)
 **Response 200**
 ```json
 {
-  "accessToken": "string (JWT, 15 min)",
-  "refreshToken": "string (opaque, 7 days)",
-  "user": {
-    "id": "uuid",
-    "email": "string",
-    "fullName": "string",
-    "roles": ["BUYER"],
-    "emailVerified": true,
-    "accountType": "B2C | B2B"
+  "data": {
+    "accessToken": "string (JWT, 15 min)",
+    "refreshToken": "string (opaque, 7 days)",
+    "user": {
+      "id": "uuid",
+      "email": "string",
+      "fullName": "string",
+      "roles": ["BUYER"],
+      "emailVerified": true,
+      "accountType": "B2C | B2B"
+    }
   }
 }
 ```
@@ -202,7 +208,7 @@ sequenceDiagram
     IS->>PG: INSERT identity.refresh_session (user_id, token_hash, expires_at=NOW()+7d, device_metadata)
 
     IS-->>A: {accessToken, refreshToken, user}
-    A-->>C: 200 {accessToken, refreshToken, user}
+    A-->>C: 200 { data: { accessToken, refreshToken, user } }
     Note right of C: refreshToken delivered via HttpOnly Secure SameSite=Strict cookie (path=/api/v1/auth/refresh)
 ```
 
@@ -219,7 +225,7 @@ Auth: PUBLIC (refresh token in body)
 ```json
 { "refreshToken": "string" }
 ```
-**Response 200** — same shape as login response (new access + refresh token pair). Old refresh token is immediately invalidated.  
+**Response 200** — same shape as login response (new access + refresh token pair, wrapped in `data`). Old refresh token is immediately invalidated.  
 **Errors:** 401 token expired/revoked/not found
 
 #### Sequence
@@ -265,7 +271,7 @@ sequenceDiagram
     IS->>PG: COMMIT
 
     IS-->>A: {accessToken, newRefreshToken, user}
-    A-->>C: 200 {accessToken, refreshToken, user}
+    A-->>C: 200 { data: { accessToken, refreshToken, user } }
     Note right of C: new HttpOnly refreshToken cookie replaces old
 ```
 
@@ -290,6 +296,7 @@ Auth: JWT
 sequenceDiagram
     participant C as Client
     participant G as JwtGuard
+    participant R as Redis
     participant A as NestJS API
     participant IS as IdentityService
     participant PG as Postgres
@@ -298,6 +305,11 @@ sequenceDiagram
     G->>G: Verify JWT signature + expiry
     alt token missing or invalid/expired
         G-->>C: 401 Unauthorized
+    end
+    G->>R: GET auth:revoke_before:{sub}
+    alt iat < revokeTimestamp (token revoked)
+        G-->>C: 401 Unauthorized "Token revoked"
+        Note right of C: Angular interceptor retries via /auth/refresh — new token iat > revokeTimestamp, logout proceeds
     end
     G->>A: proceed with decoded JWT {sub, roles, ...}
 
@@ -319,7 +331,7 @@ Tag: Auth
 Auth: JWT
 ```
 No request body. Invalidates **all** refresh_sessions for the authenticated user.  
-**Response 200** `{ "sessionsRevoked": number }`
+**Response 200** `{ "data": { "sessionsRevoked": number } }`
 
 #### Sequence
 
@@ -327,6 +339,7 @@ No request body. Invalidates **all** refresh_sessions for the authenticated user
 sequenceDiagram
     participant C as Client
     participant G as JwtGuard
+    participant R as Redis
     participant A as NestJS API
     participant IS as IdentityService
     participant PG as Postgres
@@ -336,6 +349,10 @@ sequenceDiagram
     alt token missing or invalid/expired
         G-->>C: 401 Unauthorized
     end
+    G->>R: GET auth:revoke_before:{sub}
+    alt iat < revokeTimestamp (token revoked)
+        G-->>C: 401 Unauthorized "Token revoked"
+    end
     G->>A: proceed with decoded JWT {sub, roles, ...}
 
     A->>IS: logoutAll(userId)
@@ -343,7 +360,7 @@ sequenceDiagram
     Note right of PG: returns count of rows updated
 
     IS-->>A: {sessionsRevoked: count}
-    A-->>C: 200 {sessionsRevoked: count}
+    A-->>C: 200 { data: { sessionsRevoked: count } }
 ```
 
 ---
@@ -359,7 +376,7 @@ Auth: PUBLIC
 ```json
 { "token": "string (single-use, 24h TTL)" }
 ```
-**Response 200** `{ "message": "Email verified" }`  
+**Response 200** `{ "data": { "message": "Email verified" } }`  
 **Errors:** 400 invalid/expired token, 409 already verified
 
 #### Sequence
@@ -399,7 +416,7 @@ sequenceDiagram
     IS->>PG: COMMIT
 
     IS-->>A: success
-    A-->>C: 200 {message: "Email verified"}
+    A-->>C: 200 { data: { message: "Email verified" } }
 ```
 
 ---
@@ -412,7 +429,7 @@ Tag: Auth
 Auth: JWT
 Rate limit: 3 per hour per email address
 ```
-**Response 202** `{ "message": "Verification email queued" }`  
+**Response 202** `{ "data": { "message": "Verification email queued" } }`  
 **Errors:** 409 already verified, 429 rate limited
 
 #### Sequence
@@ -421,6 +438,7 @@ Rate limit: 3 per hour per email address
 sequenceDiagram
     participant C as Client
     participant G as JwtGuard
+    participant R as Redis
     participant A as NestJS API
     participant IS as IdentityService
     participant PG as Postgres
@@ -431,6 +449,10 @@ sequenceDiagram
     G->>G: Verify JWT signature + expiry
     alt token missing or invalid/expired
         G-->>C: 401 Unauthorized
+    end
+    G->>R: GET auth:revoke_before:{sub}
+    alt iat < revokeTimestamp (token revoked)
+        G-->>C: 401 Unauthorized "Token revoked"
     end
     G->>A: proceed with decoded JWT {sub, email, ...}
 
@@ -455,7 +477,7 @@ sequenceDiagram
     IS->>PG: COMMIT
 
     IS-->>A: success
-    A-->>C: 202 {message: "Verification email queued"}
+    A-->>C: 202 { data: { message: "Verification email queued" } }
 
     Note over KO,KR: async — runs after TX commit
     KR->>PG: Poll platform.outbox_event WHERE publication_status='PENDING'
@@ -478,7 +500,7 @@ Rate limit: 3 per hour per email address
 ```json
 { "email": "string" }
 ```
-**Response 202** `{ "message": "If the email exists, a reset link has been sent" }` (always 202 to prevent user enumeration)
+**Response 202** `{ "data": { "message": "If the email exists, a reset link has been sent" } }` (always 202 to prevent user enumeration)
 
 #### Sequence
 
@@ -522,7 +544,7 @@ sequenceDiagram
     end
 
     IS-->>A: always success
-    A-->>C: 202 {message: "If the email exists, a reset link has been sent"}
+    A-->>C: 202 { data: { message: "If the email exists, a reset link has been sent" } }
 ```
 
 ---
@@ -538,7 +560,7 @@ Auth: PUBLIC
 ```json
 { "token": "string (single-use, 60 min TTL)", "newPassword": "string (min 8)" }
 ```
-**Response 200** `{ "message": "Password updated. All sessions revoked." }`  
+**Response 200** `{ "data": { "message": "Password updated. All sessions revoked." } }`  
 **Errors:** 400 invalid/expired token
 
 #### Sequence
@@ -588,7 +610,7 @@ sequenceDiagram
     IS->>PG: COMMIT
 
     IS-->>A: success
-    A-->>C: 200 {message: "Password updated. All sessions revoked."}
+    A-->>C: 200 { data: { message: "Password updated. All sessions revoked." } }
 
     Note over KO,KR: async — runs after TX commit
     KR->>PG: Poll platform.outbox_event WHERE publication_status='PENDING'
@@ -610,7 +632,7 @@ Auth: JWT
 ```json
 { "currentPassword": "string", "newPassword": "string (min 8)", "currentRefreshToken": "string" }
 ```
-**Response 200** `{ "message": "Password changed. All other sessions revoked." }`  
+**Response 200** `{ "data": { "message": "Password changed. All other sessions revoked." } }`  
 **Errors:** 400 validation, 401 current password wrong
 
 #### Sequence
@@ -619,6 +641,7 @@ Auth: JWT
 sequenceDiagram
     participant C as Client
     participant G as JwtGuard
+    participant R as Redis
     participant A as NestJS API
     participant IS as IdentityService
     participant PG as Postgres
@@ -629,6 +652,10 @@ sequenceDiagram
     G->>G: Verify JWT signature + expiry
     alt token missing or invalid/expired
         G-->>C: 401 Unauthorized
+    end
+    G->>R: GET auth:revoke_before:{sub}
+    alt iat < revokeTimestamp (token revoked)
+        G-->>C: 401 Unauthorized "Token revoked"
     end
     G->>A: proceed with decoded JWT {sub, ...}
 
@@ -656,7 +683,7 @@ sequenceDiagram
     IS->>PG: COMMIT
 
     IS-->>A: success
-    A-->>C: 200 {message: "Password changed. All other sessions revoked."}
+    A-->>C: 200 { data: { message: "Password changed. All other sessions revoked." } }
 
     Note over KO,KR: async — runs after TX commit
     KR->>PG: Poll platform.outbox_event WHERE publication_status='PENDING'
@@ -806,7 +833,7 @@ Auth: JWT
 ```json
 { "newPassword": "string (min 8)" }
 ```
-**Response 200** `{ "message": "Local password linked" }`  
+**Response 200** `{ "data": { "message": "Local password linked" } }`  
 **Errors:** 409 already has local password
 
 #### Sequence
@@ -815,6 +842,7 @@ Auth: JWT
 sequenceDiagram
     participant C as Client
     participant G as JwtGuard
+    participant R as Redis
     participant A as NestJS API
     participant IS as IdentityService
     participant PG as Postgres
@@ -823,6 +851,10 @@ sequenceDiagram
     G->>G: Verify JWT signature + expiry
     alt token missing or invalid/expired
         G-->>C: 401 Unauthorized
+    end
+    G->>R: GET auth:revoke_before:{sub}
+    alt iat < revokeTimestamp (token revoked)
+        G-->>C: 401 Unauthorized "Token revoked"
     end
     G->>A: proceed with decoded JWT {sub, ...}
 
@@ -842,5 +874,5 @@ sequenceDiagram
     IS->>PG: UPDATE identity.user SET password_hash=newHash WHERE id=JWT.sub
 
     IS-->>A: success
-    A-->>C: 200 {message: "Local password linked"}
+    A-->>C: 200 { data: { message: "Local password linked" } }
 ```

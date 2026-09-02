@@ -235,7 +235,7 @@ An offer is the seller-scoped listing and the only product reference used by car
 |---|---|---|
 | `id` | `UUID` | PK; `DEFAULT uuidv7()` |
 | `offer_id` | `UUID` | Required FK → `catalog.offer(id)` |
-| `currency_code` | `CHAR(3)` | Required FK → `pricing.currency(code)` |
+| `currency_code` | `CHAR(3)` | Required FK → `pricing.currency(code)`; **seller's native pricing currency** |
 | `amount` | `NUMERIC(19,4)` | Required; `CHECK (amount >= 0)` |
 | `price_type` | `price_type` | Required: `LIST`, `SALE`, or `B2B_TIER` |
 | `min_qty` | `INT` | Required; `DEFAULT 1`; `CHECK (min_qty >= 1)`; `B2B_TIER` requires value `> 1` |
@@ -250,9 +250,9 @@ The V1 `SALE` row already supports a seller's time-bounded, no-code discount. Co
 
 | Column | Type | Constraints / purpose |
 |---|---|---|
-| `base_currency_code` | `CHAR(3)` | PK component; FK → `pricing.currency(code)` |
-| `quote_currency_code` | `CHAR(3)` | PK component; FK → `pricing.currency(code)` |
-| `rate` | `NUMERIC(19,8)` | Required; `CHECK (rate > 0)`; cached exchange rate |
+| `base_currency_code` | `CHAR(3)` | PK component; FK → `pricing.currency(code)`; **seller's native pricing currency** (one of USD, THB, JPY, SGD) |
+| `quote_currency_code` | `CHAR(3)` | PK component; FK → `pricing.currency(code)`; **buyer's display/target currency** |
+| `rate` | `NUMERIC(19,8)` | Required; `CHECK (rate > 0)`; cached exchange rate (`base_currency_code` → `quote_currency_code`) |
 | `as_of` | `TIMESTAMPTZ` | Required source timestamp |
 | `created_at` | `TIMESTAMPTZ` | Required; when this rate row was first inserted |
 | `updated_at` | `TIMESTAMPTZ` | Required cache refresh timestamp |
@@ -355,9 +355,9 @@ One fulfillment per seller/currency group within a checkout. Carries the per-sel
 | `currency_code` | `CHAR(3)` | Required FK → `pricing.currency(code)`; the offer's native currency used for capture |
 | `status` | `fulfillment_status` | Required: `PENDING`, `SHIPPED`, `DELIVERED`, `REFUNDED`, or `CANCELLED` |
 | `shipping_method` | `TEXT` | Required fake-shipping service identifier |
-| `shipping_cost` | `NUMERIC(19,4)` | Required snapshot; `CHECK (shipping_cost >= 0)` |
-| `tax_total` | `NUMERIC(19,4)` | Required snapshot; `CHECK (tax_total >= 0)` |
-| `total_amount` | `NUMERIC(19,4)` | Required snapshot; `CHECK (total_amount >= 0)` |
+| `shipping_cost` | `NUMERIC(19,4)` | Required snapshot in `currency_code` (seller's native); `CHECK (shipping_cost >= 0)` |
+| `tax_total` | `NUMERIC(19,4)` | Required snapshot in `currency_code` (seller's native); `CHECK (tax_total >= 0)` |
+| `total_amount` | `NUMERIC(19,4)` | Required snapshot in `currency_code` (seller's native); `CHECK (total_amount >= 0)` |
 | `tracking_number` | `TEXT` | Required mock tracking number; format `TRK-<uuid8>`; generated at `PENDING`, immutable |
 | `estimated_delivery_at` | `TIMESTAMPTZ` | Required mock ETA (today + 3–7 days, deterministic) |
 | `placed_at` | `TIMESTAMPTZ` | Required fulfillment creation time |
@@ -379,10 +379,10 @@ Immutable line-item snapshot created at reservation time. Never updated after in
 | `product_title_snapshot` | `TEXT` | Required immutable product title at time of purchase |
 | `variant_label_snapshot` | `TEXT` | Nullable immutable variant label |
 | `quantity` | `INT` | Required; `CHECK (quantity > 0)` |
-| `unit_price` | `NUMERIC(19,4)` | Required immutable captured unit price; `CHECK (unit_price >= 0)` |
-| `currency_code` | `CHAR(3)` | Required captured ISO 4217 code |
-| `tax` | `NUMERIC(19,4)` | Required captured line tax; `CHECK (tax >= 0)` |
-| `fx_rate_used_at_capture` | `NUMERIC(19,8)` | Nullable; only set when display-currency conversion was applied |
+| `unit_price` | `NUMERIC(19,4)` | Required immutable captured unit price in seller's native currency (`currency_code`); `CHECK (unit_price >= 0)` |
+| `currency_code` | `CHAR(3)` | Required captured ISO 4217 code; **seller's native pricing currency** (matches `fulfillment.currency_code`) |
+| `tax` | `NUMERIC(19,4)` | Required captured line tax in seller's native currency (`currency_code`); `CHECK (tax >= 0)` |
+| `fx_rate_used_at_capture` | `NUMERIC(19,8)` | Nullable; `base=currency_code` (seller's native) → `quote=buyer's display currency`; `NULL` when no FX conversion was applied (buyer display currency == seller native) |
 | `created_at` | `TIMESTAMPTZ` | Required snapshot creation time; no `updated_at` |
 
 #### `orders.payment_attempt`
@@ -394,8 +394,8 @@ Immutable line-item snapshot created at reservation time. Never updated after in
 | `provider`, `method` | `TEXT` | Required fake-payment identifiers |
 | `status` | `payment_status` | Required simulated payment result |
 | `masked_payment_detail` | `TEXT` | Required safe display detail; never PAN or CVV |
-| `amount` | `NUMERIC(19,4)` | Required captured payment amount |
-| `currency_code` | `CHAR(3)` | Required captured payment currency |
+| `amount` | `NUMERIC(19,4)` | Required captured payment amount in seller's native currency (`currency_code`) |
+| `currency_code` | `CHAR(3)` | Required captured payment currency; **seller's native** (mirrors `fulfillment.currency_code`) |
 | `idempotency_key_id` | `UUID` | Nullable FK → `orders.idempotency_key(id)` |
 | `created_at` | `TIMESTAMPTZ` | Required; attempts are append-only |
 

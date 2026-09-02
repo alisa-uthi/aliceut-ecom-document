@@ -280,7 +280,7 @@ export const appRoutes: Routes = [
       {
         path: 'notifications',
         loadComponent: () => import('./features/notifications/admin-notifications.component'),
-        canActivate: [AdminGuard],
+        // No extra canActivate — parent admin route already applies AdminAuthGuard
         // Linked from <aliceut-notification-bell> 'View all' link in admin shell
       },
     ],
@@ -327,7 +327,7 @@ export const appRoutes: Routes = [
 | `SellerAuthGuard` | `AuthGuard` + `RoleGuard('SELLER')` | Redirect to `/seller/login` |
 | `AdminAuthGuard` | `AuthGuard` + `RoleGuard('ADMIN')` | Redirect to `/admin/login` |
 | `KycApprovedGuard` | `seller_kyc_status` claim from decoded JWT access token — synchronous, no API round-trip; reads from `AuthService.currentToken` store | Show KYC overlay component within route; does not redirect |
-| `NotSuspendedGuard` | `sellerProfile.accountStatus !== 'SUSPENDED'` | Show suspension message component; does not redirect |
+| `NotSuspendedGuard` | `seller_suspension_status` claim from decoded JWT access token — synchronous, no API round-trip; reads from `AuthService.currentToken` store | Show suspension message component; does not redirect |
 | `KycAwareGuard` | Always passes; injects `kycStatus` into component via router data | — |
 
 ### Route-level Guard Summary

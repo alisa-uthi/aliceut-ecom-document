@@ -46,13 +46,15 @@ Auth: JWT
 **Response 200**
 ```json
 {
-  "id": "uuid",
-  "email": "string",
-  "fullName": "string",
-  "roles": ["BUYER"],
-  "emailVerified": true,
-  "accountType": "B2C",
-  "sellerStatus": "APPROVED | null"
+  "data": {
+    "id": "uuid",
+    "email": "string",
+    "fullName": "string",
+    "roles": ["BUYER"],
+    "emailVerified": true,
+    "accountType": "B2C",
+    "sellerStatus": "APPROVED | null"
+  }
 }
 ```
 
@@ -74,7 +76,7 @@ sequenceDiagram
 
     A->>PG: SELECT identity.user WHERE id = JWT.sub
 
-    A-->>C: 200 {id, email, fullName, roles, emailVerified, accountType, sellerStatus}
+    A-->>C: 200 { data: { id, email, fullName, roles, emailVerified, accountType, sellerStatus } }
 ```
 
 ---
@@ -95,7 +97,7 @@ Auth: JWT
   "businessLogoUrl": "string | null"
 }
 ```
-**Response 200** — updated profile shape
+**Response 200** — updated profile wrapped in `data`
 
 #### Sequence
 
@@ -125,7 +127,7 @@ sequenceDiagram
     A->>PG: UPDATE identity.user SET full_name=$1, preferred_currency=$2, business_name=$3, business_logo_storage_key=$4 WHERE id=JWT.sub
 
     A->>PG: SELECT identity.user WHERE id = JWT.sub
-    A-->>C: 200 {id, email, fullName, roles, emailVerified, accountType, sellerStatus, preferredCurrency, businessName}
+    A-->>C: 200 { data: { id, email, fullName, roles, emailVerified, accountType, sellerStatus, preferredCurrency, businessName } }
 ```
 
 ---
@@ -192,7 +194,7 @@ Auth: BUYER
 ```
 **Request body** — same fields as list item (minus `id`, `isDefault`)  
 **Limit:** Max 10 addresses per user; returns HTTP 422 with message "Address limit reached (max 10)" when exceeded.  
-**Response 201** — created address  
+**Response 201** — created address wrapped in `data`  
 **Errors:** 422 address limit reached
 
 #### Sequence
@@ -228,7 +230,7 @@ sequenceDiagram
     A->>PG: INSERT identity.address (user_id, label, recipient_name, address_line_1, address_line_2, city, state_region, postal_code, country_code, is_default=false)
 
     A->>PG: SELECT identity.address WHERE id = inserted_id
-    A-->>C: 201 {id, label, recipientName, addressLine1, city, postalCode, countryCode, isDefault, ...}
+    A-->>C: 201 { data: { id, label, recipientName, addressLine1, city, postalCode, countryCode, isDefault, ... } }
 ```
 
 ---
@@ -279,7 +281,7 @@ sequenceDiagram
     A->>PG: UPDATE identity.address SET ...changed_fields WHERE id = addressId
 
     A->>PG: SELECT identity.address WHERE id = addressId
-    A-->>C: 200 {id, label, recipientName, addressLine1, city, postalCode, countryCode, isDefault, ...}
+    A-->>C: 200 { data: { id, label, recipientName, addressLine1, city, postalCode, countryCode, isDefault, ... } }
 ```
 
 ---
@@ -372,5 +374,5 @@ sequenceDiagram
     A->>PG: COMMIT
 
     A->>PG: SELECT identity.address WHERE id = addressId
-    A-->>C: 200 {id, label, recipientName, addressLine1, city, postalCode, countryCode, isDefault: true, ...}
+    A-->>C: 200 { data: { id, label, recipientName, addressLine1, city, postalCode, countryCode, isDefault: true, ... } }
 ```

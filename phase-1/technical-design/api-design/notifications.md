@@ -87,7 +87,7 @@ PATCH /notifications/:notificationId/read
 Tag: Notifications
 Auth: JWT
 ```
-**Response 200** `{ "readAt": "ISO8601" }`  
+**Response 200** `{ "data": { "readAt": "ISO8601" } }`  
 **Errors:** 404, 403
 
 #### Sequence
@@ -118,7 +118,7 @@ sequenceDiagram
             PG-->>S: notification row
             S->>PG: UPDATE in_app_notification SET read_at = NOW() WHERE id = ?
             PG-->>S: updated row
-            S-->>C: 200 { readAt }
+            S-->>C: 200 { data: { readAt } }
         end
     end
 ```
@@ -132,7 +132,7 @@ POST /notifications/read-all
 Tag: Notifications
 Auth: JWT
 ```
-**Response 200** `{ "markedCount": 5 }`
+**Response 200** `{ "data": { "markedCount": 5 } }`
 
 #### Sequence
 
@@ -153,7 +153,7 @@ sequenceDiagram
         API->>S: markAllRead(userId)
         S->>PG: UPDATE in_app_notification SET read_at=NOW() WHERE recipient_user_id=? AND read_at IS NULL
         PG-->>S: affected row count
-        S-->>C: 200 { markedCount }
+        S-->>C: 200 { data: { markedCount } }
     end
 ```
 
