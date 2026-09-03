@@ -4,11 +4,12 @@ Daily log of work on this project. Newest entry on top. One entry per active day
 
 **How to update**
 - At session end, or when a milestone lands, add a new dated section at the top (below this header).
-- Keep each subsection to bullets. If a subsection is empty, omit it.
+- Keep each subsection to bullets. If a subsection is empty, omit it. Keep the update direct and concise.
 - Use ISO date `YYYY-MM-DD`.
 - Each day gets an explicit `<a id="YYYY-MM-DD"></a>` anchor immediately above its heading so external links resolve reliably (GitHub also auto-anchors the heading, but the explicit id survives renderer differences). Add the new date to the **Index** below.
 
 **Index**
+- [2026-09-03](#2026-09-03) — Developer guidelines day: 5-convention parallel agent team. Git workflow, testing guidelines, backend coding standards, frontend coding standards, development flow (tech lead review + gap fill). Tech lead applied 6 cross-doc fixes.
 - [2026-09-02](#2026-09-02) — Conventions + design doc day: API conventions, data lifecycle, UI cross-validation (15 fixes), API response-shape migration (11 files), Kafka consumer patterns, observability stack. Currency clarity pass: labeled seller-native vs buyer-display in all API + Kafka + ERD currency fields; fixed structural bug and incorrect catalog query.
 - [2026-08-30](#2026-08-30) — Full design doc day: consistency review + fixes (116 findings), repo restructure, MinIO, all 81 sequence diagrams, Mermaid validation.
 - [2026-08-29c](#2026-08-29c) — Technical design revalidation: 8 blocking + 6 high-priority fixes applied across all design docs.
@@ -16,6 +17,24 @@ Daily log of work on this project. Newest entry on top. One entry per active day
 - [2026-08-29](#2026-08-29) — Requirements deep-dive: order lifecycle, buyer story validation, auth portals, diagrams, BA revalidation.
 - [2026-08-22](#2026-08-22) — Phase 1 architecture overview.
 - [2026-08-19](#2026-08-19) — Requirements freeze + repo scaffolding.
+
+<a id="2026-09-03"></a>
+## 2026-09-03
+**Focus:** Developer guidelines — 5-convention parallel agent team (git workflow, testing, backend standards, frontend standards, development flow).
+
+**Done:**
+
+_New convention files_
+- `conventions/git-workflow.md` — branching strategy, Conventional Commits, PR process, GitHub Projects integration, SemVer releases, hotfix flow, CI enforcement (commitlint), `.gitignore` guidance
+- `conventions/testing-guidelines.md` — testing pyramid (70/20/10), coverage thresholds by module tier (Tier 1: 80% branch), NestJS unit/integration tests, Kafka consumer idempotency tests, Angular unit + CDK harness tests, Playwright E2E with page objects, factory pattern, CI gates
+- `conventions/backend-coding-standards.md` — tsconfig strict flags, money lint ESLint AST selectors, `Money` VO + `decimal.js` patterns, `@IsNumberString()` DTO validation, `AppError` hierarchy + `GlobalExceptionFilter`, env var checklist (`api` vs `workers`), DB query patterns, NestJS scope/guard/interceptor rules, file naming table, code review checklist
+- `conventions/frontend-coding-standards.md` — Angular workspace layout, standalone components, smart/dumb split, `ViewState<T>` discriminated union, signals vs BehaviorSubject, generated API client rule, 3 required interceptors, `CurrencyDisplayPipe`, typed reactive forms, lazy routing + guard matrix, Material import strategy, a11y rules, performance (OnPush, trackBy, async pipe)
+- `conventions/development-flow.md` — tech lead overview: local dev setup (prerequisites, docker compose, migrations, seed), daily workflow, conventions map, MongoDB usage rules, MinIO usage rules, API client regeneration, full pre-merge checklist
+
+_Tech lead review fixes (6 issues)_
+- `git-workflow.md`: removed lock files from `.gitignore` (must be committed), removed V1-undefined `payment` scope from commitlint, fixed dead cross-references in §11
+- `testing-guidelines.md`: fixed `apps/storefront` naming → `apps/buyer-portal`, `apps/seller-portal`, `apps/admin-portal` (consistent with frontend workspace)
+- `backend-coding-standards.md`: replaced overly-broad money lint AST selector (banned all `number`) with targeted property-name selector; added `PORT_WORKERS`, `LOG_SENSITIVE_KEYS`, `LOG_MAX_BODY_BYTES` to env var checklist
 
 <a id="2026-09-02"></a>
 ## 2026-09-02
