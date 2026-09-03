@@ -29,9 +29,7 @@ Daily log of work on this project. Newest entry on top. One entry per active day
 ---
 
 **Index**
-- [2026-09-03c](#2026-09-03c) — TOC pass complete: `## Summary` + `<a id="">` anchors added to all remaining docs (git-workflow, module-architecture, design-system).
-- [2026-09-03b](#2026-09-03b) — Repo restructure: three-repo layout (aliceut-ecom-backend/frontend/document), latest stack versions (Node 22, Angular 22+, NestJS 11+), GitHub PR Stack section, CI Claude design review workflow.
-- [2026-09-03](#2026-09-03) — Developer guidelines day: 5-convention parallel agent team. Git workflow, testing guidelines, backend coding standards, frontend coding standards, development flow (tech lead review + gap fill). Tech lead applied 6 cross-doc fixes.
+- [2026-09-03](#2026-09-03) — Developer guidelines (5 new convention files), repo restructure (three-repo layout, folder renames, version bumps), GitHub PR Stack + CI Claude review, TOC pass across all 36 docs.
 - [2026-09-02](#2026-09-02) — Conventions + design doc day: API conventions, data lifecycle, UI cross-validation (15 fixes), API response-shape migration (11 files), Kafka consumer patterns, observability stack. Currency clarity pass: labeled seller-native vs buyer-display in all API + Kafka + ERD currency fields; fixed structural bug and incorrect catalog query.
 - [2026-08-30](#2026-08-30) — Full design doc day: consistency review + fixes (116 findings), repo restructure, MinIO, all 81 sequence diagrams, Mermaid validation.
 - [2026-08-29c](#2026-08-29c) — Technical design revalidation: 8 blocking + 6 high-priority fixes applied across all design docs.
@@ -42,63 +40,34 @@ Daily log of work on this project. Newest entry on top. One entry per active day
 
 ---
 
-<a id="2026-09-03c"></a>
-## 2026-09-03 (session 3)
-**Focus:** TOC pass — `## Summary` + `<a id="">` anchors across all documentation files.
-
-**Done:**
-- Added `## Summary` table-of-contents block (table format, anchor links) to all docs that were missing one
-- Added `<a id="...">` anchors before every top-level `##` section in each file
-- Files completed this session: `guidelines/git-workflow.md` (sections 7–11), `conventions/module-architecture.md` (17 sections), `conventions/design-system.md` (15 content sections; metadata heading excluded)
-- Files completed in prior session (same multi-session TOC task): all phase-1 technical-design API specs, portal UI-design docs, navigation-routing, architecture-overview, ERD, implementation-specs, docker-compose-topology, all conventions files
-- TOC pass now complete across the entire repo
-
----
-
-<a id="2026-09-03b"></a>
-## 2026-09-03 (session 2)
-**Focus:** Repo restructure, latest stack versions, PR Stack workflow, CI Claude review.
-
-**Done:**
-
-_Repo restructure (folder renames)_
-- All `backend/` references renamed to `aliceut-ecom-backend/` across 8 files
-- All `frontend/` references renamed to `aliceut-ecom-frontend/` across 8 files
-- `development-flow.md` §1: updated to three-repo system (document + backend + frontend + utility-pipeline); added local workspace layout diagram showing sibling repos under `aliceut-ecom/`
-- `phase-1/technical-design/docker-compose-topology.md`: updated nginx volume paths to use `../aliceut-ecom-frontend/` sibling path
-
-_Latest stack versions_
-- `development-flow.md` §2 prerequisites: Node.js 20 → 22 LTS, pnpm 9 → 10+, Angular CLI 17 → 20+
-- `development-flow.md` §5 tech table: Angular 17+ → 20+, NestJS → 11+
-- `architecture-overview.md` §4 + `CLAUDE.md` locked stack: same version bumps
-
-_GitHub PR Stack (§11 in git-workflow.md)_
-- New section: when to stack, branch chain pattern, opening stacked PRs on GitHub, keeping stack in sync with rebase cascade, merging bottom-up, Graphite tooling option
-
-_CI Claude design review_
-- `git-workflow.md` §7.3: expanded `ci.yml` — added `claude-design-review` job: checks out both `aliceut-ecom-backend` and `aliceut-ecom-document`, runs `claude --print` against PR diff with full design spec context, posts findings as PR comment (BLOCKER/WARNING/INFO)
-- `development-flow.md` §3 workflow diagram: added Claude design review step between CI pass and self-review
-- `development-flow.md` §11 pre-merge checklist: added "(Backend PRs) Claude design review BLOCKER items addressed" to automated gate
-
----
-
 <a id="2026-09-03"></a>
 ## 2026-09-03
-**Focus:** Developer guidelines — 5-convention parallel agent team (git workflow, testing, backend standards, frontend standards, development flow).
+**Focus:** Developer guidelines, repo restructure, GitHub PR Stack, CI Claude review, TOC pass.
 
 **Done:**
 
-_New convention files_
-- `conventions/git-workflow.md` — branching strategy, Conventional Commits, PR process, GitHub Projects integration, SemVer releases, hotfix flow, CI enforcement (commitlint), `.gitignore` guidance
-- `conventions/testing-guidelines.md` — testing pyramid (70/20/10), coverage thresholds by module tier (Tier 1: 80% branch), NestJS unit/integration tests, Kafka consumer idempotency tests, Angular unit + CDK harness tests, Playwright E2E with page objects, factory pattern, CI gates
-- `conventions/backend-coding-standards.md` — tsconfig strict flags, money lint ESLint AST selectors, `Money` VO + `decimal.js` patterns, `@IsNumberString()` DTO validation, `AppError` hierarchy + `GlobalExceptionFilter`, env var checklist (`api` vs `workers`), DB query patterns, NestJS scope/guard/interceptor rules, file naming table, code review checklist
-- `conventions/frontend-coding-standards.md` — Angular workspace layout, standalone components, smart/dumb split, `ViewState<T>` discriminated union, signals vs BehaviorSubject, generated API client rule, 3 required interceptors, `CurrencyDisplayPipe`, typed reactive forms, lazy routing + guard matrix, Material import strategy, a11y rules, performance (OnPush, trackBy, async pipe)
-- `conventions/development-flow.md` — tech lead overview: local dev setup (prerequisites, docker compose, migrations, seed), daily workflow, conventions map, MongoDB usage rules, MinIO usage rules, API client regeneration, full pre-merge checklist
+_Developer guidelines (new files under `guidelines/`)_
+- `git-workflow.md` — branching strategy, Conventional Commits, PR process (incl. §3.4 Stacked PRs with `gh stack`), GitHub Projects, SemVer releases, hotfix flow, commitlint CI; §7.3 `ci.yml` with `claude-design-review` job
+- `testing-guidelines.md` — testing pyramid (70/20/10), coverage thresholds by module tier (Tier 1: 80% branch), NestJS unit/integration, Kafka consumer idempotency, Angular CDK harness, Playwright E2E + page objects, factory pattern, CI gates
+- `development-flow.md` — local dev setup, daily workflow diagram (incl. Claude review step), conventions map, MongoDB/MinIO rules, API client regen, full pre-merge checklist
+- Tech lead review applied 6 cross-doc fixes (lock files in `.gitignore`, money lint AST selector scope, app portal naming, env var checklist additions)
 
-_Tech lead review fixes (6 issues)_
-- `git-workflow.md`: removed lock files from `.gitignore` (must be committed), removed V1-undefined `payment` scope from commitlint, fixed dead cross-references in §11
-- `testing-guidelines.md`: fixed `apps/storefront` naming → `apps/buyer-portal`, `apps/seller-portal`, `apps/admin-portal` (consistent with frontend workspace)
-- `backend-coding-standards.md`: replaced overly-broad money lint AST selector (banned all `number`) with targeted property-name selector; added `PORT_WORKERS`, `LOG_SENSITIVE_KEYS`, `LOG_MAX_BODY_BYTES` to env var checklist
+_Also moved from `conventions/` to `guidelines/`_: `git-workflow.md`, `testing-guidelines.md`, `development-flow.md`
+
+_Repo restructure_
+- All `backend/` refs → `aliceut-ecom-backend/`, `frontend/` refs → `aliceut-ecom-frontend/` across 8 files each
+- Local workspace layout updated: four sibling repos under `aliceut-ecom/` parent (document, backend, frontend, utility-pipeline)
+- `docker-compose-topology.md` nginx volume paths updated to sibling-repo relative paths (`../aliceut-ecom-frontend/`)
+
+_Stack version bumps_
+- Node.js 22 LTS, pnpm 10+, Angular CLI 20+, Angular 20+, NestJS 11+ — applied in `development-flow.md`, `architecture-overview.md`, `CLAUDE.md`
+
+_GitHub PR Stack + CI Claude review_
+- `git-workflow.md` §3.4: stacked PR pattern with `gh stack` extension (branch chain, open/sync/merge workflow)
+- `git-workflow.md` §7.3: `claude-design-review` CI job — diffs PR against main (`.ts` files), runs `claude --print` with design spec context, posts findings as PR comment; prompt scoped to diff-touched lines only
+
+_TOC pass (all 36 docs)_
+- Added `## Summary` anchor-link table and `<a id="">` anchors before every `##` section across entire repo: all conventions, guidelines, phase-1 technical-design (API specs, ERD, kafka, docker-compose, module-arch, implementation-specs), phase-1 ui-design (buyer/seller/admin portals, navigation-routing), architecture-overview
 
 <a id="2026-09-02"></a>
 ## 2026-09-02
