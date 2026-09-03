@@ -7,6 +7,19 @@
 
 ---
 
+## Summary
+
+- [Shell Layout](#shell-layout)
+- [Screen 1 — Admin Login](#screen-1-admin-login)
+- [Screen 2 — Admin Dashboard](#screen-2-admin-dashboard)
+- [Screen 3 — KYC Queue](#screen-3-kyc-queue)
+- [Screen 4 — KYC Application Detail](#screen-4-kyc-application-detail)
+- [Screen 5 — Catalog Moderation Queue](#screen-5-catalog-moderation-queue)
+- [Screen 6 — Moderation Case Detail](#screen-6-moderation-case-detail)
+- [Screen 7 — Seller Management](#screen-7-seller-management)
+- [Screen 8 — Seller Detail](#screen-8-seller-detail)
+
+<a id="shell-layout"></a>
 ## Shell Layout
 
 ```
@@ -55,6 +68,7 @@ mat-sidenav-container [fullscreen]
 
 ---
 
+<a id="screen-1-admin-login"></a>
 ## Screen 1 — Admin Login
 
 **Route:** `/admin/login`  
@@ -92,6 +106,7 @@ div.admin-login-page [display: flex; justify-content: center; align-items: flex-
 
 ---
 
+<a id="screen-2-admin-dashboard"></a>
 ## Screen 2 — Admin Dashboard
 
 **Route:** `/admin/dashboard`  
@@ -159,6 +174,7 @@ div.activity-feed [margin-top: 8px]
 
 ---
 
+<a id="screen-3-kyc-queue"></a>
 ## Screen 3 — KYC Queue
 
 **Route:** `/admin/kyc`  
@@ -226,6 +242,7 @@ div.page-header [display: flex; justify-content: space-between; align-items: cen
 
 ---
 
+<a id="screen-4-kyc-application-detail"></a>
 ## Screen 4 — KYC Application Detail
 
 **Route:** `/admin/kyc/:id`  
@@ -346,6 +363,7 @@ Both show `ConfirmDialog` before execution. Approve → dialog with title "Appro
 
 ---
 
+<a id="screen-5-catalog-moderation-queue"></a>
 ## Screen 5 — Catalog Moderation Queue
 
 **Route:** `/admin/moderation`  
@@ -411,6 +429,7 @@ Submit calls `POST /admin/moderation/bulk-remove` with array of `{listingId, rem
 
 ---
 
+<a id="screen-6-moderation-case-detail"></a>
 ## Screen 6 — Moderation Case Detail
 
 **Route:** `/admin/moderation/:id`  
@@ -510,6 +529,7 @@ div.case-grid [display: grid; grid-template-columns: 1fr 360px; gap: 24px]
 
 ---
 
+<a id="screen-7-seller-management"></a>
 ## Screen 7 — Seller Management
 
 **Route:** `/admin/sellers`  
@@ -574,6 +594,7 @@ div.page-header [display: flex; justify-content: space-between; align-items: cen
 
 ---
 
+<a id="screen-8-seller-detail"></a>
 ## Screen 8 — Seller Detail
 
 **Route:** `/admin/sellers/:id`  

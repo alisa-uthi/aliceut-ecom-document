@@ -8,7 +8,29 @@ Daily log of work on this project. Newest entry on top. One entry per active day
 - Use ISO date `YYYY-MM-DD`.
 - Each day gets an explicit `<a id="YYYY-MM-DD"></a>` anchor immediately above its heading so external links resolve reliably (GitHub also auto-anchors the heading, but the explicit id survives renderer differences). Add the new date to the **Index** below.
 
+**Entry template**
+```
+<a id="YYYY-MM-DD"></a>
+## YYYY-MM-DD
+**Focus:** one-line theme of the day.
+
+**Done:**
+- shipped or completed items
+
+**Decisions:**
+- locked choices (link to BRD § when relevant)
+
+**Blockers:**
+- what is stuck and why
+
+**Next:**
+- immediate next steps for the following session
+```
+---
+
 **Index**
+- [2026-09-03c](#2026-09-03c) — TOC pass complete: `## Summary` + `<a id="">` anchors added to all remaining docs (git-workflow, module-architecture, design-system).
+- [2026-09-03b](#2026-09-03b) — Repo restructure: three-repo layout (aliceut-ecom-backend/frontend/document), latest stack versions (Node 22, Angular 22+, NestJS 11+), GitHub PR Stack section, CI Claude design review workflow.
 - [2026-09-03](#2026-09-03) — Developer guidelines day: 5-convention parallel agent team. Git workflow, testing guidelines, backend coding standards, frontend coding standards, development flow (tech lead review + gap fill). Tech lead applied 6 cross-doc fixes.
 - [2026-09-02](#2026-09-02) — Conventions + design doc day: API conventions, data lifecycle, UI cross-validation (15 fixes), API response-shape migration (11 files), Kafka consumer patterns, observability stack. Currency clarity pass: labeled seller-native vs buyer-display in all API + Kafka + ERD currency fields; fixed structural bug and incorrect catalog query.
 - [2026-08-30](#2026-08-30) — Full design doc day: consistency review + fixes (116 findings), repo restructure, MinIO, all 81 sequence diagrams, Mermaid validation.
@@ -17,6 +39,48 @@ Daily log of work on this project. Newest entry on top. One entry per active day
 - [2026-08-29](#2026-08-29) — Requirements deep-dive: order lifecycle, buyer story validation, auth portals, diagrams, BA revalidation.
 - [2026-08-22](#2026-08-22) — Phase 1 architecture overview.
 - [2026-08-19](#2026-08-19) — Requirements freeze + repo scaffolding.
+
+---
+
+<a id="2026-09-03c"></a>
+## 2026-09-03 (session 3)
+**Focus:** TOC pass — `## Summary` + `<a id="">` anchors across all documentation files.
+
+**Done:**
+- Added `## Summary` table-of-contents block (table format, anchor links) to all docs that were missing one
+- Added `<a id="...">` anchors before every top-level `##` section in each file
+- Files completed this session: `guidelines/git-workflow.md` (sections 7–11), `conventions/module-architecture.md` (17 sections), `conventions/design-system.md` (15 content sections; metadata heading excluded)
+- Files completed in prior session (same multi-session TOC task): all phase-1 technical-design API specs, portal UI-design docs, navigation-routing, architecture-overview, ERD, implementation-specs, docker-compose-topology, all conventions files
+- TOC pass now complete across the entire repo
+
+---
+
+<a id="2026-09-03b"></a>
+## 2026-09-03 (session 2)
+**Focus:** Repo restructure, latest stack versions, PR Stack workflow, CI Claude review.
+
+**Done:**
+
+_Repo restructure (folder renames)_
+- All `backend/` references renamed to `aliceut-ecom-backend/` across 8 files
+- All `frontend/` references renamed to `aliceut-ecom-frontend/` across 8 files
+- `development-flow.md` §1: updated to three-repo system (document + backend + frontend + utility-pipeline); added local workspace layout diagram showing sibling repos under `aliceut-ecom/`
+- `phase-1/technical-design/docker-compose-topology.md`: updated nginx volume paths to use `../aliceut-ecom-frontend/` sibling path
+
+_Latest stack versions_
+- `development-flow.md` §2 prerequisites: Node.js 20 → 22 LTS, pnpm 9 → 10+, Angular CLI 17 → 20+
+- `development-flow.md` §5 tech table: Angular 17+ → 20+, NestJS → 11+
+- `architecture-overview.md` §4 + `CLAUDE.md` locked stack: same version bumps
+
+_GitHub PR Stack (§11 in git-workflow.md)_
+- New section: when to stack, branch chain pattern, opening stacked PRs on GitHub, keeping stack in sync with rebase cascade, merging bottom-up, Graphite tooling option
+
+_CI Claude design review_
+- `git-workflow.md` §7.3: expanded `ci.yml` — added `claude-design-review` job: checks out both `aliceut-ecom-backend` and `aliceut-ecom-document`, runs `claude --print` against PR diff with full design spec context, posts findings as PR comment (BLOCKER/WARNING/INFO)
+- `development-flow.md` §3 workflow diagram: added Claude design review step between CI pass and self-review
+- `development-flow.md` §11 pre-merge checklist: added "(Backend PRs) Claude design review BLOCKER items addressed" to automated gate
+
+---
 
 <a id="2026-09-03"></a>
 ## 2026-09-03
@@ -95,25 +159,6 @@ _Currency field clarity pass_
 - Backlog decomposition or implementation scaffolding — direction TBD next session.
 
 ---
-
-**Entry template**
-```
-<a id="YYYY-MM-DD"></a>
-## YYYY-MM-DD
-**Focus:** one-line theme of the day.
-
-**Done:**
-- shipped or completed items
-
-**Decisions:**
-- locked choices (link to BRD § when relevant)
-
-**Blockers:**
-- what is stuck and why
-
-**Next:**
-- immediate next steps for the following session
-```
 
 <a id="2026-08-30"></a>
 ## 2026-08-30
@@ -217,7 +262,7 @@ _Consistency check (coordinator)_
 **Next:**
 - Resolve 3 open questions above.
 - Begin backlog decomposition into implementation tasks.
-- Scaffold repo structure (`backend/`, `frontend/`, `migrations/`) when ready to code.
+- Scaffold repo structure (`aliceut-ecom-backend/`, `aliceut-ecom-frontend/`, `aliceut-ecom-utility-pipeline/`) when ready to code.
 
 ---
 

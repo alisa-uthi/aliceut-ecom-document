@@ -7,6 +7,12 @@
 
 ---
 
+## Summary
+
+- [1. Conventions](#conventions)
+- [2. Module Index](#module-index)
+
+<a id="conventions"></a>
 ## 1. Conventions
 
 Cross-cutting API conventions (naming, money, pagination, error shape, auth guard legend, idempotency, OpenAPI tags) live in [conventions/api-conventions.md](../../conventions/api-conventions.md).
@@ -42,6 +48,7 @@ Maps Phase 1 endpoint groups to NestJS guard classes. `—` = guard not applied.
 
 ---
 
+<a id="module-index"></a>
 ## 2. Module Index
 
 | Module | File | Endpoints | Primary DB(s) |

@@ -7,6 +7,15 @@ Migration scripts live in a separate utility pipeline repository — **`alice-ut
 
 ---
 
+## Summary
+
+- [1. Utility pipeline repo layout](#utility-pipeline-repo-layout)
+- [2. Execution engine](#execution-engine)
+- [3. GitHub Actions workflows](#github-actions-workflows)
+- [4. GitHub Environments and secrets](#github-environments-and-secrets)
+- [5. Migration file conventions](#migration-file-conventions)
+
+<a id="utility-pipeline-repo-layout"></a>
 ## 1. Utility pipeline repo layout
 
 ```
@@ -33,6 +42,7 @@ Each phase directory is an independent migration sequence starting at `0001`. Ot
 
 ---
 
+<a id="execution-engine"></a>
 ## 2. Execution engine
 
 [**golang-migrate**](https://github.com/golang-migrate/migrate) CLI — single static binary, no runtime dependency. Reads raw `.sql` files natively. Tracks applied migrations in a Postgres table.
@@ -68,6 +78,7 @@ migrate -path database/phase-1 \
 
 ---
 
+<a id="github-actions-workflows"></a>
 ## 3. GitHub Actions workflows
 
 ### `db-migrate.yml` — apply / rollback
@@ -174,6 +185,7 @@ jobs:
 
 ---
 
+<a id="github-environments-and-secrets"></a>
 ## 4. GitHub Environments and secrets
 
 Each environment (`dev`, `staging`, `prod`) is configured as a [GitHub Environment](https://docs.github.com/en/actions/deployment/targeting-different-deployment-environments-with-environment-variables). Each holds one secret:
@@ -186,6 +198,7 @@ Each environment (`dev`, `staging`, `prod`) is configured as a [GitHub Environme
 
 ---
 
+<a id="migration-file-conventions"></a>
 ## 5. Migration file conventions
 
 ### Naming

@@ -11,6 +11,12 @@ MongoDB audit collection schemas (`audit_logs`, `activity_events`): see [data-mo
 
 ---
 
+## Summary
+
+- [1. Topic Summary](#topic-summary)
+- [2. Topics](#topics)
+
+<a id="topic-summary"></a>
 ## 1. Topic Summary
 
 | Topic | Partition key | Producer | Consumer groups |
@@ -42,6 +48,7 @@ MongoDB audit collection schemas (`audit_logs`, `activity_events`): see [data-mo
 
 ---
 
+<a id="topics"></a>
 ## 2. Topics
 
 ### 1.1 `seller.kyc.submitted`

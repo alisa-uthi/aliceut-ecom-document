@@ -5,6 +5,19 @@ Cross-phase REST API conventions for all AliceUT services.
 
 ---
 
+## Summary
+
+- [Naming](#naming)
+- [Money](#money)
+- [Success Response Shape](#success-response-shape)
+- [Pagination](#pagination)
+- [Standard Error Shape](#standard-error-shape)
+- [Auth Guard Legend](#auth-guard-legend)
+- [Datetime](#datetime)
+- [Idempotency](#idempotency)
+- [OpenAPI Tags](#openapi-tags)
+
+<a id="naming"></a>
 ## Naming
 
 - Paths: kebab-case, plural resources (`/orders`, `/cart-items`)
@@ -14,6 +27,7 @@ Cross-phase REST API conventions for all AliceUT services.
 
 ---
 
+<a id="money"></a>
 ## Money
 
 All monetary values in JSON requests and responses are **strings** (`"99.99"`), never numbers. The currency code is always sent alongside the amount.
@@ -22,6 +36,7 @@ See also: CLAUDE.md § Money handling for storage and arithmetic rules.
 
 ---
 
+<a id="success-response-shape"></a>
 ## Success Response Shape
 
 All successful responses wrap payload in a `data` field. `meta` is optional on single-resource responses.
@@ -52,6 +67,7 @@ All successful responses wrap payload in a `data` field. `meta` is optional on s
 
 ---
 
+<a id="pagination"></a>
 ## Pagination
 
 - **Cursor-based** (default for entity lists): `?limit=20&cursor=<opaque>` → `{ data, meta: { nextCursor, hasMore } }`
@@ -60,6 +76,7 @@ All successful responses wrap payload in a `data` field. `meta` is optional on s
 
 ---
 
+<a id="standard-error-shape"></a>
 ## Standard Error Shape
 
 ```json
@@ -88,6 +105,7 @@ Field `errors` is present only for 400 validation failures.
 
 ---
 
+<a id="auth-guard-legend"></a>
 ## Auth Guard Legend
 
 | Guard | Description |
@@ -107,6 +125,7 @@ For the per-endpoint guard matrix see [api-design.md § Guard application matrix
 
 ---
 
+<a id="datetime"></a>
 ## Datetime
 
 All datetime fields in JSON requests and responses use **ISO 8601 UTC** strings with millisecond precision: `"2026-09-02T14:30:00.000Z"`.
@@ -120,12 +139,14 @@ All datetime fields in JSON requests and responses use **ISO 8601 UTC** strings 
 
 ---
 
+<a id="idempotency"></a>
 ## Idempotency
 
 Checkout endpoint requires `Idempotency-Key: <client-uuid>` header. Same key returns the cached response until the key expires.
 
 ---
 
+<a id="openapi-tags"></a>
 ## OpenAPI Tags
 
 `Identity`, `Auth`, `Profile`, `Catalog`, `Pricing`, `Search`, `Cart`, `Orders`, `Seller`, `Admin`, `Notifications`

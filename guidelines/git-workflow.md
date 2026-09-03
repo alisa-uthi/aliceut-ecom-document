@@ -7,6 +7,21 @@ This document establishes Git conventions for AliceUT to ensure a clean, auditab
 
 ---
 
+## Summary
+
+- [1. Branching Strategy](#branching-strategy)
+- [2. Commit Conventions](#commit-conventions)
+- [3. Pull Request Process](#pull-request-process)
+- [4. GitHub Projects Integration](#github-projects-integration)
+- [5. Release Tagging and Versioning](#release-tagging-and-versioning)
+- [6. Hotfix Flow](#hotfix-flow)
+- [7. CI Enforcement Hooks](#ci-enforcement-hooks)
+- [8. `.gitignore` Guidance](#gitignore-guidance)
+- [9. Workflow Examples](#workflow-examples)
+- [10. Quick Reference](#quick-reference)
+- [11. Related Documents](#related-documents)
+
+<a id="branching-strategy"></a>
 ## 1. Branching Strategy
 
 ### 1.1 Branch Names and Lifetime
@@ -39,6 +54,7 @@ All feature work branches from `main`. Use kebab-case prefixes:
 
 ---
 
+<a id="commit-conventions"></a>
 ## 2. Commit Conventions
 
 ### 2.1 Conventional Commits Format
@@ -106,6 +122,7 @@ Repository enforces Conventional Commits syntax via **commitlint** (see §7).
 
 ---
 
+<a id="pull-request-process"></a>
 ## 3. Pull Request Process
 
 ### 3.1 PR Title and Description
@@ -179,8 +196,109 @@ Rationale:
 - Easier to bisect and blame
 - Tag a single commit per release
 
+### 3.4 Stacked PRs
+
+PR stacking splits a large feature into a chain of dependent, reviewable PRs instead of one giant branch. Each PR targets its parent branch rather than `main`, so each diff is one logical layer.
+
+#### When to stack
+
+Stack when a feature has a clear build order that would create an unwieldy single diff. Examples:
+
+- Domain module: entities → repository → use-case handlers → controller → tests
+- Migration + API endpoint + frontend screen
+
+Do **not** stack when work can be split into independent features with no dependency order.
+
+#### Branch chain pattern
+
+```
+main
+ └─ feature/ET-21-kyc-entity        ← stack base (PR 1 targets main)
+     └─ feature/ET-21-kyc-usecase   ← PR 2 targets ET-21-kyc-entity
+         └─ feature/ET-21-kyc-api   ← PR 3 targets ET-21-kyc-usecase
+```
+
+Branch naming: keep the same ticket prefix on all levels so they sort together.
+
+#### Opening stacked PRs on GitHub
+
+1. Push all branches to remote.
+2. Open PRs bottom-up. **Set each PR's base to its parent feature branch**, not `main`.
+3. Label all PRs with the same `stack/ET-21` label.
+4. GitHub shows each PR's diff relative to its base, so each layer is a clean delta.
+
+```bash
+git checkout main
+git checkout -b feature/ET-21-kyc-entity
+# ... implement entity changes ...
+git push -u origin feature/ET-21-kyc-entity
+
+git checkout -b feature/ET-21-kyc-usecase
+# ... implement use-case ...
+git push -u origin feature/ET-21-kyc-usecase
+
+git checkout -b feature/ET-21-kyc-api
+# ... implement controller ...
+git push -u origin feature/ET-21-kyc-api
+
+# Open PRs:
+# PR 1: feature/ET-21-kyc-entity → main
+# PR 2: feature/ET-21-kyc-usecase → feature/ET-21-kyc-entity
+# PR 3: feature/ET-21-kyc-api → feature/ET-21-kyc-usecase
+```
+
+#### Keeping a stack in sync
+
+When `main` changes, rebase the entire stack bottom-up:
+
+```bash
+git fetch origin
+
+git checkout feature/ET-21-kyc-entity
+git rebase origin/main
+
+git checkout feature/ET-21-kyc-usecase
+git rebase feature/ET-21-kyc-entity
+
+git checkout feature/ET-21-kyc-api
+git rebase feature/ET-21-kyc-usecase
+
+git push --force-with-lease origin \
+  feature/ET-21-kyc-entity \
+  feature/ET-21-kyc-usecase \
+  feature/ET-21-kyc-api
+```
+
+`--force-with-lease` rejects a push if the remote has commits you haven't fetched, preventing accidental overwrites.
+
+#### Merging a stack
+
+Merge bottom-up, squash-merging each PR in order. After PR 1 merges to `main`:
+
+1. GitHub automatically retargets PR 2's base from `feature/ET-21-kyc-entity` to `main`.
+2. Verify the diff looks right (no phantom diff from the now-gone parent).
+3. Merge PR 2 to `main` (squash). Repeat for PR 3.
+
+#### Tooling: `gh stack` extension
+
+Install the `gh stack` GitHub CLI extension to automate stack management:
+
+```bash
+gh extension install nickvdyck/gh-stack
+```
+
+Key commands:
+
+```bash
+gh stack list                     # show stack state for current branch
+gh stack sync                     # rebase entire stack from main
+```
+
+The manual `git rebase` workflow above works without it; `gh stack` is optional but saves time on deep stacks.
+
 ---
 
+<a id="github-projects-integration"></a>
 ## 4. GitHub Projects Integration
 
 ### 4.1 Linking PRs to Issues
@@ -209,6 +327,7 @@ Use GitHub Projects to visualize progress across phases. Link PRs to project car
 
 ---
 
+<a id="release-tagging-and-versioning"></a>
 ## 5. Release Tagging and Versioning
 
 ### 5.1 Semantic Versioning
@@ -270,6 +389,7 @@ Update `CHANGELOG.md` from squash-merged PR titles (Conventional Commits makes t
 
 ---
 
+<a id="hotfix-flow"></a>
 ## 6. Hotfix Flow
 
 When production is broken:
@@ -295,6 +415,7 @@ When production is broken:
 
 ---
 
+<a id="ci-enforcement-hooks"></a>
 ## 7. CI Enforcement Hooks
 
 ### 7.1 Branch Protection Rules
@@ -338,29 +459,122 @@ Enforce in GitHub Actions CI:
 
 ### 7.3 CI Pipeline
 
-Typical `.github/workflows/ci.yml`:
+Full `.github/workflows/ci.yml` for `aliceut-ecom-backend`:
 
 ```yaml
 name: CI
 
-on: [push, pull_request]
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
 
 jobs:
-  test:
+  build-and-test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-node@v3
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: '18'
-      - run: npm ci
-      - run: npm run build
-      - run: npm run test
-      - run: npm run lint
+          node-version: '22'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run build
+      - run: pnpm run test
+      - run: pnpm run lint
+
+  claude-design-review:
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Checkout backend
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Checkout design docs
+        uses: actions/checkout@v4
+        with:
+          repository: alisa-uthi/aliceut-ecom-document
+          path: aliceut-ecom-document
+
+      - name: Install Claude Code
+        run: npm install -g @anthropic-ai/claude-code
+
+      - name: Get PR diff
+        id: diff
+        run: |
+          git diff origin/main...HEAD -- '*.ts' > pr_diff.txt
+          echo "diff_size=$(wc -l < pr_diff.txt)" >> $GITHUB_OUTPUT
+
+      - name: Run Claude design review
+        if: steps.diff.outputs.diff_size != '0'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          claude --print -p "
+          You are a senior backend architect reviewing a pull request for the AliceUT e-commerce platform.
+
+          Design spec and conventions live in aliceut-ecom-document/:
+          - Architecture: aliceut-ecom-document/architecture-overview.md
+          - Module architecture: aliceut-ecom-document/conventions/module-architecture.md
+          - Backend coding standards: aliceut-ecom-document/conventions/backend-coding-standards.md
+          - API conventions: aliceut-ecom-document/conventions/api-conventions.md
+          - Kafka events: aliceut-ecom-document/conventions/kafka-events.md
+          - Auth/JWT design: aliceut-ecom-document/conventions/auth-jwt-design.md
+          - Database migrations: aliceut-ecom-document/conventions/database-migrations.md
+          - Phase-1 implementation spec: aliceut-ecom-document/phase-1/technical-design/implementation-specs.md
+
+          PR diff:
+          \$(cat pr_diff.txt)
+
+          Focus ONLY on the changed lines in the diff above. Do not review unchanged code.
+          For each changed file and line, check only the rules that the diff actually touches:
+
+          - Money handling: if the diff touches monetary fields or arithmetic — Decimal only, no JS number, amounts as strings in JSON
+          - Event-driven writes: if the diff touches domain state changes — transactional outbox pattern required
+          - Module boundaries: if the diff touches cross-module calls or DB queries — no cross-module DB joins, repository pattern enforced
+          - Order immutability: if the diff touches FulfillmentItem or checkout — snapshots must not be re-derived
+          - Security: if the diff adds env vars, error responses, or external calls — no hardcoded secrets, no raw stack traces to clients
+          - TypeScript: if the diff introduces new types or function signatures — no untyped \`any\`, strict mode compliance
+          - Tests: if the diff adds a new endpoint or Tier-1 handler — check that a corresponding test exists in the diff
+
+          Skip any rule whose subject is not present in the diff.
+          Output as a Markdown list. Each finding: severity (BLOCKER/WARNING/INFO), file:line, explanation, fix.
+          Skip praise. Skip findings with no actionable fix. If the diff is clean, output only: \`All changed lines look good.\`
+          " > claude_review.md
+
+      - name: Post review as PR comment
+        if: steps.diff.outputs.diff_size != '0'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const review = fs.readFileSync('claude_review.md', 'utf8');
+            if (review.trim().length === 0) return;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `## Claude Design Review\n\n${review}\n\n---\n*Reviewed against [aliceut-ecom-document](https://github.com/alisa-uthi/aliceut-ecom-document)*`
+            });
 ```
+
+**Setup required:**
+- Add `ANTHROPIC_API_KEY` to GitHub repository secrets.
+- The `claude-design-review` job runs only on PRs, never on direct pushes to `main`.
+- The design-review job is non-blocking by default (does not gate merge). To make it a hard gate, add it to the branch protection required status checks.
 
 ---
 
+<a id="gitignore-guidance"></a>
 ## 8. `.gitignore` Guidance
 
 ### 8.1 What to Ignore
@@ -433,6 +647,7 @@ Use GitHub Secrets for CI/CD; document expected env vars in `README.md` without 
 
 ---
 
+<a id="workflow-examples"></a>
 ## 9. Workflow Examples
 
 ### Example 1: Feature Branch Lifecycle
@@ -500,6 +715,7 @@ BREAKING CHANGE: Login response no longer includes refresh_token in body; client
 
 ---
 
+<a id="quick-reference"></a>
 ## 10. Quick Reference
 
 | Task | Command |
@@ -516,12 +732,13 @@ BREAKING CHANGE: Login response no longer includes refresh_token in body; client
 
 ---
 
+<a id="related-documents"></a>
 ## 11. Related Documents
 
 - [BRD v1.1 — Locked Decisions §12](../phase-1/requirements/BRD.md)
 - [Architecture Overview](../architecture-overview.md)
-- [API Conventions](./api-conventions.md)
-- [Database Migrations](./database-migrations.md)
-- [Backend Coding Standards](./backend-coding-standards.md)
-- [Frontend Coding Standards](./frontend-coding-standards.md)
-- [Testing Guidelines](./testing-guidelines.md)
+- [API Conventions](../conventions/api-conventions.md)
+- [Database Migrations](../conventions/database-migrations.md)
+- [Backend Coding Standards](../conventions/backend-coding-standards.md)
+- [Frontend Coding Standards](../conventions/frontend-coding-standards.md)
+- [Testing Guidelines](testing-guidelines.md)

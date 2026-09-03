@@ -5,6 +5,24 @@
 
 ---
 
+## Summary
+
+- [1. JWT payload structure](#jwt-payload-structure)
+- [2. Refresh token rotation flow](#refresh-token-rotation-flow)
+- [3. OAuth flow — Google (buyer portal only)](#oauth-flow-google)
+- [4. OAuth flow — Facebook (buyer portal only)](#oauth-flow-facebook)
+- [5. Seller portal auth constraints](#seller-portal-auth-constraints)
+- [6. Admin portal auth constraints](#admin-portal-auth-constraints)
+- [7. Auth guards](#auth-guards)
+- [8. Rate limiting](#rate-limiting)
+- [9. Security headers](#security-headers)
+- [10. Password hashing](#password-hashing)
+- [11. Email verification token design](#email-verification-token-design)
+- [12. Password reset token design](#password-reset-token-design)
+- [13. Token revocation — immediate status enforcement](#token-revocation)
+- [14. Design Decisions](#design-decisions)
+
+<a id="jwt-payload-structure"></a>
 ## 1. JWT payload structure
 
 ### 1.1 Access token (short-lived)
@@ -54,6 +72,7 @@ The refresh token is an **opaque** random string (32 bytes, `crypto.randomBytes(
 
 ---
 
+<a id="refresh-token-rotation-flow"></a>
 ## 2. Refresh token rotation flow
 
 ```mermaid
@@ -91,6 +110,7 @@ sequenceDiagram
 
 ---
 
+<a id="oauth-flow-google"></a>
 ## 3. OAuth flow — Google (buyer portal only)
 
 ```mermaid
@@ -135,6 +155,7 @@ sequenceDiagram
 
 ---
 
+<a id="oauth-flow-facebook"></a>
 ## 4. OAuth flow — Facebook (buyer portal only)
 
 Same callback transport as Google: `accessToken` as query param, `refreshToken` via `HttpOnly; Secure; SameSite=Strict` Set-Cookie. Differences:
@@ -145,6 +166,7 @@ Same callback transport as Google: `accessToken` as query param, `refreshToken` 
 
 ---
 
+<a id="seller-portal-auth-constraints"></a>
 ## 5. Seller portal auth constraints
 
 The seller portal uses **email/password only**. No OAuth. Reasons:
@@ -153,6 +175,7 @@ The seller portal uses **email/password only**. No OAuth. Reasons:
 
 ---
 
+<a id="admin-portal-auth-constraints"></a>
 ## 6. Admin portal auth constraints
 
 - Email/password only. No registration endpoint.
@@ -162,6 +185,7 @@ The seller portal uses **email/password only**. No OAuth. Reasons:
 
 ---
 
+<a id="auth-guards"></a>
 ## 7. Auth guards
 
 ### 7.1 Guard definitions
@@ -188,6 +212,7 @@ Maintained alongside each Phase API spec since it references phase-specific endp
 
 ---
 
+<a id="rate-limiting"></a>
 ## 8. Rate limiting
 
 NestJS `@nestjs/throttler` with per-endpoint overrides.
@@ -206,6 +231,7 @@ Rate limit headers returned: `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `Retr
 
 ---
 
+<a id="security-headers"></a>
 ## 9. Security headers
 
 Applied globally via `helmet()` in NestJS bootstrap:
@@ -224,6 +250,7 @@ CORS: origin restricted to `BUYER_APP_URL`, `SELLER_APP_URL`, `ADMIN_APP_URL` en
 
 ---
 
+<a id="password-hashing"></a>
 ## 10. Password hashing
 
 - Algorithm: **argon2id** (`@node-rs/argon2` or `argon2` npm package)
@@ -233,6 +260,7 @@ CORS: origin restricted to `BUYER_APP_URL`, `SELLER_APP_URL`, `ADMIN_APP_URL` en
 
 ---
 
+<a id="email-verification-token-design"></a>
 ## 11. Email verification token design
 
 - Token: `crypto.randomBytes(32).toString('hex')` — 64-hex-char string
@@ -245,6 +273,7 @@ CORS: origin restricted to `BUYER_APP_URL`, `SELLER_APP_URL`, `ADMIN_APP_URL` en
 
 ---
 
+<a id="password-reset-token-design"></a>
 ## 12. Password reset token design
 
 - Token: `crypto.randomBytes(32).toString('hex')`
@@ -256,6 +285,7 @@ CORS: origin restricted to `BUYER_APP_URL`, `SELLER_APP_URL`, `ADMIN_APP_URL` en
 ---
 
 
+<a id="token-revocation"></a>
 ## 13. Token revocation — immediate status enforcement
 
 Redis per-user revocation timestamp ensures `seller_kyc_status` and `seller_suspension_status` changes take effect on the next API request, without waiting for the 15-min access token to expire.
@@ -310,6 +340,7 @@ The Angular `auth` interceptor already handles 401 → `POST /auth/refresh` → 
 
 ---
 
+<a id="design-decisions"></a>
 ## 14. [DESIGN DECISIONS]
 
 - **[DESIGN DECISION]** `seller_kyc_status` and `seller_suspension_status` are both embedded in the JWT as independent claims, replacing the previous single `seller_status` field. This allows guards to check each independently (e.g. a seller can be KYC-approved but suspended, or KYC-rejected regardless of suspension). Status changes take effect immediately via Redis per-user revocation — see §14.

@@ -1,7 +1,7 @@
-# Testing Guidelines
+﻿# Testing Guidelines
 
 **Status:** Draft  
-**Source of truth:** [BRD v1.1](../phase-1/requirements/BRD.md), [module-architecture](module-architecture.md)
+**Source of truth:** [BRD v1.1](../phase-1/requirements/BRD.md), [module-architecture](../conventions/module-architecture.md)
 
 ---
 
@@ -41,7 +41,7 @@ Target ratio: **70% unit / 20% integration / 10% E2E**.
 <a id="coverage-thresholds"></a>
 ## 2. Coverage thresholds
 
-Coverage is measured per module tier (see [module-architecture §2](module-architecture.md)). Tier 1 modules contain the richest invariants and receive the highest bar.
+Coverage is measured per module tier (see [module-architecture ยง2](../conventions/module-architecture.md)). Tier 1 modules contain the richest invariants and receive the highest bar.
 
 | Tier | Modules | Branch | Statement | Line |
 |------|---------|--------|-----------|------|
@@ -62,7 +62,7 @@ npx jest --coverage --projects=apps/seller-portal
 npx jest --coverage --projects=apps/admin-portal
 ```
 
-**CI enforcement:** Jest `coverageThreshold` in each project's `jest.config.ts` enforces the threshold. A PR that drops any metric below its tier floor fails the build. Coverage reports upload to Codecov (or equivalent) on every push. See [§11 CI test gates](#ci-test-gates).
+**CI enforcement:** Jest `coverageThreshold` in each project's `jest.config.ts` enforces the threshold. A PR that drops any metric below its tier floor fails the build. Coverage reports upload to Codecov (or equivalent) on every push. See [ยง11 CI test gates](#ci-test-gates).
 
 ---
 
@@ -81,7 +81,7 @@ Example: `describe('Offer') > describe('effectivePrice') > it('should return SAL
 
 ### 3.2 Domain entities and value objects
 
-Domain entities in Tier 1 modules are plain TypeScript classes with no framework imports. Test them directly — no mocks needed.
+Domain entities in Tier 1 modules are plain TypeScript classes with no framework imports. Test them directly โ€” no mocks needed.
 
 ```typescript
 // libs/pricing/src/domain/entities/offer.entity.spec.ts
@@ -173,7 +173,7 @@ describe('PublishProductHandler', () => {
 
 ### 3.4 Money math precision
 
-Every monetary calculation must be tested for precision. Floating-point edge cases are not edge cases here — they are expected inputs.
+Every monetary calculation must be tested for precision. Floating-point edge cases are not edge cases here โ€” they are expected inputs.
 
 ```typescript
 // libs/shared/src/money/money.spec.ts
@@ -183,7 +183,7 @@ import { Money } from './money.vo';
 describe('Money', () => {
   describe('add', () => {
     it('should not lose precision on repeated fractional addition', () => {
-      // 0.1 + 0.2 = 0.30000000000000004 in JS float — must not happen
+      // 0.1 + 0.2 = 0.30000000000000004 in JS float โ€” must not happen
       const a = Money.of(new Decimal('0.10'), 'USD');
       const b = Money.of(new Decimal('0.20'), 'USD');
 
@@ -204,7 +204,7 @@ describe('Money', () => {
     it('should round JPY to 0 decimal places', () => {
       const jpy = Money.of(new Decimal('1500.7'), 'JPY');
 
-      expect(jpy.toDisplayString()).toBe('¥1501');
+      expect(jpy.toDisplayString()).toBe('ยฅ1501');
     });
 
     it('should round BHD to 3 decimal places', () => {
@@ -273,7 +273,7 @@ afterAll(async () => {
 });
 ```
 
-### 4.3 Test isolation — transaction rollback
+### 4.3 Test isolation โ€” transaction rollback
 
 Wrap each test in a transaction that rolls back. This is faster than truncating tables and guarantees a clean state.
 
@@ -382,7 +382,7 @@ it('should route to DLQ when handler throws a non-retryable error', async () => 
 <a id="angular-unit-tests"></a>
 ## 6. Angular unit tests
 
-Use `jest-preset-angular`. All tests run in jsdom — no real browser.
+Use `jest-preset-angular`. All tests run in jsdom โ€” no real browser.
 
 ### 6.1 Components
 
@@ -465,7 +465,7 @@ describe('AuthGuard', () => {
 
 ### 6.4 Reactive forms
 
-Test that validators fire and error state is correct. Never test Angular's built-in validators — only your custom validators and the form wiring.
+Test that validators fire and error state is correct. Never test Angular's built-in validators โ€” only your custom validators and the form wiring.
 
 ```typescript
 describe('ListingFormComponent', () => {
@@ -492,11 +492,11 @@ describe('MoneyPipe', () => {
   });
 
   it('should format JPY with no decimal places', () => {
-    expect(pipe.transform('1500', 'JPY')).toBe('¥1,500');
+    expect(pipe.transform('1500', 'JPY')).toBe('ยฅ1,500');
   });
 
   it('should format THB with symbol and 2 decimal places', () => {
-    expect(pipe.transform('350.50', 'THB')).toBe('฿350.50');
+    expect(pipe.transform('350.50', 'THB')).toBe('เธฟ350.50');
   });
 });
 ```
@@ -554,9 +554,9 @@ E2E tests cover the golden path only. Exhaustive validation belongs in unit and 
 
 | Flow | Actor | Coverage |
 |------|-------|----------|
-| Buyer checkout | Buyer | Browse → add to cart → checkout → order confirmation |
-| Seller listing creation | Seller | Login → new listing → submit for review |
-| Admin KYC approval | Admin | View pending KYC → approve → seller status updated |
+| Buyer checkout | Buyer | Browse โ’ add to cart โ’ checkout โ’ order confirmation |
+| Seller listing creation | Seller | Login โ’ new listing โ’ submit for review |
+| Admin KYC approval | Admin | View pending KYC โ’ approve โ’ seller status updated |
 
 ### 8.2 Page object model
 
@@ -643,7 +643,7 @@ The `docker-compose.test.yml` override sets `NODE_ENV=test` and enables the `X-T
 
 ### 9.1 Factory pattern for domain entities
 
-Use builder/factory functions — not class constructors — to create test objects. Factories always provide valid defaults; tests override only what they care about.
+Use builder/factory functions โ€” not class constructors โ€” to create test objects. Factories always provide valid defaults; tests override only what they care about.
 
 ```typescript
 // tests/factories/offer.factory.ts
@@ -663,7 +663,7 @@ export function buildOffer(overrides: Partial<OfferProps> = {}): Offer {
 
 ### 9.2 Seeding for integration tests
 
-Each integration test suite maintains its own seed file. Seeds are thin — only the rows required by the suite, not a full snapshot.
+Each integration test suite maintains its own seed file. Seeds are thin โ€” only the rows required by the suite, not a full snapshot.
 
 ```
 tests/
@@ -690,7 +690,7 @@ The 100-product Kaggle seed in `phase-1/seed/` is for local developer setup only
 | Framework internals | Angular's `ChangeDetectorRef`, NestJS dependency injection graph, TypeORM connection pooling | Tested upstream by the framework maintainers |
 | Trivial accessors | `getTitle()` returning `this.title`, read-only DTO fields | Zero logic to break; adds noise without safety |
 | Third-party library behavior | `decimal.js` arithmetic correctness, Passport.js strategy invocation | Not our code; trust the library's own test suite |
-| Configuration wiring | Whether `AppModule` imports `CatalogModule` | Structural — caught by startup, not assertions |
+| Configuration wiring | Whether `AppModule` imports `CatalogModule` | Structural โ€” caught by startup, not assertions |
 
 Do not add tests just to hit coverage thresholds. A test that asserts `expect(obj.id).toBe(obj.id)` is worse than no test.
 
@@ -719,10 +719,10 @@ Do not add tests just to hit coverage thresholds. A test that asserts `expect(ob
 
 ### 11.3 Coverage report upload
 
-Upload `coverage/lcov.info` to Codecov (or a self-hosted equivalent) on every push. Annotate PRs with the coverage delta. Do not gate on the absolute upload succeeding — network flakiness in coverage upload must not block a passing build.
+Upload `coverage/lcov.info` to Codecov (or a self-hosted equivalent) on every push. Annotate PRs with the coverage delta. Do not gate on the absolute upload succeeding โ€” network flakiness in coverage upload must not block a passing build.
 
 ```yaml
-# ci fragment — upload step
+# ci fragment โ€” upload step
 - name: Upload coverage
   uses: codecov/codecov-action@v4
   with:

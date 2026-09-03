@@ -5,10 +5,33 @@
 
 ---
 
+## Summary
+
+| Section | Description |
+|---------|-------------|
+| [1. Repository structure](#1-repository-structure) | Monorepo layout: `apps/api`, `apps/workers`, `libs/` |
+| [2. Module tiers](#2-module-tiers) | Three-tier classification by domain complexity |
+| [2.1. Tier 1 — Full hexagonal](#21-tier-1-full-hexagonal) | Rich domain modules: catalog, orders, pricing, inventory, cart |
+| [2.2. Tier 2 — Simplified service layer](#22-tier-2-simplified-service-layer) | DB-backed modules with thin domain logic |
+| [2.3. Tier 3 — Thin / infrastructure](#23-tier-3-thin-infrastructure) | Pure infrastructure modules, no owned domain state |
+| [3. Layer dependency rules](#3-layer-dependency-rules) | Allowed and forbidden import directions |
+| [4. CQRS-lite pattern](#4-cqrs-lite-pattern) | Command/query handlers without `@nestjs/cqrs` |
+| [5. Repository interface pattern](#5-repository-interface-pattern) | Port/adapter split with injection tokens |
+| [6. Outbox integration pattern](#6-outbox-integration-pattern) | Transactional outbox writes in same DB transaction |
+| [7. Module dependency rules](#7-module-dependency-rules) | Cross-module access patterns and exceptions |
+| [8. OpenAPI contract generation](#8-openapi-contract-generation) | Swagger generation pipeline to Angular client |
+| [8.1. API versioning](#81-api-versioning) | URI versioning with `VersioningType.URI` |
+| [9. Module wiring in the API composition root](#9-module-wiring-in-the-api-composition-root) | `AppModule` imports and global bootstrap configuration |
+| [10. Workers composition root](#10-workers-composition-root) | `WorkersModule`: outbox relay and Kafka consumers |
+| [11. Shared library (`libs/shared`)](#11-shared-library-libsshared) | Technical primitives: money, errors, logger, guards |
+| [12. Elasticsearch index design](#12-elasticsearch-index-design) | `products` index mapping and query strategy |
+| [13. \[DESIGN DECISIONS\]](#13-design-decisions) | Locked architectural choices with rationale |
+
+<a id="1-repository-structure"></a>
 ## 1. Repository structure
 
 ```
-backend/
+aliceut-ecom-backend/
 ├── apps/
 │   ├── api/                          NestJS HTTP composition root
 │   │   ├── src/
@@ -28,6 +51,7 @@ backend/
 
 ---
 
+<a id="2-module-tiers"></a>
 ## 2. Module tiers
 
 Not every module warrants the full hexagonal layout. Three tiers apply based on domain complexity.
@@ -42,6 +66,7 @@ Tier 1 modules use the full structure in §2.1. Tier 2 and 3 use the simplified 
 
 ---
 
+<a id="21-tier-1-full-hexagonal"></a>
 ## 2.1. Tier 1 — Full hexagonal
 
 Rich domain, state machines, money handling. Using `catalog` as the canonical example:
@@ -92,6 +117,7 @@ libs/catalog/
 
 ---
 
+<a id="22-tier-2-simplified-service-layer"></a>
 ## 2.2. Tier 2 — Simplified service layer
 
 Has DB state, but domain logic is thin or delegated to libraries (e.g. Passport, argon2, KYC state flags). No domain/persistence split, no CQRS handler split, no repository interface. Single service class.
@@ -124,6 +150,7 @@ Tier 2 rules:
 
 ---
 
+<a id="23-tier-3-thin-infrastructure"></a>
 ## 2.3. Tier 3 — Thin / infrastructure
 
 No mutable domain state owned by this module. Purely reads from other modules via Kafka events or serves ES queries. No TypeORM entities, no repository pattern.
@@ -164,6 +191,7 @@ Tier 3 rules:
 
 ---
 
+<a id="3-layer-dependency-rules"></a>
 ## 3. Layer dependency rules
 
 ```
@@ -192,6 +220,7 @@ Cross-module communication:
 
 ---
 
+<a id="4-cqrs-lite-pattern"></a>
 ## 4. CQRS-lite pattern
 
 Commands mutate state; queries read state. Handlers are plain classes registered as NestJS providers.
@@ -246,6 +275,7 @@ export class GetUserByIdHandler {
 
 ---
 
+<a id="5-repository-interface-pattern"></a>
 ## 5. Repository interface pattern
 
 The domain layer defines a repository interface (port). The infrastructure layer provides the TypeORM implementation (adapter). The NestJS module wires them via an injection token.
@@ -294,6 +324,7 @@ The domain entity (`User`) and the TypeORM entity (`UserTypeOrmEntity`) are **se
 
 ---
 
+<a id="6-outbox-integration-pattern"></a>
 ## 6. Outbox integration pattern
 
 Every domain state change that must propagate externally writes to `platform.outbox_event` inside the **same PostgreSQL transaction** as the domain change.
@@ -343,6 +374,7 @@ The outbox relay (in `apps/workers`) polls `platform.outbox_event WHERE publicat
 
 ---
 
+<a id="7-module-dependency-rules"></a>
 ## 7. Module dependency rules
 
 No module may directly import another module's:
@@ -364,6 +396,7 @@ Checkout is an exception: it calls Inventory's application service **synchronous
 
 ---
 
+<a id="8-openapi-contract-generation"></a>
 ## 8. OpenAPI contract generation
 
 ```
@@ -381,7 +414,7 @@ libs/contracts/openapi/aliceut-v1.json   (committed, CI-verified)
 openapi-generator-cli (typescript-angular)
     │
     ▼
-frontend/libs/api-client/   (generated, do not edit manually)
+aliceut-ecom-frontend/libs/api-client/   (generated, do not edit manually)
 ```
 
 ### OpenAPI tagging conventions
@@ -399,10 +432,11 @@ These become generated Angular service method names: `identityService.register(.
 ### CI enforcement
 A CI step runs `SwaggerModule.createDocument()` in a test environment and diffs against the committed `aliceut-v1.json`. A diff → build failure. This prevents undocumented API drift.
 
-A second CI step runs `openapi-generator-cli` and diffs the generated Angular client against `frontend/libs/api-client/`. A diff → build failure.
+A second CI step runs `openapi-generator-cli` and diffs the generated Angular client against `libs/api-client/` in `aliceut-ecom-frontend/`. A diff → build failure.
 
 ---
 
+<a id="81-api-versioning"></a>
 ## 8.1. API versioning
 
 URI versioning via NestJS built-in `VersioningType.URI`. All routes served under `/api/v{N}/...`.
@@ -453,6 +487,7 @@ Swagger UI endpoint: `api/docs` (no version prefix — serves all versions).
 
 ---
 
+<a id="9-module-wiring-in-the-api-composition-root"></a>
 ## 9. Module wiring in the API composition root
 
 `apps/api/src/app.module.ts` imports all feature modules and configures shared infrastructure:
@@ -516,6 +551,7 @@ async function bootstrap() {
 
 ---
 
+<a id="10-workers-composition-root"></a>
 ## 10. Workers composition root
 
 `apps/workers/src/workers.module.ts` wires only infrastructure + consumer services.
@@ -544,6 +580,7 @@ Scheduled tasks use `@Cron()` from `@nestjs/schedule` and live under `apps/worke
 
 ---
 
+<a id="11-shared-library-libsshared"></a>
 ## 11. Shared library (`libs/shared`)
 
 `shared` contains **only technical primitives** — no domain entities or business rules.
@@ -562,6 +599,7 @@ Domain modules may import from `shared`. `shared` must never import from any dom
 
 ---
 
+<a id="12-elasticsearch-index-design"></a>
 ## 12. Elasticsearch index design
 
 The search module owns one index: `products`.
@@ -610,6 +648,7 @@ The search module owns one index: `products`.
 
 ---
 
+<a id="13-design-decisions"></a>
 ## 13. [DESIGN DECISIONS]
 
 - **[DESIGN DECISION]** URI versioning via `VersioningType.URI` with `defaultVersion: '1'`. `setGlobalPrefix` carries only `'api'` — version segment is injected by NestJS. Reason: baking version into the prefix locks all routes to one version forever; URI versioning lets individual controllers bump independently without touching bootstrap.

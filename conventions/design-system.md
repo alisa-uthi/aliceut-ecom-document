@@ -6,6 +6,27 @@
 
 ---
 
+## Summary
+
+| Section | Description |
+|---------|-------------|
+| [1. Design Principles](#1-design-principles) | Core UX philosophy: familiar, data-dense, error-first |
+| [2. Color Palette](#2-color-palette) | Indigo primary, amber accent, red warn, semantic status colours |
+| [3. Typography Scale](#3-typography-scale) | Roboto + Angular Material type levels |
+| [4. Spacing System — 8px Grid](#4-spacing-system-8px-grid) | Token-based spacing from 4px to 64px |
+| [5. Angular CDK Breakpoints](#5-angular-cdk-breakpoints) | Handset / Tablet / Desktop / Widescreen definitions |
+| [6. Icon Library — Material Icons (Outlined)](#6-icon-library-material-icons-outlined) | Icon reference table for all use cases |
+| [7. Elevation and Shadows](#7-elevation-and-shadows) | Material elevation levels and usage |
+| [8. Shared Component Library — `libs/ui/`](#8-shared-component-library-libsui) | ProductCard, StatusBadge, PriceDisplay, DataTable, and more |
+| [9. Form Patterns](#9-form-patterns) | `mat-form-field` conventions, validators, monetary inputs |
+| [10. Notification Patterns](#10-notification-patterns) | Toast, confirm dialog, inline errors, in-app panel |
+| [11. Page Layout Patterns](#11-page-layout-patterns) | Buyer shell vs seller/admin shell; responsive grid |
+| [12. Accessibility Standards](#12-accessibility-standards) | Focus rings, alt text, ARIA, skip links |
+| [13. Loading State Patterns](#13-loading-state-patterns) | Skeleton, spinner, progress bar by context |
+| [14. Component Import Strategy](#14-component-import-strategy) | Import from `@aliceut/ui` barrel, never AM modules directly |
+| [15. Custom Pipes](#15-custom-pipes) | TimeAgo, Truncate, CurrencyDisplay, Safe pipes |
+
+<a id="1-design-principles"></a>
 ## 1. Design Principles
 
 - **Familiar over novel.** Use Angular Material components as-is; no custom components unless AM cannot fulfill the need.
@@ -15,6 +36,7 @@
 
 ---
 
+<a id="2-color-palette"></a>
 ## 2. Color Palette
 
 ### Primary — Indigo
@@ -102,6 +124,7 @@ Dark theme is optional in V1. [DESIGN DECISION: Light theme only for V1 to reduc
 
 ---
 
+<a id="3-typography-scale"></a>
 ## 3. Typography Scale
 
 Angular Material typography config — Roboto (CDN) with fallback `sans-serif`.
@@ -133,6 +156,7 @@ $aliceut-typography: mat.define-typography-config(
 
 ---
 
+<a id="4-spacing-system-8px-grid"></a>
 ## 4. Spacing System — 8px Grid
 
 All margin, padding, and gap values are multiples of 8px.
@@ -153,6 +177,7 @@ Form field gap: 16px (`md`) between fields.
 
 ---
 
+<a id="5-angular-cdk-breakpoints"></a>
 ## 5. Angular CDK Breakpoints
 
 ```typescript
@@ -176,6 +201,7 @@ Use `BreakpointObserver` from `@angular/cdk/layout` in components; never CSS-onl
 
 ---
 
+<a id="6-icon-library-material-icons-outlined"></a>
 ## 6. Icon Library — Material Icons (Outlined)
 
 Use `mat-icon` with the **Outlined** variant (`material-icons-outlined` class) for clarity at small sizes. Icons referenced below are `ligature` names.
@@ -223,6 +249,7 @@ Use `mat-icon` with the **Outlined** variant (`material-icons-outlined` class) f
 
 ---
 
+<a id="7-elevation-and-shadows"></a>
 ## 7. Elevation and Shadows
 
 Follow Material Design elevation system.
@@ -239,6 +266,7 @@ Follow Material Design elevation system.
 
 ---
 
+<a id="8-shared-component-library-libsui"></a>
 ## 8. Shared Component Library — `libs/ui/`
 
 All components live in `libs/ui/src/lib/` as standalone Angular components. They wrap Angular Material; callers never import AM modules directly in feature modules.
@@ -521,6 +549,7 @@ div.empty-state [text-align: center; padding: 48px 24px]
 
 ---
 
+<a id="9-form-patterns"></a>
 ## 9. Form Patterns
 
 - Use `mat-form-field` with `appearance="outline"` throughout; `subscriptSizing="dynamic"` to avoid layout shift from validation messages.
@@ -533,6 +562,7 @@ div.empty-state [text-align: center; padding: 48px 24px]
 
 ---
 
+<a id="10-notification-patterns"></a>
 ## 10. Notification Patterns
 
 | Channel | Component | Trigger |
@@ -545,6 +575,7 @@ div.empty-state [text-align: center; padding: 48px 24px]
 
 ---
 
+<a id="11-page-layout-patterns"></a>
 ## 11. Page Layout Patterns
 
 ### Buyer Portal — Shell
@@ -578,6 +609,7 @@ mat-sidenav-container [fullscreen]
 
 ---
 
+<a id="12-accessibility-standards"></a>
 ## 12. Accessibility Standards
 
 - All interactive elements must have visible focus ring (Angular Material default; do not override `outline: 0` globally).
@@ -591,6 +623,7 @@ mat-sidenav-container [fullscreen]
 
 ---
 
+<a id="13-loading-state-patterns"></a>
 ## 13. Loading State Patterns
 
 | Context | Loading treatment |
@@ -604,6 +637,7 @@ mat-sidenav-container [fullscreen]
 
 ---
 
+<a id="14-component-import-strategy"></a>
 ## 14. Component Import Strategy
 
 All feature modules import from `libs/ui/` barrel:
@@ -626,6 +660,7 @@ Feature modules never import `MatCardModule`, `MatTableModule`, etc. directly �
 
 ---
 
+<a id="15-custom-pipes"></a>
 ## 15. Custom Pipes
 
 All pipes live in `libs/ui/src/lib/pipes/` and are exported from the `@aliceut/ui` barrel (`libs/ui/src/index.ts`).

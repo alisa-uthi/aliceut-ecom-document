@@ -6,6 +6,14 @@
 
 ---
 
+## Summary
+
+- [Endpoint Index](#endpoint-index)
+- [DB Mapping](#db-mapping)
+- [Sequence Diagram Conventions](#sequence-diagram-conventions)
+- [Endpoints](#endpoints)
+
+<a id="endpoint-index"></a>
 ## Endpoint Index
 
 | Group | Method | Path | Auth | Description |
@@ -34,6 +42,7 @@
 
 ---
 
+<a id="db-mapping"></a>
 ## DB Mapping
 
 | Endpoint | Primary DB | Tables / Notes |
@@ -62,6 +71,7 @@
 
 ---
 
+<a id="sequence-diagram-conventions"></a>
 ## Sequence Diagram Conventions
 
 > **Outbox pattern:** Every `INSERT platform.outbox_event` in a sequence diagram is written in the **same Postgres transaction** as the domain change (`BEGIN TRANSACTION` / `COMMIT` notes mark the boundary). `Kafka Relay` polls `platform.outbox_event WHERE publication_status = 'PENDING'` asynchronously after the transaction commits, serializes with Avro, publishes to the Kafka broker, then marks the event `PUBLISHED`.
@@ -72,6 +82,7 @@
 
 ---
 
+<a id="endpoints"></a>
 ## Endpoints
 
 ### Register as seller (submit KYC)

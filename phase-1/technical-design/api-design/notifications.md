@@ -6,6 +6,14 @@
 
 ---
 
+## Summary
+
+- [Endpoint Index](#endpoint-index)
+- [DB Mapping](#db-mapping)
+- [Endpoints](#endpoints)
+- [Notification Creation (Async)](#notification-creation-async)
+
+<a id="endpoint-index"></a>
 ## Endpoint Index
 
 | Method | Path | Auth | Description |
@@ -18,6 +26,7 @@ See [Notification Creation (Async)](#notification-creation-async) for the Kafka 
 
 ---
 
+<a id="db-mapping"></a>
 ## DB Mapping
 
 | Endpoint | Primary DB | Tables / Notes |
@@ -30,6 +39,7 @@ See [Notification Creation (Async)](#notification-creation-async) for the Kafka 
 
 ---
 
+<a id="endpoints"></a>
 ## Endpoints
 
 ### List in-app notifications
@@ -159,6 +169,7 @@ sequenceDiagram
 
 ---
 
+<a id="notification-creation-async"></a>
 ## Notification Creation (Async)
 
 Notification rows are never written by API handlers. They are created exclusively by Kafka consumers reacting to domain events. The diagram below shows the full async path, including consumer-side idempotency using `platform.processed_event`.

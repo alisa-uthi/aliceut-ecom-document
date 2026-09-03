@@ -26,10 +26,10 @@
 <a id="1-project-structure"></a>
 ## 1. Project structure
 
-Angular workspace root is `frontend/`. All apps and shared libraries live under it.
+Angular workspace root is `aliceut-ecom-frontend/`. All apps and shared libraries live under it.
 
 ```
-frontend/
+aliceut-ecom-frontend/
 ├── angular.json
 ├── tsconfig.base.json
 ├── apps/
@@ -75,7 +75,7 @@ Path aliases in `tsconfig.base.json`:
 
 ### Standalone components
 
-Prefer standalone components (Angular 17+ default). Use `NgModule` only when third-party libraries require it as a host.
+Prefer standalone components (Angular 22+ default). Use `NgModule` only when third-party libraries require it as a host.
 
 ```typescript
 @Component({

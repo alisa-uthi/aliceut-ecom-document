@@ -6,6 +6,23 @@
 
 ---
 
+## Summary
+
+- [1. Router Strategy](#router-strategy)
+- [2. Buyer App — Route Tree (`buyer-app`)](#buyer-app-route-tree)
+- [3. Seller App — Route Tree (`seller-app`)](#seller-app-route-tree)
+- [4. Admin App — Route Tree (`admin-app`)](#admin-app-route-tree)
+- [5. Auth Guard Matrix](#auth-guard-matrix)
+- [6. Navigation Patterns](#navigation-patterns)
+- [7. Lazy-Loaded Feature Module Boundaries](#lazy-loaded-feature-module-boundaries)
+- [8. Deep Link Behavior](#deep-link-behavior)
+- [9. Error Pages](#error-pages)
+- [10. Navigation After Auth Events](#navigation-after-auth-events)
+- [11. Query Param Conventions](#query-param-conventions)
+- [12. Title Strategy](#title-strategy)
+- [13. Scroll Behavior](#scroll-behavior)
+
+<a id="router-strategy"></a>
 ## 1. Router Strategy
 
 All three apps use **HTML5 History mode** (`withRouterConfig({ useHash: false })`). Each nginx container serves `index.html` as the fallback for any unmatched path (required for SPA routing on hard refresh/deep link).
@@ -19,6 +36,7 @@ location / {
 
 ---
 
+<a id="buyer-app-route-tree"></a>
 ## 2. Buyer App — Route Tree (`buyer-app`)
 
 ### Root Routes (`app.routes.ts`)
@@ -141,6 +159,7 @@ export const appRoutes: Routes = [
 
 ---
 
+<a id="seller-app-route-tree"></a>
 ## 3. Seller App — Route Tree (`seller-app`)
 
 ### Root Routes (`app.routes.ts`)
@@ -242,6 +261,7 @@ export const appRoutes: Routes = [
 
 ---
 
+<a id="admin-app-route-tree"></a>
 ## 4. Admin App — Route Tree (`admin-app`)
 
 ### Root Routes (`app.routes.ts`)
@@ -314,6 +334,7 @@ export const appRoutes: Routes = [
 
 ---
 
+<a id="auth-guard-matrix"></a>
 ## 5. Auth Guard Matrix
 
 ### Shared Guards (`libs/auth/`)
@@ -349,6 +370,7 @@ export const appRoutes: Routes = [
 
 ---
 
+<a id="navigation-patterns"></a>
 ## 6. Navigation Patterns
 
 ### 6.1 Buyer Portal
@@ -387,6 +409,7 @@ export const appRoutes: Routes = [
 
 ---
 
+<a id="lazy-loaded-feature-module-boundaries"></a>
 ## 7. Lazy-Loaded Feature Module Boundaries
 
 Each feature area is a separate lazy-loaded chunk. Rationale: admin/seller portals are visited less frequently than buyer storefront; lazy loading avoids loading seller/admin code in the buyer app's initial bundle.
@@ -411,6 +434,7 @@ Each feature area is a separate lazy-loaded chunk. Rationale: admin/seller porta
 
 ---
 
+<a id="deep-link-behavior"></a>
 ## 8. Deep Link Behavior
 
 | Scenario | Behavior |
@@ -425,6 +449,7 @@ Each feature area is a separate lazy-loaded chunk. Rationale: admin/seller porta
 
 ---
 
+<a id="error-pages"></a>
 ## 9. Error Pages
 
 ### 404 Not Found
@@ -455,6 +480,7 @@ Not a routed page — displayed inline in the search results component as a `mat
 
 ---
 
+<a id="navigation-after-auth-events"></a>
 ## 10. Navigation After Auth Events
 
 | Event | Navigation |
@@ -473,6 +499,7 @@ Not a routed page — displayed inline in the search results component as a `mat
 
 ---
 
+<a id="query-param-conventions"></a>
 ## 11. Query Param Conventions
 
 | Param | Used by | Example | Purpose |
@@ -499,6 +526,7 @@ All array-valued params (e.g. multiple categories) use repeated params: `?catego
 
 ---
 
+<a id="title-strategy"></a>
 ## 12. Title Strategy
 
 Each portal uses `TitleStrategy` to set meaningful `<title>` values for browser tabs and history.
@@ -534,6 +562,7 @@ Route data title examples:
 
 ---
 
+<a id="scroll-behavior"></a>
 ## 13. Scroll Behavior
 
 Use `withInMemoryScrollingOptions({ scrollPositionRestoration: 'enabled', anchorScrolling: 'enabled' })`.

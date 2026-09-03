@@ -6,6 +6,14 @@
 
 ---
 
+## Summary
+
+- [Endpoint Index](#endpoint-index)
+- [DB Mapping](#db-mapping)
+- [Endpoints](#endpoints)
+- [ES Index Maintenance](#es-index-maintenance)
+
+<a id="endpoint-index"></a>
 ## Endpoint Index
 
 | Method | Path | Auth | Description |
@@ -16,6 +24,7 @@ See [ES Index Maintenance](#es-index-maintenance) for the async Kafka consumer w
 
 ---
 
+<a id="db-mapping"></a>
 ## DB Mapping
 
 | Endpoint | Primary DB | Index / Notes |
@@ -26,6 +35,7 @@ See [ES Index Maintenance](#es-index-maintenance) for the async Kafka consumer w
 
 ---
 
+<a id="endpoints"></a>
 ## Endpoints
 
 ### Product search
@@ -108,6 +118,7 @@ sequenceDiagram
 
 ---
 
+<a id="es-index-maintenance"></a>
 ## ES Index Maintenance
 
 The `products` Elasticsearch index is a **read model only**. No API handler writes to it directly. All writes are driven by Kafka consumers reacting to domain-change events. Every domain state change commits its domain rows and a `platform.outbox_event` row in a single Postgres transaction; the Outbox Relay polls for unpublished events and produces them to Kafka; SearchConsumer groups consume from Kafka, update Elasticsearch, record a `platform.processed_event` row for idempotency, then commit the Kafka offset (at-least-once delivery, idempotent on `event_id`).

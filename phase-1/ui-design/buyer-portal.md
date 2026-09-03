@@ -7,6 +7,27 @@
 
 ---
 
+## Summary
+
+- [Shell Layout](#shell-layout)
+- [Screen 1 — Home Page](#screen-1-home-page)
+- [Screen 2 — Search Results](#screen-2-search-results)
+- [Screen 3 — Product Detail Page (PDP)](#screen-3-pdp)
+- [Screen 4 — Cart](#screen-4-cart)
+- [Screen 5 — Checkout](#screen-5-checkout)
+- [Screen 6 — Order Confirmation](#screen-6-order-confirmation)
+- [Screen 7 — Order History](#screen-7-order-history)
+- [Screen 8 — Order Detail](#screen-8-order-detail)
+- [Screen 9 — Login](#screen-9-login)
+- [Screen 10 — Register](#screen-10-register)
+- [Screen 11 — Account Settings](#screen-11-account-settings)
+- [Screen 12 — Email Verification Pending (State)](#screen-12-email-verification-pending)
+- [Screen 13 — Forgot Password](#screen-13-forgot-password)
+- [Screen 14 — Reset Password](#screen-14-reset-password)
+- [Screen 15 — Email Verification Callback](#screen-15-email-verification-callback)
+- [Appendix — Buyer Notification Types](#appendix-buyer-notifications)
+
+<a id="shell-layout"></a>
 ## Shell Layout
 
 ```
@@ -42,6 +63,7 @@ main.page-content [max-width: 1440px; margin: 0 auto; padding: 24px 16px]
 
 ---
 
+<a id="screen-1-home-page"></a>
 ## Screen 1 — Home Page
 
 **Route:** `/`  
@@ -92,6 +114,7 @@ section.featured-products [padding: 24px 0]
 
 ---
 
+<a id="screen-2-search-results"></a>
 ## Screen 2 — Search Results
 
 **Route:** `/search?q=&category=&minPrice=&maxPrice=&minRating=&inStock=&sort=&page=`  
@@ -202,6 +225,7 @@ div.search-layout [display: flex; gap: 24px]
 
 ---
 
+<a id="screen-3-pdp"></a>
 ## Screen 3 — Product Detail Page (PDP)
 
 **Route:** `/products/:id`  
@@ -318,6 +342,7 @@ div.pdp-layout [display: grid; grid-template-columns: 1fr 380px; gap: 32px; alig
 
 ---
 
+<a id="screen-4-cart"></a>
 ## Screen 4 — Cart
 
 **Route:** `/cart`  
@@ -419,6 +444,7 @@ div.cart-layout [display: grid; grid-template-columns: 1fr 340px; gap: 24px; ali
 
 ---
 
+<a id="screen-5-checkout"></a>
 ## Screen 5 — Checkout
 
 **Route:** `/checkout`  
@@ -554,6 +580,7 @@ div.checkout-layout [display: grid; grid-template-columns: 1fr 340px; gap: 24px;
 
 ---
 
+<a id="screen-6-order-confirmation"></a>
 ## Screen 6 — Order Confirmation
 
 **Route:** `/checkout/confirmation?orderId=`  
@@ -633,6 +660,7 @@ div.confirmation-actions [text-align: center; margin-top: 24px; display: flex; g
 
 ---
 
+<a id="screen-7-order-history"></a>
 ## Screen 7 — Order History
 
 **Route:** `/orders`  
@@ -693,6 +721,7 @@ mat-paginator [pageSize]="20" [pageSizeOptions]="[10,20,50]">
 
 ---
 
+<a id="screen-8-order-detail"></a>
 ## Screen 8 — Order Detail
 
 **Route:** `/orders/:id`  
@@ -750,6 +779,7 @@ Steps: Ordered → Shipped → Delivered (→ Refunded if applicable). Reached s
 
 ---
 
+<a id="screen-9-login"></a>
 ## Screen 9 — Login
 
 **Route:** `/login`  
@@ -827,6 +857,7 @@ div.auth-page [display: flex; justify-content: center; align-items: flex-start; 
 
 ---
 
+<a id="screen-10-register"></a>
 ## Screen 10 — Register
 
 **Route:** `/register`  
@@ -856,6 +887,7 @@ Redirects to `/email-verification-pending` showing: "Check your inbox — we sen
 
 ---
 
+<a id="screen-11-account-settings"></a>
 ## Screen 11 — Account Settings
 
 **Route:** `/account`  
@@ -933,6 +965,7 @@ mat-tab-group [orientation=vertical] [on desktop; horizontal on mobile]
 
 ---
 
+<a id="screen-12-email-verification-pending"></a>
 ## Screen 12 — Email Verification Pending (State)
 
 **Route:** `/email-verification-pending`
@@ -953,6 +986,7 @@ div [text-align: center; padding: 64px 24px; max-width: 480px; margin: 0 auto]
 
 ---
 
+<a id="screen-13-forgot-password"></a>
 ## Screen 13 — Forgot Password
 
 **Route:** `/forgot-password`
@@ -973,6 +1007,7 @@ mat-card [max-width: 440px; margin: 48px auto]
 
 ---
 
+<a id="screen-14-reset-password"></a>
 ## Screen 14 — Reset Password
 
 **Route:** `/reset-password` (reads `?token=` query param)  
@@ -1010,6 +1045,7 @@ mat-card [max-width: 440px; margin: 48px auto]
 
 ---
 
+<a id="screen-15-email-verification-callback"></a>
 ## Screen 15 — Email Verification Callback
 
 **Route:** `/verify-email` (reads `?token=` query param)  
@@ -1037,6 +1073,7 @@ mat-card [max-width: 440px; margin: 48px auto]
 
 ---
 
+<a id="appendix-buyer-notifications"></a>
 ## Appendix — Buyer Notification Types
 
 In-app notification event types consumed by `<aliceut-notification-bell>` and the `/notifications` page.

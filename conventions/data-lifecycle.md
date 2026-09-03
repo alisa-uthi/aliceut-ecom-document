@@ -6,6 +6,11 @@ Cross-phase convention for time-bounded data cleanup using `pg_cron`.
 
 ---
 
+## Summary
+
+- [Convention](#convention)
+
+<a id="convention"></a>
 ## Convention
 
 - All time-bounded rows are cleaned via `pg_cron` jobs — not application-layer cron.

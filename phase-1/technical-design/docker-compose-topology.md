@@ -5,6 +5,21 @@
 
 ---
 
+## Summary
+
+- [1. Service inventory](#service-inventory)
+- [2. Networks](#networks)
+- [3. Volumes](#volumes)
+- [4. `.env.example`](#env-example)
+- [5. `docker-compose.yml`](#docker-compose-yml)
+- [6. Backend Dockerfile (multi-stage, multi-target)](#backend-dockerfile)
+- [7. nginx proxy configuration (buyer.conf example)](#nginx-proxy-configuration)
+- [8. Startup order and dependency graph](#startup-order)
+- [9. Development workflow](#development-workflow)
+- [10. Port summary](#port-summary)
+- [11. Design Decisions](#design-decisions)
+
+<a id="service-inventory"></a>
 ## 1. Service inventory
 
 | Service | Image / Build | Host port | Purpose |
@@ -25,6 +40,7 @@
 
 ---
 
+<a id="networks"></a>
 ## 2. Networks
 
 ```
@@ -38,6 +54,7 @@ nginx containers are on **both** networks; they proxy `/api/*` to `api:3000`.
 
 ---
 
+<a id="volumes"></a>
 ## 3. Volumes
 
 | Volume | Used by | Purpose |
@@ -50,6 +67,7 @@ nginx containers are on **both** networks; they proxy `/api/*` to `api:3000`.
 
 ---
 
+<a id="env-example"></a>
 ## 4. `.env.example`
 
 ```dotenv
@@ -129,6 +147,7 @@ SEED_ADMIN_PASSWORD=change_me_seed_admin
 
 ---
 
+<a id="docker-compose-yml"></a>
 ## 5. `docker-compose.yml`
 
 ```yaml
@@ -157,8 +176,8 @@ services:
     ports:
       - "4200:80"
     volumes:
-      - ./frontend/dist/buyer-app:/usr/share/nginx/html:ro
-      - ./frontend/nginx/buyer.conf:/etc/nginx/conf.d/default.conf:ro
+      - ../aliceut-ecom-frontend/dist/buyer-app:/usr/share/nginx/html:ro
+      - ../aliceut-ecom-frontend/nginx/buyer.conf:/etc/nginx/conf.d/default.conf:ro
     networks:
       - aliceut_frontend
       - aliceut_backend
@@ -178,8 +197,8 @@ services:
     ports:
       - "4201:80"
     volumes:
-      - ./frontend/dist/seller-app:/usr/share/nginx/html:ro
-      - ./frontend/nginx/seller.conf:/etc/nginx/conf.d/default.conf:ro
+      - ../aliceut-ecom-frontend/dist/seller-app:/usr/share/nginx/html:ro
+      - ../aliceut-ecom-frontend/nginx/seller.conf:/etc/nginx/conf.d/default.conf:ro
     networks:
       - aliceut_frontend
       - aliceut_backend
@@ -199,8 +218,8 @@ services:
     ports:
       - "4202:80"
     volumes:
-      - ./frontend/dist/admin-app:/usr/share/nginx/html:ro
-      - ./frontend/nginx/admin.conf:/etc/nginx/conf.d/default.conf:ro
+      - ../aliceut-ecom-frontend/dist/admin-app:/usr/share/nginx/html:ro
+      - ../aliceut-ecom-frontend/nginx/admin.conf:/etc/nginx/conf.d/default.conf:ro
     networks:
       - aliceut_frontend
       - aliceut_backend
@@ -304,7 +323,7 @@ services:
       POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./backend/migrations/init:/docker-entrypoint-initdb.d:ro
+      - ../aliceut-ecom-utility-pipeline/database/init:/docker-entrypoint-initdb.d:ro
     networks:
       - aliceut_backend
     healthcheck:
@@ -499,6 +518,7 @@ services:
 
 ---
 
+<a id="backend-dockerfile"></a>
 ## 6. Backend Dockerfile (multi-stage, multi-target)
 
 ```dockerfile
@@ -535,6 +555,7 @@ CMD ["node", "dist/apps/workers/main.js"]
 
 ---
 
+<a id="nginx-proxy-configuration"></a>
 ## 7. nginx proxy configuration (buyer.conf example)
 
 ```nginx
@@ -577,6 +598,7 @@ server {
 
 ---
 
+<a id="startup-order"></a>
 ## 8. Startup order and dependency graph
 
 ```
@@ -595,6 +617,7 @@ schema-registry ──────────────┘
 
 ---
 
+<a id="development-workflow"></a>
 ## 9. Development workflow
 
 ```bash
@@ -623,6 +646,7 @@ docker compose up -d
 
 ---
 
+<a id="port-summary"></a>
 ## 10. Port summary
 
 | Service | Host port | Access URL |
@@ -642,6 +666,7 @@ docker compose up -d
 
 ---
 
+<a id="design-decisions"></a>
 ## 11. [DESIGN DECISIONS]
 
 - **[DESIGN DECISION]** Kafka uses KRaft mode (no ZooKeeper). `apache/kafka:3.8.0` ships with KRaft; a `CLUSTER_ID` is pre-generated. This removes ZooKeeper as a dependency, reducing the compose service count.

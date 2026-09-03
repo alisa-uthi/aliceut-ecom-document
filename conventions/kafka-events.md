@@ -7,6 +7,16 @@ Phase-specific event schemas and topic summary: [phase-1/technical-design/kafka-
 
 ---
 
+## Summary
+
+- [1. Event envelope (all events)](#event-envelope)
+- [2. Schema registry](#schema-registry)
+- [3. Partition keys](#partition-keys)
+- [4. Consumer idempotency template](#consumer-idempotency-template)
+- [5. DLQ topology](#dlq-topology)
+- [6. BACKWARD compatibility protocol](#backward-compatibility-protocol)
+
+<a id="event-envelope"></a>
 ## 1. Event envelope (all events)
 
 Every Avro record includes the following envelope fields as the outer record. Topic-specific `payload` is a nested record within the envelope.
@@ -29,21 +39,24 @@ Every Avro record includes the following envelope fields as the outer record. To
 
 ---
 
+<a id="schema-registry"></a>
 ## 2. Schema registry
 
 - One `<topic>-value` subject per topic in Confluent Schema Registry.
 - Compatibility mode: `BACKWARD` on all subjects.
 - **BACKWARD compat rules:** adding optional fields (`"default": null` on union `["null", "..."]`) is allowed; removing or renaming fields or changing a field type is a breaking change that requires a new `event_version` and coordinated consumer migration.
-- Avro schemas committed to `backend/libs/contracts/avro/` and registered to Schema Registry by CI before deployment.
+- Avro schemas committed to `libs/contracts/avro/` inside `aliceut-ecom-backend/` and registered to Schema Registry by CI before deployment.
 
 ---
 
+<a id="partition-keys"></a>
 ## 3. Partition keys
 
 Each topic uses a partition key to co-locate related events and preserve ordering within an aggregate. Partition key per topic is defined in the phase-specific event catalog.
 
 ---
 
+<a id="consumer-idempotency-template"></a>
 ## 4. Consumer idempotency template
 
 ```
@@ -146,6 +159,7 @@ Each consumer group belongs to one family. The idempotency wrapper (§4) applies
 
 ---
 
+<a id="dlq-topology"></a>
 ## 5. DLQ topology
 
 Each consumer group has a dedicated DLQ topic: `<consumer_group>.dlq`
@@ -156,6 +170,7 @@ Each consumer group has a dedicated DLQ topic: `<consumer_group>.dlq`
 
 ---
 
+<a id="backward-compatibility-protocol"></a>
 ## 6. BACKWARD compatibility protocol
 
 When adding a new field to an existing event payload:

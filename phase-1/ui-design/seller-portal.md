@@ -7,6 +7,24 @@
 
 ---
 
+## Summary
+
+- [Shell Layout](#shell-layout)
+- [Screen 1 — Seller Login](#screen-1-seller-login)
+- [Screen 2 — Seller Register](#screen-2-seller-register)
+- [Screen 3 — KYC Application](#screen-3-kyc-application)
+- [Screen 4 — Seller Dashboard](#screen-4-seller-dashboard)
+- [Screen 5 — Product Listings](#screen-5-product-listings)
+- [Screen 6 — Create / Edit Product](#screen-6-create-edit-product)
+- [Screen 7 — Order Queue](#screen-7-order-queue)
+- [Screen 8 — Order Detail](#screen-8-order-detail)
+- [Screen 9 — Inventory](#screen-9-inventory)
+- [Screen 10 — Notification Panel](#screen-10-notification-panel)
+- [Screen 11 — Offer Pricing](#screen-11-offer-pricing)
+- [Screen 12 — Seller Forgot Password](#screen-12-seller-forgot-password)
+- [Screen 13 — Seller Reset Password](#screen-13-seller-reset-password)
+
+<a id="shell-layout"></a>
 ## Shell Layout
 
 ```
@@ -78,6 +96,7 @@ mat-sidenav-container [fullscreen]
 
 ---
 
+<a id="screen-1-seller-login"></a>
 ## Screen 1 — Seller Login
 
 **Route:** `/seller/login`  
@@ -125,6 +144,7 @@ div.auth-page [display: flex; justify-content: center; padding: 48px 16px]
 
 ---
 
+<a id="screen-2-seller-register"></a>
 ## Screen 2 — Seller Register
 
 **Route:** `/seller/register`
@@ -164,6 +184,7 @@ After successful registration, redirect to `/seller/kyc` to complete Step 2 (KYC
 
 ---
 
+<a id="screen-3-kyc-application"></a>
 ## Screen 3 — KYC Application
 
 **Route:** `/seller/kyc`  
@@ -286,6 +307,7 @@ Shows success card: "Application submitted. We'll review it within 3 business da
 
 ---
 
+<a id="screen-4-seller-dashboard"></a>
 ## Screen 4 — Seller Dashboard
 
 **Route:** `/seller/dashboard`  
@@ -399,6 +421,7 @@ div.recent-orders *ngIf="recentPendingOrders.length > 0"
 
 ---
 
+<a id="screen-5-product-listings"></a>
 ## Screen 5 — Product Listings
 
 **Route:** `/seller/listings`  
@@ -488,6 +511,7 @@ div.page-header [display: flex; justify-content: space-between; align-items: cen
 
 ---
 
+<a id="screen-6-create-edit-product"></a>
 ## Screen 6 — Create / Edit Product
 
 **Route:** `/seller/listings/new` and `/seller/listings/:id/edit`  
@@ -661,6 +685,7 @@ If title/description/category triggers the prohibited content check on save, the
 
 ---
 
+<a id="screen-7-order-queue"></a>
 ## Screen 7 — Order Queue
 
 **Route:** `/seller/orders`  
@@ -730,6 +755,7 @@ div [display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; align-items
 
 ---
 
+<a id="screen-8-order-detail"></a>
 ## Screen 8 — Order Detail
 
 **Route:** `/seller/orders/:id`  
@@ -816,6 +842,7 @@ div.detail-grid [display: grid; grid-template-columns: 1fr 340px; gap: 24px]
 
 ---
 
+<a id="screen-9-inventory"></a>
 ## Screen 9 — Inventory
 
 **Route:** `/seller/inventory`  
@@ -904,6 +931,7 @@ mat-dialog-actions [align=end]
 
 ---
 
+<a id="screen-10-notification-panel"></a>
 ## Screen 10 — Notification Panel
 
 Rendered as `NotificationBell` component in toolbar. Notification types relevant to seller:
@@ -920,6 +948,7 @@ Rendered as `NotificationBell` component in toolbar. Notification types relevant
 
 ---
 
+<a id="screen-11-offer-pricing"></a>
 ## Screen 11 — Offer Pricing
 
 **Route:** `/seller/listings/:id/pricing`  
@@ -1024,6 +1053,7 @@ mat-card *ngIf="showPriceForm" [padding: 24px; margin-top: 16px]
 
 ---
 
+<a id="screen-12-seller-forgot-password"></a>
 ## Screen 12 — Seller Forgot Password
 
 **Route:** `/seller/forgot-password`  
@@ -1069,6 +1099,7 @@ div.auth-page [display: flex; justify-content: center; padding: 48px 16px]
 
 ---
 
+<a id="screen-13-seller-reset-password"></a>
 ## Screen 13 — Seller Reset Password
 
 **Route:** `/seller/reset-password?token=`  

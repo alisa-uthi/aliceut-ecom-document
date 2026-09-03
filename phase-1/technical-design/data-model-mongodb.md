@@ -7,6 +7,13 @@ Collections used for high-write append data: audit accountability and domain lif
 
 ---
 
+## Summary
+
+- [Consumer routing](#consumer-routing)
+- [1. `audit_logs`](#audit-logs)
+- [2. `activity_events`](#activity-events)
+
+<a id="consumer-routing"></a>
 ## Consumer routing
 
 The `audit` consumer group subscribes to all topics and routes by `event_type`:
@@ -18,6 +25,7 @@ The `audit` consumer group subscribes to all topics and routes by `event_type`:
 
 ---
 
+<a id="audit-logs"></a>
 ## 1. `audit_logs`
 
 Admin/moderation actions. Answers: *who did what, and why.*
@@ -46,6 +54,7 @@ db.audit_logs.createIndex({ actor_id: 1, occurred_at: -1 })
 
 ---
 
+<a id="activity-events"></a>
 ## 2. `activity_events`
 
 Domain lifecycle events. Answers: *what happened to this order/product/offer.*

@@ -4,6 +4,22 @@ Pre-decided implementation constraints extracted from user stories (2026-08-29).
 
 ---
 
+## Summary
+
+- [Auth](#auth)
+- [Search](#search)
+- [Cart](#cart)
+- [Checkout & Orders](#checkout-orders)
+- [Kafka — Transactional Outbox](#kafka-transactional-outbox)
+- [Money Handling](#money-handling)
+- [Data Entities & Key Fields](#data-entities-key-fields)
+- [API Contracts](#api-contracts)
+- [Email Templates](#email-templates)
+- [Inventory](#inventory)
+- [KYC & Audit](#kyc-audit)
+- [Secrets & Config](#secrets-config)
+
+<a id="auth"></a>
 ## Auth
 
 - Password hashing: **argon2id**; plaintext never logged
@@ -23,6 +39,7 @@ Check `SellerProfile.suspension_status` on every seller-only endpoint:
 
 ---
 
+<a id="search"></a>
 ## Search
 
 - Search index: **Elasticsearch** (not Postgres); writes async from Kafka events
@@ -37,6 +54,7 @@ Check `SellerProfile.suspension_status` on every seller-only endpoint:
 
 ---
 
+<a id="cart"></a>
 ## Cart
 
 - Logged-in cart: stored server-side, keyed by `user_id`
@@ -47,6 +65,7 @@ Check `SellerProfile.suspension_status` on every seller-only endpoint:
 
 ---
 
+<a id="checkout-orders"></a>
 ## Checkout & Orders
 
 - **Order display ID:** `ORD-` prefix + first 8 uppercase hex chars of UUID (e.g. `ORD-3F2A1B9C`)
@@ -93,6 +112,7 @@ Single `order.finalized` outbox event in same tx as `placement_outcome` write.
 
 ---
 
+<a id="kafka-transactional-outbox"></a>
 ## Kafka — Transactional Outbox
 
 Pattern: `outbox_event(id, topic, key, payload, occurred_at, published_at NULL)` in same Postgres tx as domain change. Relay polls `published_at IS NULL`, publishes, marks done. No direct Kafka publish outside outbox (enforce via architecture test).
@@ -177,6 +197,7 @@ Kafka consumers that need to emit downstream events (e.g., the `orders.delivery-
 
 ---
 
+<a id="money-handling"></a>
 ## Money Handling
 
 - DB: `NUMERIC(19,4)` monetary; `NUMERIC(19,8)` FX rates
@@ -189,6 +210,7 @@ Kafka consumers that need to emit downstream events (e.g., the `orders.delivery-
 
 ---
 
+<a id="data-entities-key-fields"></a>
 ## Data Entities & Key Fields
 
 - `FulfillmentItem`: `unit_price NUMERIC(19,4)`, `currency CHAR(3)`, `tax NUMERIC(19,4)`, `fx_rate_used NUMERIC(19,8) NULL`, `quantity INT`
@@ -204,6 +226,7 @@ Kafka consumers that need to emit downstream events (e.g., the `orders.delivery-
 
 ---
 
+<a id="api-contracts"></a>
 ## API Contracts
 
 - NestJS global `ValidationPipe`: `whitelist: true, forbidNonWhitelisted: true, transform: true`
@@ -214,6 +237,7 @@ Kafka consumers that need to emit downstream events (e.g., the `orders.delivery-
 
 ---
 
+<a id="email-templates"></a>
 ## Email Templates
 
 - Storage: `email_template` DB table keyed by `template_key` (e.g. `checkout.summary`)
@@ -245,6 +269,7 @@ Kafka consumers that need to emit downstream events (e.g., the `orders.delivery-
 
 ---
 
+<a id="inventory"></a>
 ## Inventory
 
 - `available = on_hand − reserved`
@@ -254,6 +279,7 @@ Kafka consumers that need to emit downstream events (e.g., the `orders.delivery-
 
 ---
 
+<a id="kyc-audit"></a>
 ## KYC & Audit
 
 - Uploads: **encrypted bucket** (NFR-09)
@@ -262,6 +288,7 @@ Kafka consumers that need to emit downstream events (e.g., the `orders.delivery-
 
 ---
 
+<a id="secrets-config"></a>
 ## Secrets & Config
 
 - `.env.example` checked in; `.env` gitignored

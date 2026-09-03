@@ -6,6 +6,13 @@
 
 ---
 
+## Summary
+
+- [Endpoint Index](#endpoint-index)
+- [DB Mapping](#db-mapping)
+- [Endpoints](#endpoints)
+
+<a id="endpoint-index"></a>
 ## Endpoint Index
 
 | Method | Path | Auth | Description |
@@ -28,6 +35,7 @@
 
 ---
 
+<a id="db-mapping"></a>
 ## DB Mapping
 
 | Endpoint | Primary DB | Tables / Notes |
@@ -50,6 +58,7 @@
 
 ---
 
+<a id="endpoints"></a>
 ## Endpoints
 
 ### Registration

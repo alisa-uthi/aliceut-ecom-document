@@ -7,6 +7,12 @@ Module structure conventions (hexagonal layers, CQRS pattern, outbox integration
 
 ---
 
+## Summary
+
+- [Module summary table](#module-summary-table)
+- [Scheduled tasks (workers)](#scheduled-tasks)
+
+<a id="module-summary-table"></a>
 ## Module summary table
 
 Tier column references [conventions/module-architecture.md §2](../../conventions/module-architecture.md): **T1** = full hexagonal, **T2** = simplified service, **T3** = thin/infrastructure.
@@ -28,6 +34,7 @@ Tier column references [conventions/module-architecture.md §2](../../convention
 
 ---
 
+<a id="scheduled-tasks"></a>
 ## Scheduled tasks (workers)
 
 All schedulers live in `apps/workers/src/schedulers/`. Pattern: see [conventions/module-architecture.md §10](../../conventions/module-architecture.md).

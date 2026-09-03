@@ -8,6 +8,13 @@
 
 ---
 
+## Summary
+
+- [Endpoint Index](#endpoint-index)
+- [DB Mapping](#db-mapping)
+- [Endpoints](#endpoints)
+
+<a id="endpoint-index"></a>
 ## Endpoint Index
 
 > All `/admin/*` endpoints return `403` for both unauthenticated (missing/invalid token) and unauthorized (valid token, role ≠ ADMIN) requests.
@@ -29,6 +36,7 @@
 
 ---
 
+<a id="db-mapping"></a>
 ## DB Mapping
 
 | Endpoint | Primary DB | Tables / Notes |
@@ -48,6 +56,7 @@
 
 ---
 
+<a id="endpoints"></a>
 ## Endpoints
 
 ### List KYC applications
