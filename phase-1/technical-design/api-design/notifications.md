@@ -56,7 +56,7 @@ Pagination: cursor
 {
   "data": [{
     "id": "uuid",
-    "type": "ORDER_PLACED | SHIPMENT_UPDATE | KYC_DECIDED | KYC_SUBMITTED | LOW_STOCK | LISTING_REMOVED | SELLER_SUSPENDED | SELLER_REINSTATED | REFUND_ISSUED | ORDER_COMPLETED",
+    "type": "ORDER_PLACED | SHIPMENT_UPDATE | KYC_DECIDED | KYC_SUBMITTED | LOW_STOCK | LISTING_FLAGGED | LISTING_REMOVED | SELLER_SUSPENDED | SELLER_REINSTATED | REFUND_ISSUED | ORDER_COMPLETED | FULFILLMENT_CANCELLED | SUSPENSION_EXPIRED",
     "payload": {},
     "readAt": "ISO8601 | null",
     "createdAt": "ISO8601"
@@ -222,3 +222,6 @@ sequenceDiagram
 | `SELLER_REINSTATED` | `seller.reinstated` |
 | `REFUND_ISSUED` | `fulfillment.refunded`, `fulfillment.refund_suspended_seller` |
 | `ORDER_COMPLETED` | `order.completed` |
+| `LISTING_FLAGGED` | `listing.flagged` |
+| `FULFILLMENT_CANCELLED` | `fulfillment.cancelled` |
+| `SUSPENSION_EXPIRED` | `seller.suspension_expired` |

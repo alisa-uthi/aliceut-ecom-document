@@ -6,6 +6,40 @@ Templates are grouped by audience: **Auth** (ET-18, ET-19, ET-20), **Buyer Order
 
 ---
 
+## Index
+
+**Auth**
+- [ET-18 — Email Verification](#et-18--email-verification-authemail_verification_requested)
+- [ET-19 — Password Reset](#et-19--password-reset-authpassword_reset_requested)
+- [ET-20 — Password Changed](#et-20--password-changed-authpassword_changed)
+
+**Buyer — Order Lifecycle**
+- [ET-01 — Order Summary](#et-01--order-summary-orderfinalized)
+- [ET-02 — Fulfillment Shipped](#et-02--fulfillment-shipped-fulfillmentshipped)
+- [ET-03 — Fulfillment Delivered](#et-03--fulfillment-delivered-fulfillmentdelivered)
+- [ET-04 — Fulfillment Refunded](#et-04--fulfillment-refunded-fulfillmentrefunded)
+- [ET-05 — Order Completed](#et-05--order-completed-ordercompleted)
+- [ET-13 — Order Auto-Refunded (Buyer Notice)](#et-13--order-auto-refunded--seller-suspended-buyer-notice-fulfillmentrefund_suspended_seller)
+- [ET-16 — Order Cancelled by Seller](#et-16--order-cancelled-by-seller-fulfillmentcancelled)
+
+**Seller — Operations**
+- [ET-06 — KYC Approved](#et-06--kyc-approved-sellerkycdecided)
+- [ET-07 — KYC Rejected](#et-07--kyc-rejected-sellerkycdecided)
+- [ET-08 — Listing Flagged](#et-08--listing-flagged-listingflagged)
+- [ET-09 — Listing(s) Removed](#et-09--listings-removed-moderationlistingremoved)
+- [ET-10 — Seller Suspended](#et-10--seller-suspended-sellersuspended)
+- [ET-11 — Suspension Lifted (Auto-Expiry)](#et-11--suspension-lifted--auto-expiry-sellersuspension_expired)
+- [ET-12 — Seller Reinstated by Admin](#et-12--seller-reinstated-by-admin-sellerreinstated)
+- [ET-13b — Order Auto-Refunded (Seller Notice)](#et-13b--order-auto-refunded--seller-suspended-seller-notice-fulfillmentrefund_suspended_seller)
+- [ET-14 — KYC Application Received](#et-14--kyc-application-received-sellerkycsubmitted)
+- [ET-15 — Low Stock Alert](#et-15--low-stock-alert-inventorylow_stock)
+- [ET-17 — New Order Received](#et-17--new-order-received-fulfillmentplaced)
+
+**Admin**
+- [ET-21 — New KYC Application Alert](#et-21--new-kyc-application--admin-alert-sellerkycsubmitted)
+
+---
+
 ## ET-18 — Email Verification (auth.email_verification_requested)
 
 **Trigger:** Buyer registers with email/password (US-B-01) — fires immediately on account creation  
@@ -538,9 +572,9 @@ AliceUT
 
 ---
 
-## ET-06 — KYC Approved (kyc.approved)
+## ET-06 — KYC Approved (seller.kyc.decided)
 
-**Trigger:** Admin approves seller KYC application (US-A-02)  
+**Trigger:** `seller.kyc.decided` event where `decision = APPROVED` (US-A-02) — consumer: `notification.kyc-decided`  
 **To:** seller  
 **CC:** admin  
 **Subject:** `Your seller account is approved — start listing on AliceUT`
@@ -578,9 +612,9 @@ AliceUT
 
 ---
 
-## ET-07 — KYC Rejected (kyc.rejected)
+## ET-07 — KYC Rejected (seller.kyc.decided)
 
-**Trigger:** Admin rejects seller KYC application (US-A-02)  
+**Trigger:** `seller.kyc.decided` event where `decision = REJECTED` (US-A-02) — consumer: `notification.kyc-decided`  
 **To:** seller  
 **CC:** admin  
 **Subject:** `Your seller application was not approved — {{seller.business_name}}`
@@ -626,7 +660,7 @@ AliceUT
 
 ## ET-08 — Listing Flagged (listing.flagged)
 
-**Trigger:** Listing auto-flagged by keyword blocklist or prohibited category check (US-A-03, US-S-03, US-S-04)  
+**Trigger:** `listing.flagged` event — fired when admin manually creates a moderation case against an active listing via `POST /admin/moderation` (US-A-03) — consumer: `notification.listing-flagged`. Note: keyword/category check at listing creation time returns 422 (rejects the create); ET-08 fires only on admin post-publication flag.  
 **To:** seller  
 **CC:** admin  
 **Subject:** `Your listing is under review — {{product_title}}`
@@ -676,9 +710,9 @@ AliceUT
 
 ---
 
-## ET-09 — Listing(s) Removed (listing.removed)
+## ET-09 — Listing(s) Removed (moderation.listing.removed)
 
-**Trigger:** `listing.removed` event per listing (US-A-04). Consumer aggregates per seller by daily time window; one email per seller per day covering all removals that day.  
+**Trigger:** `moderation.listing.removed` event per listing (US-A-04) — consumer: `notification.listing-removed`. Consumer aggregates per seller by daily time window; one email per seller per day covering all removals that day.  
 **To:** seller  
 **CC:** admin  
 **Subject:** `{{listings_count}} listing{{#if listings_count > 1}}s{{/if}} removed from the AliceUT catalog`
@@ -927,9 +961,9 @@ AliceUT
 
 ---
 
-## ET-14 — KYC Application Received (kyc.received)
+## ET-14 — KYC Application Received (seller.kyc.submitted)
 
-**Trigger:** Seller submits or resubmits onboarding application (US-S-01) — fires for both initial submissions and resubmissions  
+**Trigger:** `seller.kyc.submitted` event (US-S-01) — fires for both initial submissions (`is_resubmission: false`) and resubmissions (`is_resubmission: true`) — consumer: `notification.kyc-submitted`  
 **To:** seller  
 **Subject:** `Your seller application has been received — AliceUT`
 
@@ -1034,9 +1068,9 @@ AliceUT
 
 ---
 
-## ET-17 — New Order Received (fulfillment.created)
+## ET-17 — New Order Received (fulfillment.placed)
 
-**Trigger:** New fulfillment created for this seller when an order is finalized (US-S-05)  
+**Trigger:** `fulfillment.placed` event — one per seller per order (US-S-05) — consumer: `notification.fulfillment-seller-alert`  
 **To:** seller  
 **Subject:** `New order received — Order {{order_id}}`
 
@@ -1089,9 +1123,9 @@ AliceUT
 
 ---
 
-## ET-21 — New KYC Application — Admin Alert (kyc.received)
+## ET-21 — New KYC Application — Admin Alert (seller.kyc.submitted)
 
-**Trigger:** Seller submits or resubmits a KYC application (US-S-01) — same event as ET-14; both fire together  
+**Trigger:** `seller.kyc.submitted` event (US-S-01) — same event as ET-14; both fire together via `notification.kyc-submitted` consumer  
 **To:** admin  
 **Subject:** `New seller application: {{seller.business_name}}{{#if is_resubmission}} (resubmission){{/if}}`
 

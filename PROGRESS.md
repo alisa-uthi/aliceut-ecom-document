@@ -4,7 +4,7 @@ Daily log of work on this project. Newest entry on top. One entry per active day
 
 **How to update**
 - At session end, or when a milestone lands, add a new dated section at the top (below this header).
-- Keep each subsection to bullets. If a subsection is empty, omit it. Keep the update direct and concise.
+- Keep each subsection to bullets. If a subsection is empty, omit it. Keep the update direct and concise. Covering the key themes rather than every individual change.
 - Use ISO date `YYYY-MM-DD`.
 - Each day gets an explicit `<a id="YYYY-MM-DD"></a>` anchor immediately above its heading so external links resolve reliably (GitHub also auto-anchors the heading, but the explicit id survives renderer differences). Add the new date to the **Index** below.
 
@@ -29,6 +29,7 @@ Daily log of work on this project. Newest entry on top. One entry per active day
 ---
 
 **Index**
+- [2026-09-12](#2026-09-12) — Cross-document alignment audit: kafka-events, email-templates, API design — all Kafka → email → notification wiring corrected.
 - [2026-09-03](#2026-09-03) — Developer guidelines (5 new convention files), repo restructure (three-repo layout, folder renames, version bumps), GitHub PR Stack + CI Claude review, TOC pass across all 36 docs.
 - [2026-09-02](#2026-09-02) — Conventions + design doc day: API conventions, data lifecycle, UI cross-validation (15 fixes), API response-shape migration (11 files), Kafka consumer patterns, observability stack. Currency clarity pass: labeled seller-native vs buyer-display in all API + Kafka + ERD currency fields; fixed structural bug and incorrect catalog query.
 - [2026-08-30](#2026-08-30) — Full design doc day: consistency review + fixes (116 findings), repo restructure, MinIO, all 81 sequence diagrams, Mermaid validation.
@@ -37,6 +38,20 @@ Daily log of work on this project. Newest entry on top. One entry per active day
 - [2026-08-29](#2026-08-29) — Requirements deep-dive: order lifecycle, buyer story validation, auth portals, diagrams, BA revalidation.
 - [2026-08-22](#2026-08-22) — Phase 1 architecture overview.
 - [2026-08-19](#2026-08-19) — Requirements freeze + repo scaffolding.
+
+<a id="2026-09-12"></a>
+## 2026-09-12
+**Focus:** Cross-document alignment audit — Kafka events ↔ email templates ↔ API design.
+
+**Done:**
+- Fixed all mismatched Kafka event names in email-templates.md trigger lines (6 wrong names: `kyc.approved/rejected`, `kyc.received`, `listing.removed`, `fulfillment.created`, etc.)
+- Added missing ET numbers to kafka-events.md consumer descriptions; added missing payload fields to `seller.reinstated` and `fulfillment.cancelled` events so notification consumers can render templates without extra DB reads
+- Added new `listing.flagged` topic (§1.25) wired to `POST /admin/moderation` → ET-08 → seller notification
+- Added 3 missing in-app notification types (`LISTING_FLAGGED`, `FULFILLMENT_CANCELLED`, `SUSPENSION_EXPIRED`) to notifications.md enum and source-event table
+- Added email-templates.md audience-grouped anchor index
+
+**Next:**
+- Continue technical design or begin module scaffolding per BRD §12
 
 ---
 

@@ -41,6 +41,7 @@ MongoDB audit collection schemas (`audit_logs`, `activity_events`): see [data-mo
 | [`inventory.low_stock`](#113-inventorylow_stock) | `offer_id` | Inventory | notification.low-stock, audit |
 | [`inventory.reservation_expired`](#119-inventoryreservation_expired) | `offer_id` | Workers | search.reservation-expired, audit |
 | [`fx_rate.updated`](#120-fx_rateupdated) | `base_currency` | Workers | search.fx-rate-updated |
+| [`listing.flagged`](#125-listingflagged) | `offer_id` | Admin | notification.listing-flagged, audit |
 | [`moderation.listing.removed`](#114-moderationlistingremoved) | `offer_id` | Admin | notification.listing-removed, search.listing-removed, audit |
 | [`auth.email_verification_requested`](#122-authemail_verification_requested) | `user_id` | Auth | notification.email-verification |
 | [`auth.password_reset_requested`](#123-authpassword_reset_requested) | `user_id` | Auth | notification.password-reset |
@@ -96,7 +97,7 @@ MongoDB audit collection schemas (`audit_logs`, `activity_events`): see [data-mo
 
 | Consumer group | Pattern | Side effects |
 |---------------|---------|--------------|
-| `notification.kyc-submitted` | `notification.*` | Sends ET-21 email to admin. Creates in-app notification for admins (type `KYC_SUBMITTED`). |
+| `notification.kyc-submitted` | `notification.*` | Sends ET-14 to seller; sends ET-21 to admin. Creates in-app notification for admins (type `KYC_SUBMITTED`). |
 | `audit` | `audit` | Writes `audit_logs` (action=`KYC_SUBMITTED`, entity_type=`SELLER`, actor_id=seller_id). |
 
 ---
@@ -146,7 +147,7 @@ MongoDB audit collection schemas (`audit_logs`, `activity_events`): see [data-mo
 
 | Consumer group | Pattern | Side effects |
 |---------------|---------|--------------|
-| `notification.kyc-decided` | `notification.*` | Sends email to seller (ET-KYC-DECIDED template). Creates in-app notification. |
+| `notification.kyc-decided` | `notification.*` | Sends ET-06 to seller when `decision = APPROVED`; sends ET-07 when `REJECTED`. Creates in-app notification (type `KYC_DECIDED`). |
 | `audit` | `audit` | Writes `audit_logs` (action=`KYC_APPROVED`/`KYC_REJECTED`, entity_type=`SELLER`, actor_id=reviewer_user_id). |
 
 ---
@@ -198,7 +199,7 @@ MongoDB audit collection schemas (`audit_logs`, `activity_events`): see [data-mo
 
 | Consumer group | Pattern | Side effects |
 |---------------|---------|--------------|
-| `notification.seller-suspended` | `notification.*` | Sends suspension email to seller. Creates in-app notification. |
+| `notification.seller-suspended` | `notification.*` | Sends ET-10 to seller. Creates in-app notification (type `SELLER_SUSPENDED`). |
 | `search.seller-suspended` | `search.*` | Deindexes all `offer_ids` from Elasticsearch (marks offers as inactive in search index). |
 | `audit` | `audit` | Writes `audit_logs` (action=`SELLER_SUSPENDED`, entity_type=`SELLER`, actor_id=admin_user_id). |
 
@@ -842,7 +843,7 @@ Fires when all fulfillments under the same `order_id` reach DELIVERED state, but
 
 | Consumer group | Pattern | Side effects |
 |---------------|---------|--------------|
-| `notification.low-stock` | `notification.*` | Sends low-stock email to seller. Creates in-app notification (type `LOW_STOCK`). |
+| `notification.low-stock` | `notification.*` | Sends ET-15 to seller. Creates in-app notification (type `LOW_STOCK`). |
 | `audit` | `audit` | Writes `activity_events` (entity_type=`INVENTORY`, entity_id=offer_id, actor_role=`SYSTEM`). |
 
 ---
@@ -926,6 +927,9 @@ Fires when an admin lifts a seller's suspension (sets `suspension_status = ACTIV
         "type": "record", "name": "SellerReinstatedPayload",
         "fields": [
           { "name": "seller_id",      "type": "string", "doc": "UUID of the reinstated seller" },
+          { "name": "seller_email",   "type": "string" },
+          { "name": "seller_name",    "type": "string" },
+          { "name": "business_name",  "type": "string" },
           { "name": "admin_id",       "type": "string", "doc": "UUID of the admin who lifted the suspension" },
           { "name": "reinstated_at",  "type": "string", "doc": "ISO 8601 UTC" },
           { "name": "reason",         "type": ["null", "string"], "default": null, "doc": "Optional admin note" },
@@ -941,7 +945,7 @@ Fires when an admin lifts a seller's suspension (sets `suspension_status = ACTIV
 
 | Consumer group | Pattern | Side effects |
 |---------------|---------|--------------|
-| `notification.seller-reinstated` | `notification.*` | Sends reinstatement notification email to seller. Creates in-app notification (type `SELLER_REINSTATED`). |
+| `notification.seller-reinstated` | `notification.*` | Sends ET-12 to seller. Creates in-app notification (type `SELLER_REINSTATED`). |
 | `search.seller-reinstated` | `search.*` | Re-enables seller's active offers in Elasticsearch index (sets `seller_active = true` on all offer docs). |
 | `audit` | `audit` | Writes `audit_logs` (action=`SELLER_REINSTATED`, entity_type=`SELLER`, actor_id=admin_id). |
 
@@ -972,13 +976,36 @@ Fires when an admin lifts a seller's suspension (sets `suspension_status = ACTIV
       "type": {
         "type": "record", "name": "FulfillmentCancelledPayload",
         "fields": [
-          { "name": "order_id",        "type": "string" },
-          { "name": "fulfillment_id",  "type": "string" },
-          { "name": "display_id",      "type": "string", "doc": "e.g. FUL-3F2A1B9C" },
-          { "name": "seller_id",       "type": "string" },
-          { "name": "buyer_id",        "type": "string" },
-          { "name": "cancelled_at",    "type": "string", "doc": "ISO 8601" },
-          { "name": "reason",          "type": "string" }
+          { "name": "order_id",                  "type": "string" },
+          { "name": "fulfillment_id",            "type": "string" },
+          { "name": "display_id",                "type": "string", "doc": "e.g. FUL-3F2A1B9C" },
+          { "name": "seller_id",                 "type": "string" },
+          { "name": "seller_name",               "type": "string" },
+          { "name": "buyer_id",                  "type": "string" },
+          { "name": "buyer_preferred_currency",  "type": "string", "doc": "ISO 4217 — buyer's display preference currency at order time; used for email display only, never for refund arithmetic" },
+          { "name": "cancelled_at",              "type": "string", "doc": "ISO 8601" },
+          { "name": "reason",                    "type": "string" },
+          { "name": "currency_code",             "type": "string", "doc": "ISO 4217 — seller's native pricing currency; pairs with total_amount and item.unit_price" },
+          { "name": "total_amount",              "type": "string", "doc": "NUMERIC(19,4) as string; fulfillment total in seller's native currency (currency_code)" },
+          {
+            "name": "items",
+            "type": {
+              "type": "array",
+              "items": {
+                "type": "record", "name": "CancelledItem",
+                "fields": [
+                  { "name": "offer_id",                  "type": "string" },
+                  { "name": "product_title",             "type": "string" },
+                  { "name": "variant_label",             "type": ["null","string"], "default": null },
+                  { "name": "quantity",                  "type": "int" },
+                  { "name": "unit_price",                "type": "string", "doc": "NUMERIC(19,4) as string; seller's native currency amount from fulfillment_item snapshot" },
+                  { "name": "currency_code",             "type": "string", "doc": "ISO 4217 — seller's native pricing currency; mirrors fulfillment_item.currency at capture" },
+                  { "name": "tax",                       "type": "string", "doc": "NUMERIC(19,4) as string" },
+                  { "name": "fx_rate_used_at_capture",   "type": ["null","string"], "default": null, "doc": "NUMERIC(19,8) as string; null when no FX conversion applied" }
+                ]
+              }
+            }
+          }
         ]
       }
     }
@@ -1045,9 +1072,10 @@ Fires when an admin lifts a seller's suspension (sets `suspension_status = ACTIV
               }
             }
           },
-          { "name": "refund_amount",  "type": "string", "doc": "NUMERIC(19,4) as string; total refund in seller's native currency (currency_code below)" },
-          { "name": "currency_code",  "type": "string", "doc": "ISO 4217 — seller's native currency; matches fulfillment_item.currency at capture" },
-          { "name": "seller_name",    "type": "string" }
+          { "name": "refund_amount",              "type": "string", "doc": "NUMERIC(19,4) as string; total refund in seller's native currency (currency_code below)" },
+          { "name": "currency_code",              "type": "string", "doc": "ISO 4217 — seller's native currency; matches fulfillment_item.currency at capture" },
+          { "name": "seller_name",                "type": "string" },
+          { "name": "buyer_preferred_currency",   "type": "string", "doc": "ISO 4217 — buyer's display preference currency at order time; used for notification display only, never for refund arithmetic" }
         ]
       }
     }
@@ -1388,6 +1416,59 @@ Fires when an admin lifts a seller's suspension (sets `suspension_status = ACTIV
 | Consumer group | Pattern | Side effects |
 |---------------|---------|--------------|
 | `notification.password-changed` | `notification.*` | Sends ET-20 password-changed confirmation email to user. |
+
+---
+
+### 1.25 `listing.flagged`
+
+Fires when an admin manually creates a moderation case against an active listing via `POST /admin/moderation`. Triggers seller notification (ET-08) so the seller knows their listing is under review.
+
+| Property | Value |
+|----------|-------|
+| Partition key | `offer_id` |
+| Producer | Administration module (`POST /admin/moderation`) |
+| Event version | 1 |
+
+**Avro schema**
+```json
+{
+  "namespace": "com.aliceut.events.admin",
+  "type": "record",
+  "name": "ListingFlagged",
+  "fields": [
+    { "name": "event_id",       "type": "string" },
+    { "name": "event_type",     "type": "string", "default": "listing.flagged" },
+    { "name": "event_version",  "type": "int",    "default": 1 },
+    { "name": "occurred_at",    "type": "string" },
+    { "name": "correlation_id", "type": "string" },
+    {
+      "name": "payload",
+      "type": {
+        "type": "record", "name": "ListingFlaggedPayload",
+        "fields": [
+          { "name": "offer_id",             "type": "string" },
+          { "name": "product_id",           "type": "string" },
+          { "name": "product_title",        "type": "string" },
+          { "name": "seller_id",            "type": "string" },
+          { "name": "seller_email",         "type": "string" },
+          { "name": "seller_name",          "type": "string" },
+          { "name": "moderation_case_id",   "type": "string" },
+          { "name": "flag_reason",          "type": "string", "doc": "Admin-provided reason text" },
+          { "name": "admin_user_id",        "type": "string" },
+          { "name": "flagged_at",           "type": "string", "doc": "ISO 8601" }
+        ]
+      }
+    }
+  ]
+}
+```
+
+**Consumer groups**
+
+| Consumer group | Pattern | Side effects |
+|---------------|---------|--------------|
+| `notification.listing-flagged` | `notification.*` | Sends ET-08 to seller. Creates in-app notification (type `LISTING_FLAGGED`). |
+| `audit` | `audit` | Writes `audit_logs` (action=`LISTING_FLAGGED`, entity_type=`LISTING`, actor_id=admin_user_id). |
 
 ---
 

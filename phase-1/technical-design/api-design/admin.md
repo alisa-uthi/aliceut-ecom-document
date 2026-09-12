@@ -51,7 +51,7 @@
 | `GET /admin/moderation` | Postgres | `admin.moderation_case`, `catalog.offer` |
 | `GET /admin/moderation/:id` | Postgres | `admin.moderation_case` |
 | `POST /admin/moderation/:id/decide` | Postgres | `admin.moderation_case`, `catalog.offer` (status → REMOVED), `platform.outbox_event` (`moderation.listing.removed`); ES deindex async via consumer |
-| `POST /admin/moderation` | Postgres | `admin.moderation_case` (manual flag insert) |
+| `POST /admin/moderation` | Postgres | `admin.moderation_case` (manual flag insert), `catalog.offer` (status → FLAGGED), `platform.outbox_event` (`listing.flagged`) |
 | `GET /admin/dashboard/stats` | Postgres | `seller.kyc_application`, `admin.moderation_case`, `seller.seller_profile` (counts) |
 
 ---
@@ -401,6 +401,7 @@ POST /admin/sellers/:sellerId/reinstate
 Tag: Admin
 Auth: ADMIN
 ```
+**Request body** (optional) `{ "reason": "string" }` — stored as `reason` field in `seller.reinstated` event payload  
 **Response 200** `{ "data": { "suspensionStatus": "ACTIVE" } }`  
 Side effects: `seller.reinstated` Kafka event emitted; search consumer re-enables seller's active offers in Elasticsearch  
 **Errors:** 409 seller not currently suspended
@@ -618,6 +619,8 @@ sequenceDiagram
     participant G as AdminGuard
     participant S as AdminService
     participant PG as Postgres
+    participant Relay as Kafka Relay
+    participant NC as notification.listing-flagged
 
     C->>API: POST /admin/moderation
     API->>G: verify token + ADMIN role
@@ -630,8 +633,13 @@ sequenceDiagram
         S->>PG: BEGIN TX
         S->>PG: INSERT moderation_case (offerId, reason, source=MANUAL, status=OPEN)
         S->>PG: UPDATE catalog.offer SET status=FLAGGED WHERE id = offerId
+        S->>PG: INSERT outbox_event (listing.flagged, {offer_id, product_id, seller_id, seller_email, seller_name, product_title, moderation_case_id, flag_reason=reason, admin_user_id, flagged_at})
         S->>PG: COMMIT TX
         S-->>C: 201 { data: { id, offerId, reason, source, status: OPEN } }
+        Note over Relay,NC: async cascade — sends ET-08 to seller
+        Relay-)PG: poll outbox_event WHERE publication_status = PENDING
+        Relay-)Relay: publish listing.flagged to Kafka
+        NC-)NC: consume listing.flagged → send ET-08 to seller, create in-app notification (LISTING_FLAGGED)
     end
 ```
 
