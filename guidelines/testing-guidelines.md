@@ -389,7 +389,7 @@ Use `jest-preset-angular`. All tests run in jsdom โ€” no real browser.
 Shallow-test presentational components. Use `NO_ERRORS_SCHEMA` only for integration-tested components; prefer importing real child components or stubs in unit tests.
 
 ```typescript
-// apps/storefront/src/app/features/product/product-card.component.spec.ts
+// apps/buyer-portal/src/app/features/product/product-card.component.spec.ts
 import { TestBed } from '@angular/core/testing';
 import { ProductCardComponent } from './product-card.component';
 import { MoneyPipe } from '../../shared/pipes/money.pipe';
@@ -706,7 +706,7 @@ Do not add tests just to hit coverage thresholds. A test that asserts `expect(ob
 | Backend unit tests | `jest --projects=libs --testPathPattern=".spec.ts$" --passWithNoTests` | Block merge |
 | Angular unit tests | `jest --projects=apps/buyer-portal,apps/seller-portal,apps/admin-portal --passWithNoTests` | Block merge |
 | Coverage check | `jest --coverage` (thresholds enforced by config) | Block merge |
-| TypeScript compile | `tsc --noEmit` (both `api` and `storefront`) | Block merge |
+| TypeScript compile | `tsc --noEmit` (both `api` and `buyer-portal`) | Block merge |
 | Lint | `eslint` with money-field lint rule | Block merge |
 
 ### 11.2 On merge to main

@@ -662,6 +662,7 @@ docker compose up -d
 | seller-nginx | 4201 | http://localhost:4201 |
 | admin-nginx | 4202 | http://localhost:4202 |
 | api | 3000 | http://localhost:3000/api/v1 |
+| workers (health) | 3001 | http://localhost:3001/health |
 | postgres | 5432 | `psql -h localhost -U aliceut_app aliceut` |
 | mongodb | 27017 | `mongosh mongodb://localhost:27017/aliceut_audit` |
 | elasticsearch | 9200 | http://localhost:9200 |

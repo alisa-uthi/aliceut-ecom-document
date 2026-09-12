@@ -1168,11 +1168,11 @@ In-app notification event types consumed by `<aliceut-notification-bell>` and th
 | Type | Icon | Message pattern |
 |---|---|---|
 | `ORDER_PLACED` | `receipt` | "Your order #[display_id] has been placed." |
-| `FULFILLMENT_SHIPPED` | `local_shipping` | "Your item from [seller_name] has shipped. Tracking: [tracking_number]" |
-| `FULFILLMENT_DELIVERED` | `done_all` | "Your order from [seller_name] has been delivered." |
-| `FULFILLMENT_REFUNDED` | `currency_exchange` | "A refund of [amount] [currency] has been processed." |
-| `AUTO_REFUND_SUSPENDED_SELLER` | `warning` | "A seller's account was suspended. Your order has been automatically refunded." |
-| `PARTIAL_PLACEMENT_WARNING` | `info` | "Some items in your order could not be placed due to insufficient stock." |
+| `ORDER_COMPLETED` | `check_circle` | "Your order #[display_id] is complete." |
+| `SHIPMENT_UPDATE` | `local_shipping` | "Your item from [seller_name] has shipped. Tracking: [tracking_number]" |
+| `DELIVERY_UPDATE` | `done_all` | "Your order from [seller_name] has been delivered." |
+| `FULFILLMENT_CANCELLED` | `cancel` | "A fulfillment in your order has been cancelled." |
+| `REFUND_ISSUED` | `currency_exchange` | "A refund of [amount] [currency] has been processed." (covers both standard refunds and auto-refunds triggered by seller suspension) |
 
 ---
 

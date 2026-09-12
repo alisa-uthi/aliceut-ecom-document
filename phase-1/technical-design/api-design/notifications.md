@@ -20,7 +20,7 @@
 |--------|------|------|-------------|
 | `GET` | [`/notifications`](#list-in-app-notifications) | JWT | List notifications (cursor-paginated, optional unread filter) |
 | `PATCH` | [`/notifications/:id/read`](#mark-notification-read) | JWT | Mark single notification read |
-| `POST` | [`/notifications/read-all`](#mark-all-notifications-read) | JWT | Bulk mark all unread notifications read |
+| `PATCH` | [`/notifications/read-all`](#mark-all-notifications-read) | JWT | Bulk mark all unread notifications read |
 
 See [Notification Creation (Async)](#notification-creation-async) for the Kafka consumer write path — notifications are never written by API handlers.
 
@@ -33,7 +33,7 @@ See [Notification Creation (Async)](#notification-creation-async) for the Kafka 
 |----------|-----------|----------------|
 | `GET /notifications` | Postgres | `notifications.in_app_notification` (filter by `recipient_user_id`; index on `(recipient_user_id, read_at)`) |
 | `PATCH /notifications/:id/read` | Postgres | `notifications.in_app_notification` (set `read_at`) |
-| `POST /notifications/read-all` | Postgres | `notifications.in_app_notification` (bulk update `read_at` where `recipient_user_id = ?` and `read_at IS NULL`) |
+| `PATCH /notifications/read-all` | Postgres | `notifications.in_app_notification` (bulk update `read_at` where `recipient_user_id = ?` and `read_at IS NULL`) |
 
 **Write path (async):** Notification rows are created by Kafka consumers reacting to domain events — never written inline by API handlers. See kafka-events convention for event → notification type mapping.
 
@@ -138,7 +138,7 @@ sequenceDiagram
 ### Mark all notifications read
 
 ```
-POST /notifications/read-all
+PATCH /notifications/read-all
 Tag: Notifications
 Auth: JWT
 ```
@@ -154,7 +154,7 @@ sequenceDiagram
     participant S as NotificationService
     participant PG as Postgres
 
-    C->>API: POST /notifications/read-all
+    C->>API: PATCH /notifications/read-all
     API->>JG: verify JWT
     alt invalid or missing token
         JG-->>C: 401 Unauthorized

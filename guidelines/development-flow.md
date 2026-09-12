@@ -95,7 +95,7 @@ See [frontend-coding-standards.md](../conventions/frontend-coding-standards.md) 
 | pnpm | 10+ | `npm install -g pnpm` |
 | Docker Desktop | Latest | https://docker.com |
 | golang-migrate CLI | 4.18+ | `brew install golang-migrate` / download binary |
-| Angular CLI | 20+ | `pnpm add -g @angular/cli` |
+| Angular CLI | 22+ | `pnpm add -g @angular/cli` |
 
 ### Step 1 โ€” Clone and install
 
@@ -255,7 +255,7 @@ All decisions below are signed off in BRD ยง12 โ€” treat as constraint
 | Backend | NestJS 11+ (modular monolith)            | Microservice-ready; no microservices in V1 |
 | Primary DB | PostgreSQL                               | Transactional core, all domain state |
 | Document DB | MongoDB                                  | Audit logs, activity feeds, high-write append data only |
-| File storage | MinIO                                    | Product images, KYC documents, invoices |
+| File storage | MinIO                                    | Product images, KYC documents, user assets |
 | Search | Elasticsearch / OpenSearch               | Single-node; updated async from Kafka |
 | Event bus | Apache Kafka + Confluent Schema Registry | Avro, BACKWARD compatibility |
 | ORM | TypeORM                                  | Raw-SQL migrations only; `synchronize: false` always |
@@ -302,7 +302,7 @@ A CI step runs the generator and diffs the output against the committed `api-cli
 
 ### Authoring a migration
 
-1. Add a new `{seq}_{description}.up.sql` + `.down.sql` pair in `alice-ut-utility-pipeline/database/phase-1/`.
+1. Add a new `{seq}_{description}.up.sql` + `.down.sql` pair in `aliceut-ecom-utility-pipeline/database/phase-1/`.
 2. Sequence number is 4-digit zero-padded, next in sequence.
 3. Test locally: run `migrate up`, verify, then run `migrate down 1` to confirm rollback works.
 4. Open a PR in the utility pipeline repo.
@@ -342,13 +342,13 @@ MinIO (`MINIO_ENDPOINT`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`) stores binary o
 |--------|---------|--------|
 | `product-images` | Product and variant images (JPEG/PNG/WebP, max 5 MB each) | Public read, authenticated write |
 | `kyc-documents` | KYC submission scans (PDF/JPEG, max 10 MB each) | Private; seller write, admin read |
-| `invoices` | Generated order invoices (PDF) | Private; buyer read for own orders |
+| `user-assets` | Business logos and user profile images | Private; user read/write for own assets |
 
 ### Rules
 
 - **Never store MinIO object URLs in Postgres directly.** Store the object key (e.g. `product-images/products/{productId}/{uuid}.jpg`). Generate presigned URLs at read time.
-- **Presigned URL TTL:** product images โ€” 1 hour (long, public bucket, CDN-cacheable). KYC / invoices โ€” 15 minutes (short, private, one-time download).
-- **Virus scan on upload:** all KYC documents and invoices must pass a ClamAV scan before being made accessible. Block the upload API response until the scan completes (synchronous in V1).
+- **Presigned URL TTL:** product images — 1 hour (long, public bucket, CDN-cacheable). KYC documents — 15 minutes (short, private, one-time download). User assets — 1 hour.
+- **Virus scan on upload:** all KYC documents must pass a ClamAV scan before being made accessible. Block the upload API response until the scan completes (synchronous in V1).
 - **Filename policy:** generate a UUID4 filename server-side. Never trust the client-supplied filename โ€” it is stored only in a metadata column alongside the object key.
 
 ---
@@ -447,7 +447,7 @@ See [git-workflow.md ยง7.3](git-workflow.md#73-ci-pipeline) for the `claude-
 - [ ] All feature routes are lazily loaded
 
 **Docs and migrations:**
-- [ ] If a new DB column or table is added, a migration pair exists in `alice-ut-utility-pipeline`
+- [ ] If a new DB column or table is added, a migration pair exists in `aliceut-ecom-utility-pipeline`
 - [ ] If a new MongoDB collection is introduced, schema is documented in the module README
 - [ ] If a new env var is required, it is added to the `.env.example` file and [backend-coding-standards.md ยง6.2](../conventions/backend-coding-standards.md#6-environment-config)
 

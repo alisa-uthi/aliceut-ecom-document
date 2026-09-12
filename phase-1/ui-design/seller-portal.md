@@ -1167,7 +1167,7 @@ div.auth-page [display: flex; justify-content: center; padding: 48px 16px]
 ## Screen 14 — Seller Notifications
 
 **Route:** `/seller/notifications`
-**Guard:** `KycApprovedGuard` (seller must be KYC-approved; listing/order notifications only relevant post-approval)
+**Guard:** `SellerApprovedGuard` (seller must be KYC-approved; listing/order notifications only relevant post-approval)
 **Component:** `SellerNotificationsComponent`
 
 ### Layout
@@ -1203,8 +1203,9 @@ div.notifications-list [max-width: 800px]
 
 ### Notification types displayed
 
-`ORDER_PLACED`, `LISTING_FLAGGED`, `FULFILLMENT_CANCELLED`, `KYC_APPROVED`, `KYC_REJECTED`,
-`SELLER_SUSPENDED`, `SUSPENSION_EXPIRED` (seller-relevant types per `notifications.md`)
+`ORDER_PLACED`, `LISTING_FLAGGED`, `FULFILLMENT_CANCELLED`, `KYC_DECIDED`, `KYC_SUBMITTED`,
+`LOW_STOCK`, `LISTING_REMOVED`, `SELLER_SUSPENDED`, `SELLER_REINSTATED`, `SUSPENSION_EXPIRED`
+(seller-relevant canonical types from `notifications.md`; `KYC_DECIDED` payload carries `decision: APPROVED | REJECTED`)
 
 ### API calls
 

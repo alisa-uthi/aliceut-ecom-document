@@ -133,7 +133,7 @@ Auth: BUYER
 { "offerId": "uuid", "quantity": 1 }
 ```
 **Response 201** — updated cart (`data`-wrapped)  
-**Errors:** 400 invalid quantity, 404 offer not found/inactive, 422 quantity exceeds available stock
+**Errors:** 400 invalid quantity, 404 offer not found/inactive, 422 quantity exceeds available stock or 422 cart item limit reached (max 50 distinct offers per cart)
 
 #### Sequence
 
@@ -170,6 +170,13 @@ sequenceDiagram
     end
     S->>P: INSERT INTO cart.cart (user_id)<br/>ON CONFLICT (user_id) DO NOTHING RETURNING id
     Note over S,P: Ensures exactly one server cart row per buyer
+    S->>P: SELECT COUNT(*) FROM cart.cart_item WHERE cart_id = :cart_id<br/>AND offer_id != :offerId
+    Note over S,P: Count distinct offers not yet in cart (upsert on existing offer is always allowed)
+    alt count >= 50 AND offer not already in cart
+        P-->>S: limit reached
+        S-->>A: CartLimitException
+        A-->>C: 422 Cart limit reached (max 50 distinct offers)
+    end
     S->>P: INSERT INTO cart.cart_item (cart_id, offer_id, quantity)<br/>ON CONFLICT (cart_id, offer_id)<br/>DO UPDATE SET quantity = :quantity, updated_at = now()
     P-->>S: upserted cart_item
     S->>P: SELECT full cart (live price resolution — same as GET /cart)
@@ -361,7 +368,10 @@ sequenceDiagram
     S->>P: SELECT cart.cart_item WHERE cart_id = :cart_id
     P-->>S: existing server items (offer_id -> quantity map)
 
-    Note over S: for each guestItem in guestItems:
+    S->>P: SELECT COUNT(*) FROM cart.cart_item WHERE cart_id = :cart_id
+    P-->>S: currentCount
+
+    Note over S: for each guestItem in guestItems (stop when currentCount >= 50):
     S->>P: SELECT catalog.offer<br/>WHERE id = :offerId AND status = 'ACTIVE'
     alt offer is INACTIVE, REMOVED, or FLAGGED
         P-->>S: no active row
@@ -370,10 +380,12 @@ sequenceDiagram
         P-->>S: offer row
         alt offerId already in server cart
             Note over S: Server qty wins — no INSERT or UPDATE. Guest quantity discarded.
-        else offerId not in server cart
+        else offerId not in server cart AND currentCount < 50
             S->>P: SELECT inventory.stock WHERE offer_id = :offerId
             P-->>S: available_qty (checked live at merge time)
-            Note over S: cappedQty = MIN(guestItem.quantity, available_qty)<br/>if cappedQty > 0: INSERT INTO cart.cart_item(cart_id, offer_id, cappedQty)
+            Note over S: cappedQty = MIN(guestItem.quantity, available_qty)<br/>if cappedQty > 0: INSERT INTO cart.cart_item(cart_id, offer_id, cappedQty); currentCount++
+        else offerId not in server cart AND currentCount >= 50
+            Note over S: Cart full (50-item limit). Skip remaining new offers silently.
         end
     end
 

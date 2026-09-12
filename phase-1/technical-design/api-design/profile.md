@@ -19,6 +19,7 @@
 |--------|------|------|-------------|
 | `GET` | [`/profile/me`](#get-own-profile) | JWT | Get authenticated user's profile |
 | `PATCH` | [`/profile/me`](#update-profile) | JWT | Update profile fields |
+| `POST` | [`/profile/me/logo`](#upload-business-logo) | JWT | Upload business logo to MinIO; returns storage key |
 | `GET` | [`/profile/addresses`](#list-saved-addresses) | BUYER | List saved addresses |
 | `POST` | [`/profile/addresses`](#create-address) | BUYER | Add new address (max 10) |
 | `PATCH` | [`/profile/addresses/:id`](#update-address) | BUYER | Update address fields |
@@ -34,6 +35,7 @@
 |----------|-----------|--------|
 | `GET /profile/me` | Postgres | `identity.user` (read) |
 | `PATCH /profile/me` | Postgres | `identity.user` (update) |
+| `POST /profile/me/logo` | MinIO + Postgres | Upload logo to `user-assets` bucket; store object key in `identity.user.business_logo_storage_key` |
 | `GET /profile/addresses` | Postgres | `identity.address` (read list) |
 | `POST /profile/addresses` | Postgres | `identity.address` (insert; max 10 per user) |
 | `PATCH /profile/addresses/:id` | Postgres | `identity.address` (update) |
@@ -62,10 +64,17 @@ Auth: JWT
     "roles": ["BUYER"],
     "emailVerified": true,
     "accountType": "B2C",
-    "sellerStatus": "APPROVED | null"
+    "sellerStatus": "APPROVED | null",
+    "preferredCurrency": "USD | THB | JPY | SGD | AUTO | null",
+    "businessName": "string | null",
+    "businessLogoUrl": "string | null"
   }
 }
 ```
+
+**Notes:**
+- `preferredCurrency` drives display currency resolution across buyer and seller portals. `null` and `"AUTO"` both resolve from `Accept-Language` at request time.
+- `businessName` and `businessLogoUrl` are non-null only for `accountType = B2B`. `businessLogoUrl` is a presigned URL (1-hour TTL) generated from `identity.user.business_logo_storage_key`.
 
 #### Sequence
 
@@ -84,8 +93,9 @@ sequenceDiagram
     G->>A: proceed with decoded JWT {sub, roles, ...}
 
     A->>PG: SELECT identity.user WHERE id = JWT.sub
+    Note over A: If business_logo_storage_key is set, generate presigned URL (1h TTL) from user-assets bucket
 
-    A-->>C: 200 { data: { id, email, fullName, roles, emailVerified, accountType, sellerStatus } }
+    A-->>C: 200 { data: { id, email, fullName, roles, emailVerified, accountType, sellerStatus, preferredCurrency, businessName, businessLogoUrl } }
 ```
 
 ---
@@ -143,6 +153,65 @@ sequenceDiagram
 
     A->>PG: SELECT identity.user WHERE id = JWT.sub
     A-->>C: 200 { data: { id, email, fullName, roles, emailVerified, accountType, sellerStatus, preferredCurrency, businessName } }
+```
+
+---
+
+<a id="upload-business-logo"></a>
+### Upload business logo
+
+```
+POST /profile/me/logo
+Tag: Profile
+Auth: JWT
+```
+**Request:** `multipart/form-data` — single file field `logo` (JPEG/PNG/WebP, max 2 MB).  
+**Response 200** — updated profile with new `businessLogoUrl`
+```json
+{ "data": { "businessLogoUrl": "https://minio.../presigned-url" } }
+```
+**Errors:** 400 invalid file type or size, 422 non-B2B account
+
+**Notes:**
+- Server generates a UUID filename; client-supplied filename is ignored.
+- File stored in `user-assets` bucket under key `user-assets/logos/{userId}/{uuid}.{ext}`.
+- After upload, `identity.user.business_logo_storage_key` is updated in the same request.
+- Presigned URL in response has 1-hour TTL.
+
+#### Sequence
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant G as JwtGuard
+    participant A as NestJS API
+    participant PG as Postgres
+    participant MinIO as MinIO (user-assets)
+
+    C->>G: POST /profile/me/logo multipart/form-data {logo: file} (Bearer accessToken)
+    G->>G: Verify JWT signature + expiry
+    alt token missing or invalid/expired
+        G-->>C: 401 Unauthorized
+    end
+    G->>A: proceed with decoded JWT {sub, account_type, ...}
+
+    alt account_type != B2B
+        A-->>C: 422 Unprocessable Entity "Business logo requires B2B account"
+    end
+
+    A->>A: Validate file (MIME type, size <= 2 MB)
+    alt validation fails
+        A-->>C: 400 Bad Request
+    end
+
+    A->>MinIO: PUT user-assets/logos/{userId}/{uuid}.{ext}
+    MinIO-->>A: object stored
+
+    A->>PG: UPDATE identity.user SET business_logo_storage_key = :key WHERE id = JWT.sub
+
+    A->>MinIO: Generate presigned GET URL (1h TTL)
+    MinIO-->>A: presigned URL
+    A-->>C: 200 { data: { businessLogoUrl: "presigned-url" } }
 ```
 
 ---

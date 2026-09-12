@@ -2,7 +2,7 @@
 ## Angular Material UI Specification
 
 **Status:** Draft  
-**Stack:** Angular 17+ + Angular Material 17+ + Angular CDK
+**Stack:** Angular 22+ + Angular Material + Angular CDK
 
 ---
 
@@ -23,7 +23,7 @@
 | [11. Page Layout Patterns](#11-page-layout-patterns) | Buyer shell vs seller/admin shell; responsive grid |
 | [12. Accessibility Standards](#12-accessibility-standards) | Focus rings, alt text, ARIA, skip links |
 | [13. Loading State Patterns](#13-loading-state-patterns) | Skeleton, spinner, progress bar by context |
-| [14. Component Import Strategy](#14-component-import-strategy) | Import from `@aliceut/ui` barrel, never AM modules directly |
+| [14. Component Import Strategy](#14-component-import-strategy) | Import from `@aliceut/shared-ui` barrel, never AM modules directly |
 | [15. Custom Pipes](#15-custom-pipes) | TimeAgo, Truncate, CurrencyDisplay, Safe pipes |
 
 <a id="1-design-principles"></a>
@@ -653,7 +653,7 @@ import {
   NotificationBellComponent,
   FileUploadComponent,
   EmptyStateComponent,
-} from '@aliceut/ui';
+} from '@aliceut/shared-ui';
 ```
 
 Feature modules never import `MatCardModule`, `MatTableModule`, etc. directly â€” they rely on the `libs/ui/` wrappers which re-export the necessary AM modules.
@@ -663,7 +663,7 @@ Feature modules never import `MatCardModule`, `MatTableModule`, etc. directly â€
 <a id="15-custom-pipes"></a>
 ## 15. Custom Pipes
 
-All pipes live in `libs/ui/src/lib/pipes/` and are exported from the `@aliceut/ui` barrel (`libs/ui/src/index.ts`).
+All pipes live in `libs/ui/src/lib/pipes/` and are exported from the `@aliceut/shared-ui` barrel (`libs/ui/src/index.ts`).
 
 **TimeAgoPipe** (`time-ago.pipe.ts`)
 - Selector: `| timeAgo`

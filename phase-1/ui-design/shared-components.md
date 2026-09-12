@@ -69,30 +69,38 @@
 | Input | Type | Required | Description |
 |---|---|---|---|
 | `status` | `string` | Yes | Status value to display |
-| `statusType` | `'offer' \| 'order' \| 'kyc' \| 'seller'` | Yes | Context for color/label mapping |
+| `statusType` | `'order' \| 'fulfillment' \| 'kyc' \| 'listing' \| 'seller'` | Yes | Context for color/label mapping |
 
 ### Status → color mapping
 
-**offer** (`statusType='offer'`)
+**listing** (`statusType='listing'`)
 
 | Status | Color | Label |
 |---|---|---|
 | `ACTIVE` | green (primary) | Active |
 | `DRAFT` | grey | Draft |
 | `FLAGGED` | orange (warn) | Flagged |
-| `SOFT_DELETED` | red (error) | Deleted |
+| `REMOVED` | red (error) | Removed |
 | `UNDER_REVIEW` | yellow (accent) | Under Review |
 
-**order / fulfillment** (`statusType='order'`)
+**order** (`statusType='order'`)
 
 | Status | Color | Label |
 |---|---|---|
 | `PENDING` | grey | Pending |
 | `PROCESSING` | blue | Processing |
+| `COMPLETED` | green | Completed |
+| `CANCELLED` | red | Cancelled |
+
+**fulfillment** (`statusType='fulfillment'`)
+
+| Status | Color | Label |
+|---|---|---|
+| `PENDING` | grey | Pending |
 | `SHIPPED` | cyan | Shipped |
 | `DELIVERED` | green | Delivered |
-| `CANCELLED` | red | Cancelled |
 | `REFUNDED` | orange | Refunded |
+| `CANCELLED` | red | Cancelled |
 
 **kyc** (`statusType='kyc'`)
 
@@ -131,20 +139,21 @@ All amounts arrive as strings from the API and are never parsed into floats by t
 
 | Input | Type | Default | Description |
 |---|---|---|---|
-| `sellerPrice` | `string` | required | Seller-native price amount string (e.g. `"99.99"`) |
-| `sellerCurrency` | `string` | required | ISO 4217 seller-native currency code |
-| `buyerPrice` | `string \| null` | `null` | FX-converted buyer price; null = same as seller currency |
-| `buyerCurrency` | `string \| null` | `null` | Buyer display currency; null = use sellerCurrency |
-| `priceType` | `'LIST' \| 'SALE' \| 'B2B_TIER'` | `'LIST'` | Controls display variant |
-| `originalPrice` | `string \| null` | `null` | Pre-sale LIST price — triggers strikethrough when set |
-| `saleEndsAt` | `string \| null` | `null` | ISO8601 — shows countdown badge when within 24h of now |
+| `amount` | `string` | required | Offer-native (or display-currency) price amount string (e.g. `"99.99"`) |
+| `currency` | `string` | required | ISO 4217 display currency code |
+| `listAmount` | `string \| null` | `null` | Pre-sale LIST price; shows strikethrough when set |
+| `isFxEstimate` | `boolean` | `false` | `true` = display price is an FX estimate (may be stale); shows stale indicator |
+| `offerCurrency` | `string \| null` | `null` | Offer-native currency when it differs from `currency`; shown as secondary line |
+| `saleEndsAt` | `Date \| null` | `null` | Shows countdown badge when within 24h of now |
+| `tierMinQty` | `number \| null` | `null` | B2B tier minimum quantity; when set, shows "Business price" label |
+| `tierAmount` | `string \| null` | `null` | B2B tier price amount string; displayed instead of `amount` when set |
 
 ### Display rules
 
-- **SALE:** show `originalPrice` struck through, `sellerPrice` in accent color, optional sale countdown badge if `saleEndsAt` within 24h.
-- **B2B_TIER:** show "Business price" label below amount.
-- **FX conversion:** if `buyerPrice` is set and `buyerCurrency !== sellerCurrency`: show `buyerPrice buyerCurrency` as primary, `sellerPrice sellerCurrency` as smaller secondary.
-- **No conversion:** show `sellerPrice sellerCurrency` only.
+- **SALE:** show `listAmount` struck through, `amount` in accent color, optional sale countdown badge if `saleEndsAt` within 24h.
+- **B2B_TIER:** show `tierAmount` (or `amount` if null) with "Business price" label and minimum quantity (`tierMinQty`) requirement.
+- **FX conversion:** if `offerCurrency` is set and differs from `currency`: show `amount currency` as primary, `offerCurrency` native amount as smaller secondary. If `isFxEstimate` is `true`, show stale indicator.
+- **No conversion:** show `amount currency` only.
 - All display formatting uses `currencyDisplay` pipe internally (see §8).
 
 ---
@@ -232,7 +241,7 @@ interface ColumnDef {
 
 | Output | Type | Description |
 |---|---|---|
-| `(uploaded)` | `EventEmitter<{ url: string; key: string }[]>` | Emitted on successful upload(s) |
+| `(filesChange)` | `EventEmitter<UploadedFile[]>` | Emitted on successful upload(s); `UploadedFile = { url: string; key: string }` |
 | `(uploadError)` | `EventEmitter<string>` | Emitted on upload failure with error message |
 
 ### Behavior
@@ -241,7 +250,6 @@ interface ColumnDef {
 - Shows progress bar per file during upload.
 - Error messages: `"File too large (max {N}MB)"` or `"Invalid file type"`.
 - **Upload pattern:** calls backend for presigned URL → PUT direct to MinIO.
-- `filesChange` output (deprecated alias for `uploaded`) retained for backwards compat.
 
 ---
 

@@ -207,13 +207,13 @@ export const appRoutes: Routes = [
       {
         path: 'listings',
         loadChildren: () => import('./features/listings/listings.routes'),
-        canActivate: [KycApprovedGuard, NotSuspendedGuard],
+        canActivate: [SellerApprovedGuard, SellerNotSuspendedGuard],
       },
       {
         path: 'orders',
         loadChildren: () => import('./features/orders/seller-orders.routes'),
-        canActivate: [KycApprovedGuard],
-        // Does NOT use NotSuspendedGuard (SellerActiveGuard).
+        canActivate: [SellerApprovedGuard],
+        // Does NOT use SellerNotSuspendedGuard (SellerActiveGuard).
         // Suspended sellers retain read-only access to the Pending Orders tab to mark shipment (US-A-05 exception).
         // Tab restriction (Pending-tab-only for suspended sellers) is enforced at component level
         // within SellerOrderQueueComponent, not via a route guard.
@@ -221,12 +221,12 @@ export const appRoutes: Routes = [
       {
         path: 'inventory',
         loadChildren: () => import('./features/inventory/inventory.routes'),
-        canActivate: [KycApprovedGuard, NotSuspendedGuard],
+        canActivate: [SellerApprovedGuard, SellerNotSuspendedGuard],
       },
       {
         path: 'notifications',
         loadComponent: () => import('./features/notifications/seller-notifications.component'),
-        canActivate: [KycApprovedGuard],
+        canActivate: [SellerApprovedGuard],
         // Linked from <aliceut-notification-bell> 'View all' link in seller shell
       },
     ],
@@ -347,8 +347,8 @@ export const appRoutes: Routes = [
 | `RoleGuard(role)` | JWT `roles` array contains required role | Redirect to `/403` |
 | `SellerAuthGuard` | `AuthGuard` + `RoleGuard('SELLER')` | Redirect to `/seller/login` |
 | `AdminAuthGuard` | `AuthGuard` + `RoleGuard('ADMIN')` | Redirect to `/admin/login` |
-| `KycApprovedGuard` | `seller_kyc_status` claim from decoded JWT access token — synchronous, no API round-trip; reads from `AuthService.currentToken` store | Show KYC overlay component within route; does not redirect |
-| `NotSuspendedGuard` | `seller_suspension_status` claim from decoded JWT access token — synchronous, no API round-trip; reads from `AuthService.currentToken` store | Show suspension message component; does not redirect |
+| `SellerApprovedGuard` | `seller_kyc_status` claim from decoded JWT access token — synchronous, no API round-trip; reads from `AuthService.currentToken` store | Show KYC overlay component within route; does not redirect |
+| `SellerNotSuspendedGuard` | `seller_suspension_status` claim from decoded JWT access token — synchronous, no API round-trip; reads from `AuthService.currentToken` store | Show suspension message component; does not redirect |
 | `KycAwareGuard` | Always passes; injects `kycStatus` into component via router data | — |
 
 ### Route-level Guard Summary
@@ -363,11 +363,11 @@ export const appRoutes: Routes = [
 | `/orders/**` | `AuthGuard` | Email verification not required to view orders |
 | `/account/**` | `AuthGuard` | — |
 | `/seller/**` | `SellerAuthGuard` | Exception: `/seller/login`, `/seller/register` use `GuestGuard` |
-| `/seller/listings/**` | `SellerAuthGuard`, `KycApprovedGuard`, `NotSuspendedGuard` | — |
-| `/seller/orders/**` | `SellerAuthGuard`, `KycApprovedGuard` | No `NotSuspendedGuard` — suspended sellers retain read-only Pending tab access; tab restriction enforced at component level in `SellerOrderQueueComponent` (US-A-05) |
-| `/seller/inventory/**` | `SellerAuthGuard`, `KycApprovedGuard`, `NotSuspendedGuard` | — |
+| `/seller/listings/**` | `SellerAuthGuard`, `SellerApprovedGuard`, `SellerNotSuspendedGuard` | — |
+| `/seller/orders/**` | `SellerAuthGuard`, `SellerApprovedGuard` | No `SellerNotSuspendedGuard` — suspended sellers retain read-only Pending tab access; tab restriction enforced at component level in `SellerOrderQueueComponent` (US-A-05) |
+| `/seller/inventory/**` | `SellerAuthGuard`, `SellerApprovedGuard`, `SellerNotSuspendedGuard` | — |
 | `/notifications` | `AuthGuard` | Buyer notifications page; bell "View all" link target |
-| `/seller/notifications` | `SellerAuthGuard`, `KycApprovedGuard` | Seller notifications page; bell "View all" link target |
+| `/seller/notifications` | `SellerAuthGuard`, `SellerApprovedGuard` | Seller notifications page; bell "View all" link target |
 | `/seller/forgot-password` | None (public) | No auth guard — accessible from any state |
 | `/seller/reset-password` | None (public) | Handles `?token=` query param; no auth guard |
 | `/admin/**` | `AdminAuthGuard` | Exception: `/admin/login` uses `GuestGuard` |

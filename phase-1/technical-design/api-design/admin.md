@@ -328,9 +328,10 @@ Auth: ADMIN
   "durationDays": "number | null (null = permanent; valid values: 7, 30, 90, null)"
 }
 ```
-**Response 200** `{ "data": { "status": "SUSPENDED" } }`  
-Side effects: `seller.suspended` event; moderation logged to MongoDB `audit_logs`  
-**Errors:** 409 already suspended, 422 invalid `durationDays` value
+**Response 200** `{ "data": { "status": "SUSPENDED", "suspendedUntil": "ISO8601 | null" } }`  
+Side effects: `seller.suspended` event; action logged to MongoDB `audit_logs`  
+**Errors:** 422 invalid `durationDays` value  
+**Note:** If seller is already SUSPENDED (temporary), this endpoint extends the suspension by updating `suspended_until` and `suspension_reason` and re-emitting `seller.suspended`. No 409 for re-suspension.
 
 #### Sequence
 
@@ -351,13 +352,23 @@ sequenceDiagram
     Note over G: 403 if no valid ADMIN token (missing, invalid, or non-ADMIN role)
     G-->>API: pass
     API->>S: suspendSeller(sellerId, reason, durationDays)
-    S->>PG: SELECT seller_profile.suspension_status
-    alt already SUSPENDED
+    S->>PG: SELECT seller_profile.suspension_status, suspended_until
+    alt already SUSPENDED (extend suspension)
         PG-->>S: SUSPENDED
-        S-->>C: 409 Conflict
+        Note over S,PG: Atomic Postgres transaction — extend or harden suspension
+        S->>PG: BEGIN TX
+        S->>PG: UPDATE seller_profile SET suspended_until=:newDate, suspension_reason=:reason
+        S->>PG: INSERT outbox_event (seller.suspended, payload includes offer_ids)
+        S->>PG: COMMIT TX
+        S->>MDB: INSERT audit_logs { SELLER_SUSPENSION_EXTENDED, actor, reason, duration }
+        MDB-->>S: ack
+        S-->>C: 200 { data: { status: SUSPENDED, suspendedUntil: newDate | null } }
+        Note over Relay,ES: async — no offer deindex needed (already inactive)
+        Relay-)PG: poll outbox_event WHERE publication_status = PENDING
+        Relay-)Relay: publish seller.suspended to Kafka
     else ACTIVE
         PG-->>S: ACTIVE
-        Note over S,PG: Atomic Postgres transaction
+        Note over S,PG: Atomic Postgres transaction — new suspension
         S->>PG: BEGIN TX
         S->>PG: UPDATE seller_profile SET suspension_status=SUSPENDED, suspended_until, suspension_reason
         S->>PG: UPDATE catalog.offer SET status=INACTIVE, status_changed_reason=SUSPENSION WHERE seller_id=? AND status=ACTIVE
@@ -365,7 +376,7 @@ sequenceDiagram
         S->>PG: COMMIT TX
         S->>MDB: INSERT audit_logs { SELLER_SUSPENDED, actor, reason, duration }
         MDB-->>S: ack
-        S-->>C: 200 { data: { status: SUSPENDED } }
+        S-->>C: 200 { data: { status: SUSPENDED, suspendedUntil: date | null } }
         Note over Relay,ES: async cascade
         Relay-)PG: poll outbox_event WHERE publication_status = PENDING
         Relay-)Relay: publish seller.suspended to Kafka
@@ -655,12 +666,14 @@ Auth: ADMIN
 {
   "data": {
     "pendingKyc": 0,
+    "slaBreach": 0,
     "flaggedListings": 0,
     "activeSuspensions": 0,
     "openModerationCases": 0
   }
 }
 ```
+**`slaBreach`:** count of KYC applications with `status = PENDING` and `submitted_at < NOW() - INTERVAL '72 hours'` — i.e., breached the 72-hour review SLA.
 
 #### Sequence
 
@@ -680,6 +693,8 @@ sequenceDiagram
     par aggregate queries
         S->>PG: COUNT kyc_application WHERE status = PENDING
     and
+        S->>PG: COUNT kyc_application WHERE status = PENDING AND submitted_at < NOW() - INTERVAL '72 hours'
+    and
         S->>PG: COUNT moderation_case WHERE status = OPEN
     and
         S->>PG: COUNT seller_profile WHERE suspension_status = SUSPENDED
@@ -687,5 +702,5 @@ sequenceDiagram
         S->>PG: SELECT COUNT(*) FROM catalog.offer WHERE status = 'FLAGGED'
     end
     PG-->>S: counts
-    S-->>C: 200 { data: { pendingKyc, flaggedListings, activeSuspensions, openModerationCases } }
+    S-->>C: 200 { data: { pendingKyc, slaBreach, flaggedListings, activeSuspensions, openModerationCases } }
 ```

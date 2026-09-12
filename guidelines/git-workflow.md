@@ -441,7 +441,7 @@ module.exports = {
   extends: ['@commitlint/config-conventional'],
   rules: {
     'type-enum': [2, 'always', ['feat', 'fix', 'refactor', 'test', 'docs', 'style', 'chore', 'ci', 'perf']],
-    'scope-enum': [1, 'always', ['auth', 'catalog', 'order', 'cart', 'api', 'database', 'search', 'infra', 'docs']],
+    'scope-enum': [1, 'always', ['auth', 'catalog', 'order', 'cart', 'pricing', 'inventory', 'identity', 'seller', 'admin', 'notifications', 'search', 'workers', 'api', 'database', 'infra', 'docs']],
     // 'payment' is excluded — real payment gateway is out of V1 scope (BRD §3.2)
     'subject-case': [2, 'never', ['start-case', 'pascal-case', 'upper-case']],
     'subject-max-length': [2, 'always', 100],

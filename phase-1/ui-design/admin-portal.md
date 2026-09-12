@@ -776,7 +776,7 @@ KYC/moderation dashboards, not via notification click-through.
 
 - `GET /notifications?page=1&limit=20`
 - `GET /notifications?page=N&limit=20` — load more
-- `POST /notifications/read-all`
+- `PATCH /notifications/read-all`
 - `PATCH /notifications/:id/read`
 
 ### Mobile

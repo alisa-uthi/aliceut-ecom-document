@@ -5,7 +5,7 @@
 
 ## Key invariants
 
-- Admin receives ET-21 (with SLA deadline = submitted_at + 3 business days) when seller submits or resubmits KYC; SLA badge in queue turns red after 3 days (US-A-01)
+- Admin receives ET-21 (with SLA deadline = submitted_at + 72 calendar hours / 3 calendar days) when seller submits or resubmits KYC; SLA badge in queue turns red after 72 hours (US-A-01)
 - All document views are logged for audit (NFR-09, US-A-02)
 - ET-08 CC'd to admin on every auto-flag — passive awareness without a dedicated admin action email (US-A-03)
 - ET-09 (removal digest) aggregates all same-day removals per seller; Kafka consumer batches by daily time window (US-A-04)

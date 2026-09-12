@@ -538,7 +538,7 @@ loki.write "local" {
     image: grafana/grafana:11.x
     container_name: aliceut-grafana
     ports:
-      - "3000:3000"
+      - "3200:3000"   # host 3200 — avoids conflict with api (3000) and loki (3100)
     environment:
       - GF_AUTH_ANONYMOUS_ENABLED=true        # dev only — remove in any deployed env
       - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin      # dev only

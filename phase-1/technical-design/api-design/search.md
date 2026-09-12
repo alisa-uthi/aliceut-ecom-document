@@ -304,7 +304,7 @@ sequenceDiagram
         Relay->>Kafka: Produce to listing.soft_deleted (partition key: offer_id)
         Kafka-->>Consumer: Consume listing.soft_deleted (group: search.listing-soft-deleted)
         Note over Consumer: Idempotency check on platform.processed_event
-        Consumer->>ES: DELETE /products/_doc/:productId
+        Consumer->>ES: Remove offer from /products/_doc/:productId nested offers array<br/>If no active offers remain: remove product doc or mark inStock = false
     end
     ES-->>Consumer: acknowledged
     Consumer->>Postgres: INSERT platform.processed_event

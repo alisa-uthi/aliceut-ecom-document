@@ -29,10 +29,23 @@ Daily log of work on this project. Newest entry on top. One entry per active day
 ---
 
 **Index**
+- [2026-09-12e](#2026-09-12e) — Fresh cross-document alignment audit: 5 BLOCKING + 12 HIGH + 11 MEDIUM findings fixed across 19 files.
 - [2026-09-12d](#2026-09-12d) — Three archify diagrams: system architecture, buyer journey workflow, event-driven dataflow. All pass showcase validation (9/9) + visual-check (all viewports).
 - [2026-09-12c](#2026-09-12c) — Mermaid rendering fix: admin.md all 11 sequences (outer auth-wrapper removed, max nesting depth reduced); diagram/convention/ERD files (background agent).
 - [2026-09-12b](#2026-09-12b) — Full developer-readiness audit: 71 findings (14 BLOCKING) found and fixed across all 37 phase-1 docs; 1 new file (shared-components.md).
 - [2026-09-12](#2026-09-12) — Cross-document alignment audit: kafka-events, email-templates, API design — all Kafka → email → notification wiring corrected.
+
+<a id="2026-09-12e"></a>
+## 2026-09-12e
+**Focus:** Fresh cross-document alignment audit — all 28 findings fixed, docs ready for developer implementation.
+
+**Done:**
+- **5 BLOCKING fixed:** search.md wrong ES delete for listing.soft_deleted; shared-components.md PriceDisplay inputs + StatusBadge statusType; profile.md missing POST /profile/me/logo + missing preferredCurrency in GET response
+- **12 HIGH fixed:** notifications.md POST → PATCH for read-all; navigation-routing.md wrong frontend guard names (KycApprovedGuard → SellerApprovedGuard, NotSuspendedGuard → SellerNotSuspendedGuard); admin.md suspend seller missing extend-suspension branch + missing slaBreach in dashboard stats; admin-portal.md POST → PATCH for read-all; seller-portal.md KYC_APPROVED/KYC_REJECTED → canonical KYC_DECIDED; buyer-portal.md FULFILLMENT_SHIPPED/DELIVERED + non-canonical types → SHIPMENT_UPDATE/DELIVERY_UPDATE + canonical list; backend-coding-standards.md JWT_REFRESH_TTL_SECONDS 30d → 7d + added REDIS_URL/REDIS_HOST/REDIS_PORT + AES_ENCRYPTION_KEY; design-system.md @aliceut/ui → @aliceut/shared-ui (3 occurrences) + Angular 17+ → 22+
+- **11 MEDIUM fixed:** admin-moderation.md "3 business days" → "72 calendar hours / 3 calendar days"; cart.md 50-item limit added to add-item and merge sequences; module-architecture.md scheduler cron `*/5 min` → @Interval with correct defaults (60s / 3600s per platform.md); docker-compose-topology.md port 3001 (workers health) added to port summary; observability.md Grafana host port 3000 → 3200 (avoids API conflict); development-flow.md invoices bucket → user-assets + alice-ut-utility-pipeline → aliceut-ecom-utility-pipeline (×2) + Angular CLI 20+ → 22+; testing-guidelines.md apps/storefront/ → apps/buyer-portal/; git-workflow.md commitlint scope-enum added pricing/inventory/identity/seller/admin/notifications/workers
+
+**Next:**
+- Implementation phase: scaffold backend (NestJS) and frontend (Angular) repos per aliceut-ecom-backend / aliceut-ecom-frontend layouts
 - [2026-09-03](#2026-09-03) — Developer guidelines (5 new convention files), repo restructure (three-repo layout, folder renames, version bumps), GitHub PR Stack + CI Claude review, TOC pass across all 36 docs.
 - [2026-09-02](#2026-09-02) — Conventions + design doc day: API conventions, data lifecycle, UI cross-validation (15 fixes), API response-shape migration (11 files), Kafka consumer patterns, observability stack. Currency clarity pass: labeled seller-native vs buyer-display in all API + Kafka + ERD currency fields; fixed structural bug and incorrect catalog query.
 - [2026-08-30](#2026-08-30) — Full design doc day: consistency review + fixes (116 findings), repo restructure, MinIO, all 81 sequence diagrams, Mermaid validation.

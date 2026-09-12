@@ -464,12 +464,16 @@ export class AppModule {}
 | `PORT` | ✓ | — | Default 3000 |
 | `DATABASE_URL` | ✓ | ✓ | Postgres connection string |
 | `MONGODB_URI` | ✓ | ✓ | MongoDB connection string |
+| `REDIS_URL` | ✓ | — | Redis connection string (used for `auth:revoke_before:{userId}` revocation); overrides REDIS_HOST/PORT when set |
+| `REDIS_HOST` | ✓ | — | Redis host (alternative to REDIS_URL) |
+| `REDIS_PORT` | ✓ | — | Redis port; default 6379 |
 | `MINIO_ENDPOINT` | ✓ | — | MinIO host |
 | `MINIO_ACCESS_KEY` | ✓ | — | |
 | `MINIO_SECRET_KEY` | ✓ | — | |
+| `AES_ENCRYPTION_KEY` | ✓ | — | 32-byte hex key for KYC document AES-256 encryption in MinIO `kyc-documents` bucket |
 | `JWT_SECRET` | ✓ | — | Min 32 bytes; generated per environment |
 | `JWT_ACCESS_TTL_SECONDS` | ✓ | — | Default 900 (15 min) |
-| `JWT_REFRESH_TTL_SECONDS` | ✓ | — | Default 2592000 (30 days) |
+| `JWT_REFRESH_TTL_SECONDS` | ✓ | — | Default 604800 (7 days) |
 | `KAFKA_BROKERS` | ✓ | ✓ | Comma-separated host:port list |
 | `SCHEMA_REGISTRY_URL` | ✓ | ✓ | Confluent Schema Registry |
 | `ELASTICSEARCH_NODE` | ✓ | ✓ | ES/OpenSearch node URL |
