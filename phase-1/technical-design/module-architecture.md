@@ -43,7 +43,5 @@ All schedulers live in `apps/workers/src/schedulers/`. Pattern: see [conventions
 |---|---|---|
 | `digest.scheduler.ts` | `0 23 * * *` (23:00 UTC) | ET-09 listing-removed daily digest per seller |
 | `fx-rate.scheduler.ts` | `0 * * * *` (hourly) | FX rate refresh from exchangerate.host |
-| ~~`suspension-expiry.scheduler.ts`~~ | — | **Removed** — suspension expiry handled by pg_cron job (see [cleanup-jobs.md §lift-expired-suspensions](./cleanup-jobs.md)) |
-| ~~`reservation-expiry.scheduler.ts`~~ | — | **Removed** — stock release and `inventory.reservation_expired` outbox event now handled atomically by `inventory.expire_reservations()` pg_cron function (see [cleanup-jobs.md §stock-reservation](./cleanup-jobs.md#stock-reservation)) |
 | `delivery-mock.scheduler.ts` | `@Interval()` — default 60 s (configurable via `DELIVERY_MOCK_INTERVAL_MS`) | Poll SHIPPED fulfillments where `eta <= now()`; emit `fulfillment.delivered` (V1 mock — no real carrier) (US-P-15) |
 | `auto-refund.scheduler.ts` | `@Interval()` — default 3600 s (configurable via `AUTO_REFUND_INTERVAL_MS`) | US-P-16: poll PENDING fulfillments where seller is SUSPENDED and `placed_at + fulfillment_window_days < now()`; emit `fulfillment.refund_suspended_seller` |
