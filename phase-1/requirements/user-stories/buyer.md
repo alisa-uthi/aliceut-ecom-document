@@ -62,6 +62,8 @@ Priority: Must — trace: FR-B-01, NFR-05, NFR-06
   Then account is created (or linked if email exists) and I am logged in. OAuth accounts are considered pre-verified.
 - Given I have requested 3 verification email resends within one hour, when I request another, then I see: "Resend limit reached. You can request another verification email after [time remaining]." The response does not confirm whether the email is registered.
 - OAuth registrations are considered pre-verified (provider already verified the email); no additional step required.
+- Given I click "Continue with Facebook" and Facebook returns an email already linked to a Google OAuth account,
+  Then I see: "This email is registered via Google. Sign in with Google or use password login."
 
 **Notes:** B2B account type chosen at register time via checkbox "This is a business account" (branding differ, same UX per FR-P-06d). OAuth-registered buyer accounts that later apply for seller status must first set a local password (US-B-15), since `/seller/login` requires email/password authentication.
 
@@ -147,6 +149,10 @@ Priority: Must — trace: FR-B-06
 - Adding an item from a different seller does not conflict — cart supports multi-seller.
 - On cart page entry, each line re-resolves the current price (picks up seller price edits, SALE start/end, etc.) and reflects updated amounts immediately. Price is locked at order submission (FR-P-03).
 - Stale items (inactive offer) are visibly labelled "Unavailable" with a "Remove" action. Checkout CTA is disabled while any stale item remains in the cart (in addition to the empty-cart case). Buyer must remove all stale items before proceeding.
+- Given my cart already contains 50 distinct line items (offer + variant combinations),
+  When I attempt to add a 51st distinct item,
+  Then I see: "Cart limit reached. Remove an item to continue."
+  And the item is not added to the cart.
 
 ---
 
@@ -168,6 +174,10 @@ Priority: Should — trace: FR-B-08
 **Acceptance criteria**
 - Guest cart persisted in browser storage.
 - TTL: 30 days.
+- Given my guest cart TTL (30 days) has expired,
+  When I next visit the site,
+  Then the cart is silently cleared and the cart icon shows 0 items.
+  And no error state or notification is shown for TTL expiry.
 - On register/login → merge into server cart per US-B-07.
 
 ---
@@ -199,6 +209,7 @@ Priority: Must — trace: FR-B-09, FR-P-03, FR-P-04, NFR-14
 - Submitting the same checkout twice (same idempotency key) returns the original order without creating a new one.
 - **Price revalidation at submit:** Immediately before creating the order, the system re-resolves the effective price for each valid line item. If any price differs from the price shown on the checkout summary page (configurable tolerance, e.g. ±0.01 in offer currency), the submission is halted and the buyer is presented with a "Price updated" notification listing the changed items and their new prices. The buyer must confirm before re-submitting. The order is not created until the buyer confirms the updated prices.
 - If a price changes again after the buyer confirms updated prices but before the order is actually created, the submission is rejected once more and the buyer is shown another "Price updated" notification. The buyer must confirm each time. An order is never created at a price the buyer has not seen and confirmed.
+- The buyer's preferred currency is resolved at checkout submission time. The resolved currency is stored immutably as `fulfillment.buyer_display_currency` on each fulfillment. Subsequent changes to the buyer's preferred currency setting do not alter historical order display.
 
 **Order lifecycle**
 
@@ -270,7 +281,7 @@ Priority: Must — trace: FR-B-10
 Priority: Must — trace: FR-B-11
 
 **Acceptance criteria**
-- `/orders` lists past orders paginated, newest first. Each row shows: Order ID (Order `ORD-<uuid8>`), `placed_at`, fulfillment currency totals, Order status badge, partial-placement warning (if `PARTIALLY_PLACED`), and sub-line "N of M fulfillments shipped" for count context.
+- `/orders` lists past orders paginated, newest first. Pagination: offset-based — `page` (1-based) and `limit` (default 20, max 100) query params; response envelope `{ data, total, page, limit }`. Default sort: `placed_at DESC`. Each row shows: Order ID (Order `ORD-<uuid8>`), `placed_at`, fulfillment currency totals, Order status badge, partial-placement warning (if `PARTIALLY_PLACED`), and sub-line "N of M fulfillments shipped" for count context.
 - **Empty state:** if buyer has placed no orders, show "No orders yet — browse the catalog to get started" with a Browse CTA.
 - **Order status badge** (derived from placed Fulfillments only; always shown) — see table in US-B-09.
 - **Placement outcome warning** (permanent, set at checkout):
@@ -328,6 +339,7 @@ Priority: Should — trace: FR-B-09
 
 **Acceptance criteria**
 - Buyer can add a new address: full name, address lines, city, state/province, postal code, country (from allowed list), phone number (optional).
+- Country field is a searchable dropdown populated from the full ISO 3166-1 alpha-2 country list. No countries are restricted in V1.
 - Buyer can edit any saved address. Editing does not alter historical order snapshots.
 - Buyer can delete any address. Deleting the current default address prompts the buyer to choose or set a new default first. Deleting does not alter historical order snapshots.
 - One address may be designated as the default shipping address.
@@ -346,6 +358,10 @@ Priority: Should — trace: FR-B-01
 - Buyer can change password: must provide current password + new password meeting requirements. On success, all other active sessions are signed out.
 - OAuth-only accounts (no local password) see "Set password" instead of "Change password." Setting a password links local auth without disrupting OAuth login.
 - B2B accounts: business name field is editable (max 120 chars); updated value appears on invoice header and "Business" tag in page header.
+- B2B account holders see an additional "Business Logo" field in profile settings.
+  Upload constraints: JPEG, PNG, or WebP only; max 2 MB; max dimensions 800×800 px (resized server-side if larger).
+  Stored in MinIO using the same upload flow as product images.
+  Displayed on order confirmations and email invoices (ET-01).
 - Buyer can set preferred display currency: USD, THB, JPY, SGD, or Auto (default). "Auto" resolves to the currency matching the browser's `Accept-Language` locale at render time; if the resolved currency is not in the supported set, falls back to USD. The setting drives all price display, FX estimates (US-P-02), and the aggregate total in order emails (ET-01). Preference stored server-side; survives logout.
 - Email address is read-only on the profile page (tied to auth identity). Email change is deferred (requires re-verification flow, out of V1 scope).
 - Profile accessible from Account → Profile. Page displays: display name, email (read-only with "Email change — coming soon" label), preferred display currency selector, account type badge (Consumer / Business), and member since date.

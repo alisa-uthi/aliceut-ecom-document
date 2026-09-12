@@ -41,11 +41,11 @@ MongoDB audit collection schemas (`audit_logs`, `activity_events`): see [data-mo
 | [`inventory.low_stock`](#113-inventorylow_stock) | `offer_id` | Inventory | notification.low-stock, audit |
 | [`inventory.reservation_expired`](#119-inventoryreservation_expired) | `offer_id` | Workers | search.reservation-expired, audit |
 | [`fx_rate.updated`](#120-fx_rateupdated) | `base_currency` | Workers | search.fx-rate-updated |
-| [`listing.flagged`](#125-listingflagged) | `offer_id` | Admin | notification.listing-flagged, audit |
+| [`listing.flagged`](#125-listingflagged) | `offer_id` | Admin | notification.listing-flagged, search.listing-flagged, audit |
 | [`moderation.listing.removed`](#114-moderationlistingremoved) | `offer_id` | Admin | notification.listing-removed, search.listing-removed, audit |
-| [`auth.email_verification_requested`](#122-authemail_verification_requested) | `user_id` | Auth | notification.email-verification |
-| [`auth.password_reset_requested`](#123-authpassword_reset_requested) | `user_id` | Auth | notification.password-reset |
-| [`auth.password_changed`](#124-authpassword_changed) | `user_id` | Auth | notification.password-changed |
+| [`auth.email_verification_requested`](#122-authemail_verification_requested) | `user_id` | Auth | notification.email-verification, audit |
+| [`auth.password_reset_requested`](#123-authpassword_reset_requested) | `user_id` | Auth | notification.password-reset, audit |
+| [`auth.password_changed`](#124-authpassword_changed) | `user_id` | Auth | notification.password-changed, audit |
 
 ---
 
@@ -239,6 +239,7 @@ MongoDB audit collection schemas (`audit_logs`, `activity_events`): see [data-mo
           { "name": "tracking_number", "type": "string" },
           { "name": "estimated_delivery_at", "type": "string" },
           { "name": "placed_at",       "type": "string" },
+          { "name": "ship_by",         "type": "string", "doc": "ISO 8601 date — computed at checkout as placed_at + 3 calendar days; used by notification.fulfillment-seller-alert for ET-17 ship-by date" },
           {
             "name": "items",
             "type": {
@@ -273,7 +274,7 @@ MongoDB audit collection schemas (`audit_logs`, `activity_events`): see [data-mo
 | Consumer group | Pattern | Side effects |
 |---------------|---------|--------------|
 | `notification.fulfillment-placed` | `notification.*` | Creates in-app notification for buyer (type `ORDER_PLACED`). No email (covered by `order.finalized` ET-01). |
-| `notification.fulfillment-seller-alert` | `notification.*` | Sends ET-17 to seller (looks up seller email via `seller_id` from payload). |
+| `notification.fulfillment-seller-alert` | `notification.*` | Sends ET-17 to seller (looks up seller email via `seller_id` from payload). `ship_by` is included directly in the payload (placed_at + 3 calendar days, computed at checkout). |
 | `audit` | `audit` | Writes `activity_events` (entity_type=`FULFILLMENT`, entity_id=fulfillment_id, actor_id=buyer_id, actor_role=`BUYER`). |
 | `inventory.fulfillment-placed` | `inventory.*` | Marks stock reservations as CONSUMED for this order. |
 
@@ -338,7 +339,7 @@ MongoDB audit collection schemas (`audit_logs`, `activity_events`): see [data-mo
 
 | Consumer group | Pattern | Side effects |
 |---------------|---------|--------------|
-| `notification.fulfillment-shipped` | `notification.*` | Sends ET-02 email to buyer. Creates in-app notification (type `SHIPMENT_UPDATE`). |
+| `notification.fulfillment-shipped` | `notification.*` | Sends ET-02 email to buyer. Creates in-app notification (type `SHIPMENT_UPDATE`). Note: consumer resolves `seller_name` via `seller_id` lookup from `seller_profile` table before rendering ET-02 (payload carries only `seller_id`). |
 | `audit` | `audit` | Writes `activity_events` (entity_type=`FULFILLMENT`, entity_id=fulfillment_id, actor_id=seller_id, actor_role=`SELLER`). |
 
 ---
@@ -399,7 +400,7 @@ MongoDB audit collection schemas (`audit_logs`, `activity_events`): see [data-mo
 
 | Consumer group | Pattern | Side effects |
 |---------------|---------|--------------|
-| `notification.fulfillment-delivered` | `notification.*` | Sends ET-03 email. Creates in-app notification. |
+| `notification.fulfillment-delivered` | `notification.*` | Sends ET-03 email. Creates in-app notification (type `DELIVERY_UPDATE`). |
 | `orders.delivery-tracker` | `orders.*` | Updates `orders.fulfillment.status = DELIVERED` for the `fulfillment_id` in the event; then queries `SELECT COUNT(*) FROM orders.fulfillment WHERE order_id = ? AND status != 'DELIVERED'` — if count = 0 AND total fulfillments ≥ 2, emits `order.completed` via outbox. |
 | `audit` | `audit` | Writes `activity_events` (entity_type=`FULFILLMENT`, entity_id=fulfillment_id, actor_role=`SYSTEM`). |
 
@@ -556,7 +557,7 @@ MongoDB audit collection schemas (`audit_logs`, `activity_events`): see [data-mo
 
 | Consumer group | Pattern | Side effects |
 |---------------|---------|--------------|
-| `notification.order-summary` | `notification.*` | Sends ET-01 order summary email to buyer (includes placed and failed groups). Creates in-app notification. |
+| `notification.order-summary` | `notification.*` | Sends ET-01 order summary email to buyer (includes placed and failed groups). Note: per-fulfillment `ORDER_PLACED` in-app notifications fire from the `fulfillment.placed` consumer (§1.4); this consumer focuses on the ET-01 order summary email only. Consumer reads `fulfillment`, `fulfillment_item`, `seller_profile`, and `identity.user` rows from the same Postgres instance to build the full order summary context before sending ET-01. |
 | `audit` | `audit` | Writes `activity_events` (entity_type=`ORDER`, entity_id=idempotency_key_id, actor_id=buyer_id, actor_role=`BUYER`). |
 
 ---
@@ -605,7 +606,7 @@ Fires when all fulfillments under the same `order_id` reach DELIVERED state, but
 
 | Consumer group | Pattern | Side effects |
 |---------------|---------|--------------|
-| `notification.order-completed` | `notification.*` | Sends ET-05 "All items delivered" email to buyer. |
+| `notification.order-completed` | `notification.*` | Sends ET-05 "All items delivered" email to buyer. Creates in-app notification (type `ORDER_COMPLETED`). |
 | `audit` | `audit` | Writes `activity_events` (entity_type=`ORDER`, entity_id=order_id, actor_role=`SYSTEM`). |
 
 ---
@@ -1329,6 +1330,7 @@ Fires when an admin lifts a seller's suspension (sets `suspension_status = ACTIV
 | Consumer group | Pattern | Side effects |
 |---------------|---------|--------------|
 | `notification.email-verification` | `notification.*` | Sends ET-18 verification email to user. |
+| `audit.auth-email-verification` | `audit` | Writes `audit_logs` (action=`EMAIL_VERIFICATION_REQUESTED`, entity_type=`USER`, actor_id=user_id). |
 
 ---
 
@@ -1373,6 +1375,7 @@ Fires when an admin lifts a seller's suspension (sets `suspension_status = ACTIV
 | Consumer group | Pattern | Side effects |
 |---------------|---------|--------------|
 | `notification.password-reset` | `notification.*` | Sends ET-19 password-reset email to user. |
+| `audit.auth-password-reset` | `audit` | Writes `audit_logs` (action=`PASSWORD_RESET_REQUESTED`, entity_type=`USER`, actor_id=user_id). |
 
 ---
 
@@ -1416,6 +1419,7 @@ Fires when an admin lifts a seller's suspension (sets `suspension_status = ACTIV
 | Consumer group | Pattern | Side effects |
 |---------------|---------|--------------|
 | `notification.password-changed` | `notification.*` | Sends ET-20 password-changed confirmation email to user. |
+| `audit.auth-password-changed` | `audit` | Writes `audit_logs` (action=`PASSWORD_CHANGED`, entity_type=`USER`, actor_id=user_id). |
 
 ---
 
@@ -1468,6 +1472,7 @@ Fires when an admin manually creates a moderation case against an active listing
 | Consumer group | Pattern | Side effects |
 |---------------|---------|--------------|
 | `notification.listing-flagged` | `notification.*` | Sends ET-08 to seller. Creates in-app notification (type `LISTING_FLAGGED`). |
+| `search.listing-flagged` | `search.*` | Deindexes `offer_id` from Elasticsearch (hides offer while under review). Re-indexing on admin clear (DISMISS decision) occurs via `offer.changed` consumer when `POST /admin/moderation/:id/decide` emits `offer.changed` with `status: ACTIVE`. |
 | `audit` | `audit` | Writes `audit_logs` (action=`LISTING_FLAGGED`, entity_type=`LISTING`, actor_id=admin_user_id). |
 
 ---

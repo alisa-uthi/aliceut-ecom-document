@@ -26,9 +26,9 @@ Tier column references [conventions/module-architecture.md §2](../../convention
 | `orders` | T1 | `OrdersModule` | `OrdersController` | `fulfillment.placed`, `fulfillment.shipped`, `fulfillment.refunded`, `order.finalized` | — |
 | `identity` | T2 | `IdentityModule` | `AuthController`, `ProfileController` | (via outbox) | — |
 | `seller` | T2 | `SellerModule` | `SellerController` | `seller.kyc.submitted` | — |
-| `admin` | T2 | `AdminModule` | `AdminController` | `seller.kyc.decided`, `seller.suspended`, `seller.reinstated`, `moderation.listing.removed` | — |
+| `admin` | T2 | `AdminModule` | `AdminController` | `seller.kyc.decided`, `seller.suspended`, `seller.reinstated`, `moderation.listing.removed`, `listing.flagged (from POST /admin/moderation — triggers ET-08 seller notification + ES deindex)` | — |
 | `search` | T3 | `SearchModule` | `SearchController` | — | `product.changed`, `offer.changed`, `inventory.changed`, `seller.suspended`, `seller.reinstated`, `moderation.listing.removed` |
-| `notifications` | T3 | `NotificationsModule` | `NotificationsController` | — | `order.finalized`, `fulfillment.*`, `order.completed`, `seller.kyc.decided`, `inventory.low_stock`, `moderation.listing.removed`, `seller.suspended`, `seller.reinstated` |
+| `notifications` | T3 | `NotificationsModule` | `NotificationsController` | — | `order.finalized`, `fulfillment.*`, `fulfillment.cancelled` (ET-16 + FULFILLMENT_CANCELLED in-app), `fulfillment.refund_suspended_seller` (ET-13/ET-13b), `order.completed`, `seller.kyc.decided`, `seller.kyc.submitted` (ET-14 admin + ET-21 seller), `seller.suspension_expired` (ET-11 + SUSPENSION_EXPIRED in-app), `inventory.low_stock`, `moderation.listing.removed`, `seller.suspended`, `seller.reinstated`, `auth.email_verification_requested` (ET-18), `auth.password_reset_requested` (ET-19), `auth.password_changed` (ET-20) |
 | `platform` | T3 | `PlatformModule` | `HealthController` | (outbox relay publishes all topics) | — |
 | `workers` | T3 | `WorkersModule` | `HealthController (port 3001)` | `fulfillment.delivered` (mock scheduler), `order.completed` (delivery-tracker) | `fulfillment.delivered` |
 
@@ -43,7 +43,7 @@ All schedulers live in `apps/workers/src/schedulers/`. Pattern: see [conventions
 |---|---|---|
 | `digest.scheduler.ts` | `0 23 * * *` (23:00 UTC) | ET-09 listing-removed daily digest per seller |
 | `fx-rate.scheduler.ts` | `0 * * * *` (hourly) | FX rate refresh from exchangerate.host |
-| `suspension-expiry.scheduler.ts` | `*/5 * * * *` (every 5 min) | Emit `seller.suspension_expired` for due rows |
+| ~~`suspension-expiry.scheduler.ts`~~ | — | **Removed** — suspension expiry handled by pg_cron job (see [cleanup-jobs.md §lift-expired-suspensions](./cleanup-jobs.md)) |
 | `reservation-expiry.scheduler.ts` | `*/5 * * * *` (every 5 min) | Emit `inventory.reservation_expired` for expired holds |
 | `delivery-mock.scheduler.ts` | `*/5 * * * *` (every 5 min) | Poll SHIPPED fulfillments where `eta <= now()`; emit `fulfillment.delivered` (V1 mock — no real carrier) |
 | `auto-refund.scheduler.ts` | `*/5 * * * *` (every 5 min) | US-P-16: poll PENDING fulfillments where seller is SUSPENDED and `placed_at + fulfillment_window_days < now()`; emit `fulfillment.refund_suspended_seller` |

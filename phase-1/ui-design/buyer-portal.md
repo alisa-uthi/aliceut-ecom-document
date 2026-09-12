@@ -2,7 +2,7 @@
 ## buyer-app (port 4200)
 
 **Status:** Draft  
-**Stack:** Angular 17+ + Angular Material + `libs/ui/` shared components  
+**Stack:** Angular 22+ + Angular Material + `libs/ui/` shared components  
 **Auth:** JWT; guest access allowed on catalog routes; checkout requires authenticated account
 
 ---
@@ -25,6 +25,7 @@
 - [Screen 13 — Forgot Password](#screen-13-forgot-password)
 - [Screen 14 — Reset Password](#screen-14-reset-password)
 - [Screen 15 — Email Verification Callback](#screen-15-email-verification-callback)
+- [Screen 16 — Notifications](#screen-16-notifications)
 - [Appendix — Buyer Notification Types](#appendix-buyer-notifications)
 
 <a id="shell-layout"></a>
@@ -42,7 +43,9 @@ mat-toolbar [color=primary] [sticky top-0 z-100]
   div.toolbar-actions
     button mat-icon-button routerLink="/cart" [matBadge]="cartCount" [matBadgeHidden]="cartCount===0" aria-label="Cart"
       mat-icon — shopping_cart
-    <aliceut-notification-bell> [hidden if not logged in]
+    <aliceut-notification-bell [unreadCount]="unreadCount">
+      <!-- Visibility: shown only when authenticated. matBadgeHidden = true when unreadCount === 0;
+           badge shows unreadCount capped at 99+ for display. Bell icon always visible when logged in. -->
     button mat-button [matMenuTriggerFor]="userMenu" *ngIf="isLoggedIn"
       mat-icon — account_circle
       span.user-name — {{ displayName }}
@@ -485,6 +488,10 @@ div.checkout-layout [display: grid; grid-template-columns: 1fr 340px; gap: 24px;
           button mat-flat-button color="primary" matStepperNext [disabled]="addressForm.invalid" — Next
 
     <!-- Step 2: Shipping Method -->
+    <!-- Data source: GET /checkout/shipping-methods
+         Returns a hardcoded mock list in V1 (real shipping integration is out of scope per BRD §3.2):
+         [{ "id": "standard", "name": "Standard Shipping", "etaLabel": "5–7 business days", "cost": "0.00", "currency": "USD" }]
+         Stub endpoint must be listed in implementation-specs.md mock/stub endpoint list. -->
     mat-step [label]="'Shipping Method'" [stepControl]="shippingForm"
       form [formGroup]="shippingForm"
         mat-radio-group formControlName="shippingMethodId" [display: flex; flex-direction: column; gap: 12px]
@@ -881,6 +888,22 @@ mat-card [max-width: 440px]
   mat-card-footer — Already have an account? <a routerLink="/login">Sign in</a>
 ```
 
+### Password Policy
+
+Applied identically on registration, change-password, and reset-password forms across all portals.
+
+```
+Pattern: /^(?=.*[a-zA-Z])(?=.*\d).{8,128}$/
+- Minimum 8 characters, maximum 128 characters
+- Must contain at least one letter (upper or lowercase) and at least one digit
+- Validator error messages:
+  - Too short:  "Password must be at least 8 characters."
+  - Too long:   "Password must not exceed 128 characters."
+  - Missing letter or digit: "Password must contain at least one letter and one digit."
+```
+
+> The same regex is enforced on the backend (NestJS zod/class-validator). See `conventions/coding-standards` for the backend validator definition.
+
 ### Post-registration
 
 Redirects to `/email-verification-pending` showing: "Check your inbox — we sent a verification link to `{email}`." with Resend button and rate-limit messaging. OAuth registrations bypass this and go directly to home.
@@ -1070,6 +1093,70 @@ mat-card [max-width: 440px; margin: 48px auto]
 - **Loading:** Spinner while calling `POST /auth/verify-email { token }`.
 - **Success:** "Email verified! Redirecting to login..." then auto-redirect to `/login?verified=true` after 2s.
 - **Expired/used token:** "This verification link has expired." with a "Resend verification email" button that calls `POST /auth/resend-verification` (JWT-authenticated, no request body; uses the `sub` claim from the session token).
+
+---
+
+<a id="screen-16-notifications"></a>
+## Screen 16 — Notifications
+
+**Route:** `/notifications`
+**Guard:** AuthGuard
+**Component:** `BuyerNotificationsComponent`
+
+### Layout
+
+```
+h1 mat-h4 — "Notifications"
+
+div.notifications-header [display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px]
+  h1 mat-h4 — Notifications
+  button mat-stroked-button [disabled]="allRead" (click)="markAllRead()" — Mark all as read
+
+div.notifications-list [max-width: 800px]
+  mat-card.notification-card *ngFor="let n of notifications"
+    [class.unread]="!n.readAt"
+    [cursor: pointer] (click)="handleClick(n)"
+    [display: flex; align-items: flex-start; gap: 16px; padding: 16px]
+    mat-icon [color]="typeIconColor(n.type)" [font-size: 24px] — {{ typeIcon(n.type) }}
+    div [flex: 1]
+      p mat-body-1 [font-weight]="!n.readAt ? '600' : '400'" — {{ n.title }}
+      p mat-body-2 *ngIf="n.body" color="secondary" — {{ n.body }}
+      p mat-caption color="secondary" — {{ n.createdAt | timeAgo }}
+    div.unread-dot *ngIf="!n.readAt" [width: 8px; height: 8px; border-radius: 50%; background: var(--mat-primary); flex-shrink: 0; margin-top: 6px]
+
+  div.load-more *ngIf="hasMore" [text-align: center; margin-top: 16px]
+    button mat-stroked-button (click)="loadMore()" [disabled]="loadingMore"
+      mat-spinner *ngIf="loadingMore" [diameter]="16"
+      span *ngIf="!loadingMore" — Load more
+
+<aliceut-empty-state *ngIf="!loading && notifications.length === 0"
+  icon="notifications_none"
+  title="No notifications yet"
+  message="Order updates and alerts will appear here.">
+</aliceut-empty-state>
+```
+
+### Notification types displayed
+
+`ORDER_PLACED`, `ORDER_COMPLETED`, `SHIPMENT_UPDATE`, `DELIVERY_UPDATE`, `REFUND_ISSUED`
+(buyer-relevant types per `notifications.md`)
+
+### Interaction
+
+- Click on a notification with a `link` field: navigate to `link` and mark as read.
+- Click on a notification without `link`: mark as read only.
+- "Mark all as read": calls `PATCH /notifications/read-all`; button disabled after.
+
+### API calls
+
+- `GET /notifications?page=1&limit=20` — initial load
+- `GET /notifications?page=N&limit=20` — load more (offset pagination)
+- `PATCH /notifications/read-all` — mark all as read
+- `PATCH /notifications/:id/read` — mark one as read on click
+
+### Mobile
+
+Full-width cards. "Mark all as read" button moves below the heading on narrow viewports.
 
 ---
 

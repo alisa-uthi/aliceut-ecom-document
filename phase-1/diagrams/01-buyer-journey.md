@@ -91,6 +91,9 @@ graph TD
     BE --> BF[Order history at /orders]
     BF --> BG[Fulfillment status: PENDING]
     BG --> BH{Seller marks shipped?}
+    BG -. "Auto-refund — US-P-16\nseller suspended +\nwindow expired" .-> BR[Fulfillment status: REFUNDED\nAuto-refund monitor]
+    BR --> BS[ET-13: Auto-refund email to buyer - async\nStock restored]
+    BS --> BT([Fulfillment REFUNDED - terminal])
     BH --> BI[Fulfillment status: SHIPPED]
     BI --> BJ[ET-02: Fulfillment Shipped email - async]
     BJ --> BK{Mock delivery scheduler\nreaches ETA?}
@@ -101,4 +104,8 @@ graph TD
     BN -- No --> BP[ET-03 is final notification\nfor single-fulfillment order]
     BO --> BQ([Order status: COMPLETED])
     BP --> BQ
+    BG -. "Seller-initiated refund\nUS-S-07" .-> BU[Fulfillment status: REFUNDED\nSeller refund]
+    BI -. "Seller-initiated refund\nUS-S-07" .-> BU
+    BU --> BV[ET-04: Fulfillment Refunded email to buyer - async]
+    BV --> BW([Fulfillment REFUNDED - terminal])
 ```

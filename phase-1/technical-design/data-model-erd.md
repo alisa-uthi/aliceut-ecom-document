@@ -13,10 +13,11 @@
 - [1. Modelling conventions](#modelling-conventions)
 - [2. PostgreSQL schema map](#postgresql-schema-map)
 - [3. Core relationship diagram](#core-relationship-diagram)
-- [4. Schema-level table design](#schema-level-table-design)
-- [5. Essential cross-schema references](#essential-cross-schema-references)
-- [6. Critical transactional rules](#critical-transactional-rules)
-- [7. Future-phase seller promotions](#future-phase-seller-promotions)
+- [4. PostgreSQL custom enum types](#postgresql-enum-types)
+- [5. Schema-level table design](#schema-level-table-design)
+- [6. Essential cross-schema references](#essential-cross-schema-references)
+- [7. Critical transactional rules](#critical-transactional-rules)
+- [8. Future-phase seller promotions](#future-phase-seller-promotions)
 
 <a id="modelling-conventions"></a>
 ## 1. Modelling conventions
@@ -44,7 +45,7 @@
 | `orders` | `order`, `fulfillment`, `fulfillment_item`, `payment_attempt`, `idempotency_key` | Checkout records, per-seller fulfillment groups, immutable line-item snapshots, and retry safety. |
 | `seller` | `seller_profile`, `kyc_application` | Seller identity and KYC lifecycle. |
 | `admin` | `moderation_case` | Listing moderation decisions. |
-| `notifications` | `in_app_notification`, `email_template` | Buyer/seller/admin notification read model and email template store. |
+| `notifications` | `in_app_notification`, `email_template`, `pending_listing_removal_digest` | Buyer/seller/admin notification read model, email template store, and staging table for daily listing-removal digest. |
 | `platform` | `outbox_event`, `processed_event` | Event relay and consumer idempotency. |
 
 <a id="core-relationship-diagram"></a>
@@ -80,8 +81,32 @@ erDiagram
 
 The diagram deliberately omits audit, notification, refresh-session, and event-consumer implementation links to keep product-to-order ownership readable.
 
+<a id="postgresql-enum-types"></a>
+## 4. PostgreSQL custom enum types
+
+All application enums are defined as PostgreSQL custom types before any schema migration runs. Named here so every column definition can reference the correct type.
+
+| Type name | Schema | Values |
+|---|---|---|
+| `account_type` | `identity` | `B2C`, `B2B` |
+| `user_status` | `identity` | `ACTIVE`, `SUSPENDED`, `BANNED` |
+| `oauth_provider` | `identity` | `GOOGLE`, `FACEBOOK` |
+| `product_status` | `catalog` | `ACTIVE`, `REMOVED` |
+| `offer_status` | `catalog` | `DRAFT`, `ACTIVE`, `INACTIVE`, `REMOVED`, `FLAGGED` |
+| `price_type` | `pricing` | `LIST`, `SALE`, `B2B_TIER` |
+| `reservation_status` | `inventory` | `ACTIVE`, `CONSUMED`, `RELEASED`, `EXPIRED` |
+| `placement_outcome` | `orders` | `FULLY_PLACED`, `PARTIALLY_PLACED` |
+| `fulfillment_status` | `orders` | `PENDING`, `SHIPPED`, `DELIVERED`, `REFUNDED`, `CANCELLED` |
+| `payment_status` | `orders` | `SIMULATED_SUCCESS`, `SIMULATED_FAILURE` |
+| `seller_kyc_status` | `seller` | `PENDING_KYC`, `APPROVED`, `REJECTED` |
+| `seller_suspension_status` | `seller` | `ACTIVE`, `SUSPENDED` |
+| `kyc_status` | `seller` | `PENDING`, `UNDER_REVIEW`, `APPROVED`, `REJECTED` |
+| `moderation_status` | `admin` | `OPEN`, `RESOLVED` |
+| `moderation_decision` | `admin` | `REMOVE`, `DISMISS` |
+| `outbox_publication_status` | `platform` | `PENDING`, `PUBLISHED`, `FAILED` |
+
 <a id="schema-level-table-design"></a>
-## 4. Schema-level table design
+## 5. Schema-level table design
 
 ### `identity`
 
@@ -333,13 +358,12 @@ One `order` is created per checkout attempt. It may contain multiple `fulfillmen
 | `id` | `UUID` | PK; `DEFAULT uuidv7()` |
 | `display_id` | `TEXT` | Required; `UNIQUE`; format `ORD-<first 8 uppercase hex chars of id>` (e.g. `ORD-3F2A1B9C`); generated at insert time |
 | `buyer_id` | `UUID` | Required FK → `identity.user(id)` |
-| `currency_code` | `CHAR(3)` | Required FK → `pricing.currency(code)`; buyer's display currency |
+| `currency_code` | `CHAR(3)` | Required FK → `pricing.currency(code)`; buyer's display currency (used for `buyer_currency_grand_total`) |
 | `placement_outcome` | `placement_outcome` | Required: `FULLY_PLACED` or `PARTIALLY_PLACED`; immutable after set |
 | `shipping_address_snapshot` | `JSONB` | Required immutable address copy captured at checkout |
 | `idempotency_key_id` | `UUID` | Nullable FK → `orders.idempotency_key(id)` |
 | `placed_at` | `TIMESTAMPTZ` | Required order creation time |
-| `buyer_currency_grand_total` | `NUMERIC(19,4)` | Required; total order amount in buyer's preferred display currency at checkout time. Snapshot per FR-P-03. |
-| `buyer_currency_code` | `CHAR(3)` | Required; ISO 4217 currency code for `buyer_currency_grand_total`. FK → `pricing.currency(code)`. |
+| `buyer_currency_grand_total` | `NUMERIC(19,4)` | Required; total order amount in `currency_code` at checkout time. Snapshot per FR-P-03. |
 | `created_at`, `updated_at` | `TIMESTAMPTZ` | Required audit timestamps |
 
 **Order aggregate status (derived):** `orders.order` has no stored `status` column. The displayed order status is derived from its fulfillments:
@@ -500,6 +524,22 @@ Notification consumers render emails by loading the template row by `template_ke
 | `read_at` | `TIMESTAMPTZ` | Nullable |
 | `created_at` | `TIMESTAMPTZ` | Required |
 
+#### `notifications.pending_listing_removal_digest` [V1]
+
+Staging table for the daily listing-removal email digest (ET-09). The `notification.listing-removed` Kafka consumer writes rows here; it does **not** send email immediately. The daily digest cron at 23:00 UTC aggregates rows per seller, renders ET-09, sends email, and deletes processed rows.
+
+| Column | Type | Constraints / purpose |
+|---|---|---|
+| `id` | `BIGSERIAL` | PK |
+| `seller_id` | `UUID` | Required FK → `identity.user(id)` |
+| `product_title` | `TEXT` | Required; captured at removal time |
+| `removal_category` | `TEXT` | Required; e.g. `PROHIBITED_CATEGORY`, `ADMIN_MANUAL` |
+| `removal_reason_text` | `TEXT` | Required; admin-provided or system reason |
+| `removed_at` | `TIMESTAMPTZ` | Required; when the listing was removed |
+| `created_at` | `TIMESTAMPTZ` | Required; `DEFAULT NOW()` |
+
+Index: `(seller_id, removed_at)`. Rows are deleted after digest send — no retention needed beyond one digest cycle.
+
 #### `platform.outbox_event`
 
 | Column | Type | Constraints / purpose |
@@ -507,11 +547,14 @@ Notification consumers render emails by loading the template row by `template_ke
 | `id` | `UUID` | PK and event ID; `DEFAULT uuidv7()` |
 | `aggregate_type`, `aggregate_id` | `TEXT`, `UUID` | Required origin aggregate reference |
 | `topic` | `TEXT` | Required Kafka destination topic |
+| `key` | `TEXT` | Required Kafka partition key (typically `aggregate_id` as string; ensures per-aggregate message ordering) |
 | `event_type`, `event_version` | `TEXT`, `INT` | Required versioned event identity |
 | `payload` | `JSONB` | Required source payload for Avro serialization |
 | `correlation_id` | `UUID` | Required request/workflow correlation ID; UUIDv7 |
 | `occurred_at` | `TIMESTAMPTZ` | Required domain event time |
-| `publication_status`, `attempt_count`, `published_at` | status, `INT`, `TIMESTAMPTZ` | Relay delivery state; published time nullable |
+| `publication_status` | `outbox_publication_status` | Required relay delivery state; `DEFAULT 'PENDING'` |
+| `attempt_count` | `INT` | Required; `DEFAULT 0` |
+| `published_at` | `TIMESTAMPTZ` | Nullable; set when `publication_status` transitions to `PUBLISHED` |
 | `created_at`, `updated_at` | `TIMESTAMPTZ` | Required audit timestamps |
 
 Inserted in the same transaction as the originating state change.
@@ -526,7 +569,7 @@ Inserted in the same transaction as the originating state change.
 | `outcome` | `TEXT` | Required idempotent processing result |
 
 <a id="essential-cross-schema-references"></a>
-## 5. Essential cross-schema references
+## 6. Essential cross-schema references
 
 These are allowed in V1 because they preserve a single transactional invariant. They are migration dependencies and must be documented in the owning module's migration.
 
@@ -548,7 +591,7 @@ These are allowed in V1 because they preserve a single transactional invariant. 
 When a module is extracted later, its schema migrates with it and its service becomes the sole writer. Existing consumers replace cross-schema reads with an API call or a Kafka projection before the foreign-key dependency is removed.
 
 <a id="critical-transactional-rules"></a>
-## 6. Critical transactional rules
+## 7. Critical transactional rules
 
 1. A catalog, price, inventory, KYC, moderation, or order state change commits its domain rows and outbox event together.
 2. Checkout locks/updates inventory using the stock `version` (or equivalent row lock), creates the order and per-seller fulfillment groups with immutable item snapshots, records reservations/payment simulation, and inserts `fulfillment.placed` events (one per fulfillment) in one transaction.
@@ -557,7 +600,7 @@ When a module is extracted later, its schema migrates with it and its service be
 5. The order service rechecks offer status, effective price, availability, and idempotency inside the checkout transaction; cart data alone is never trusted as a price or stock reservation.
 
 <a id="future-phase-seller-promotions"></a>
-## 7. Future-phase seller promotions
+## 8. Future-phase seller promotions
 
 Seller-managed promotions are explicitly deferred from Phase 1. When approved, they belong in a dedicated `promotion` module and PostgreSQL schema rather than being added as more columns to `pricing.offer_price`. This keeps the V1 effective-price model simple while allowing future code-based and scheduled campaigns.
 

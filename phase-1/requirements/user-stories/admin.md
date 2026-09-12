@@ -38,6 +38,7 @@ Priority: Must — trace: FR-A-01
 **Acceptance criteria**
 - List paginated, filterable by country, sortable by `submitted_at`.
 - Row: business name, country, submitted_at, days pending (SLA badge red if > 3 days).
+- SLA threshold: 72 hours (3 calendar days) from `submitted_at` in UTC. "Business days" language in earlier drafts was imprecise; implementation uses `submitted_at + INTERVAL '72 hours'`. SLA badge turns red when: `NOW() > submitted_at + INTERVAL '72 hours'`.
 - Resubmissions show a "Resubmit" badge; hovering/expanding reveals the previous rejection reason and date.
 - **Empty state:** if no pending applications, show "No pending applications — all caught up."
 - Admin receives an email notification (→ ET-21) when a new or resubmitted KYC application arrives. The SLA badge (red if > 3 days) and dashboard count (US-A-00) remain the primary triage tools within the portal.
@@ -107,6 +108,12 @@ Priority: Should — trace: FR-A-05
 - Seller notified by email (→ ET-10); all listings removed from search; action is auditable.
 - Pending unshipped orders at suspension time remain active; seller retains obligation to fulfill them. If seller remains suspended and an order is not shipped within its expected window, buyer is notified and a refund is issued. (→ ET-13)
 - Suspension expiry: timed suspensions (7/30/90 days) auto-lift at `suspended_until`; listings are reactivated automatically and seller is notified by email (→ ET-11).
+- Given an admin attempts to suspend a seller who is already permanently suspended:
+  Then the API returns 409 "Seller is already permanently suspended."
+- Given an admin attempts to suspend a seller who is already temporarily suspended:
+  Then the admin may extend the suspension by providing a new `suspended_until` date and reason.
+  The existing suspension record is updated (not duplicated).
+  The action is recorded in audit_logs.
 
 ---
 

@@ -63,9 +63,9 @@
 | `GET /seller/orders/:id` | Postgres | `orders.fulfillment`, `orders.fulfillment_item` |
 | `POST /seller/orders/:id/ship` | Postgres | `orders.fulfillment`, `platform.outbox_event` (`fulfillment.shipped`) |
 | `POST /seller/orders/:id/refund` | Postgres | `orders.fulfillment`, `inventory.stock_reservation` (release), `platform.outbox_event` (`fulfillment.refunded`) |
-| `POST /seller/products` | Postgres | `catalog.product`, `catalog.product_variant`, `catalog.product_image` |
+| `POST /seller/products` | Postgres | `catalog.product`, `catalog.product_variant`, `catalog.product_image`, `platform.outbox_event` (`product.changed`) |
 | `PATCH /seller/products/:id` | Postgres | `catalog.product`, `catalog.product_variant`, `catalog.product_image` |
-| `DELETE /seller/products/:id` | Postgres | `catalog.product` (soft: set `deleted_at`), `catalog.offer` (deactivate active offers), `platform.outbox_event` (`listing.soft_deleted`) |
+| `DELETE /seller/products/:id` | Postgres | `catalog.product` (soft: set `deleted_at`), `catalog.offer` (deactivate active offers), `platform.outbox_event` (`product.changed`, `listing.soft_deleted`) |
 | `POST /seller/orders/:id/cancel` | Postgres | `orders.fulfillment`, `inventory.stock_reservation` (release), `inventory.stock` (restore `available_qty`), `platform.outbox_event` (`fulfillment.cancelled`) |
 | `GET /seller/dashboard/stats` | Postgres | `orders.fulfillment`, `catalog.offer` (counts only) |
 
@@ -369,7 +369,8 @@ sequenceDiagram
     SS->>P: SELECT seller.kyc_application WHERE seller_id = seller.id ORDER BY submitted_at DESC LIMIT 1
     P-->>SS: latest kyc_application row
     alt kyc_application.status != REJECTED
-        SS-->>C: 409 Conflict — KYC status is not REJECTED
+        SS-->>A: ConflictException('KYC application is not in REJECTED status')
+        A-->>C: 409 Conflict — KYC application is not in REJECTED status
     end
 
     SS->>ObjS: PUT documents[N] (AES-256 encrypted, bucket: kyc-documents)
@@ -610,7 +611,16 @@ Auth: SELLER_APPROVED + SELLER_ACTIVE
 ```json
 {
   "status": "ACTIVE | INACTIVE",
-  "prices": [...],
+  "prices": [
+    {
+      "priceType": "LIST | SALE | B2B_TIER",
+      "currencyCode": "USD | THB | JPY | SGD",
+      "amount": "99.99",
+      "minQty": 1,
+      "saleStartsAt": "ISO8601 | null",
+      "saleEndsAt": "ISO8601 | null"
+    }
+  ],
   "stockAdjustment": { "onHandQty": 100 }
 }
 ```
@@ -918,10 +928,28 @@ sequenceDiagram
 GET /seller/orders
 Tag: Seller
 Auth: SELLER (suspended sellers may also access)
-Pagination: cursor
+Pagination: offset
 ```
-**Query params:** `status`, `limit`, `cursor`  
-**Response 200** — paginated fulfillments (where `fulfillment.seller_id = seller.id`)
+**Query params:** `status` (`PENDING | PROCESSING | SHIPPED | DELIVERED | CANCELLED | REFUNDED`), `page` (1-based, default 1), `limit` (default 20, max 100)  
+**Response 200**
+```json
+{
+  "data": [
+    {
+      "id": "uuid",
+      "displayId": "FUL-XXXXXXXX",
+      "status": "PENDING | PROCESSING | SHIPPED | DELIVERED | CANCELLED | REFUNDED",
+      "placedAt": "ISO8601",
+      "totalAmount": "99.99",
+      "currency": "THB",
+      "itemCount": 2
+    }
+  ],
+  "total": 42,
+  "page": 1,
+  "limit": 20
+}
+```
 
 #### Sequence
 
@@ -932,7 +960,7 @@ sequenceDiagram
     participant G as Guards
     participant P as Postgres
 
-    C->>A: GET /seller/orders?status=&limit=&cursor=
+    C->>A: GET /seller/orders?status=&page=1&limit=20
     Note over A,G: Guard: JWT + SELLER (suspended sellers explicitly permitted)
     A->>G: validate JWT
     G->>P: SELECT identity.user + seller.seller_profile WHERE user_id = jwt.sub
@@ -944,11 +972,11 @@ sequenceDiagram
     Note over G: suspension_status check skipped — suspended sellers may access order list
     G-->>A: authorized (seller_id resolved)
 
-    A->>P: SELECT orders.fulfillment WHERE seller_id = seller.id AND status=? ORDER BY placed_at cursor-paginated LIMIT limit+1
-    P-->>A: fulfillment rows
+    A->>P: SELECT COUNT(*) FROM orders.fulfillment WHERE seller_id = seller.id AND status=?
+    A->>P: SELECT orders.fulfillment WHERE seller_id = seller.id AND status=? ORDER BY placed_at DESC LIMIT limit OFFSET (page-1)*limit
+    P-->>A: total count + fulfillment rows
 
-    A->>A: compute nextCursor, hasMore flag
-    A-->>C: 200 OK { data: [fulfillments...], meta: { nextCursor, hasMore } }
+    A-->>C: 200 OK { data: [{ id, displayId, status, placedAt, totalAmount, currency, itemCount }], total, page, limit }
 ```
 
 ---
@@ -965,14 +993,25 @@ Auth: SELLER (suspended sellers may also access)
 {
   "data": {
     "id": "uuid",
-    "displayId": "ORD-3F2A1B9C",
-    "status": "PENDING | SHIPPED | DELIVERED | REFUNDED",
+    "displayId": "FUL-3F2A1B9C",
+    "status": "PENDING | PROCESSING | SHIPPED | DELIVERED | CANCELLED | REFUNDED",
     "buyerName": "string",
     "shippingAddress": { ... },
     "trackingNumber": "TRK-...",
     "estimatedDeliveryAt": "ISO8601",
     "placedAt": "ISO8601",
-    "items": [...],
+    "items": [
+      {
+        "offerId": "uuid",
+        "productTitle": "string",
+        "variantLabel": "string | null",
+        "quantity": 2,
+        "unitPrice": "49.99",
+        "currency": "THB",
+        "tax": "3.50",
+        "lineTotal": "103.48"
+      }
+    ],
     "totalAmount": "111.99",
     "currency": "USD"
   }
@@ -1179,6 +1218,8 @@ sequenceDiagram
     participant G as Guards
     participant PS as ProductService
     participant P as Postgres
+    participant KO as Kafka Outbox
+    participant KR as Kafka Relay
 
     C->>A: POST /seller/products { title, description, categoryId, images[], attributes?, variants[] }
     Note over A,G: Guard: JWT + SELLER_ACTIVE (SELLER_APPROVED + not suspended)
@@ -1207,6 +1248,7 @@ sequenceDiagram
         PS-->>C: 422 Unprocessable — content violates prohibited keyword policy
     end
 
+    Note over P,KO: BEGIN TRANSACTION
     PS->>P: INSERT catalog.product (category_id, title, description, attributes, status=ACTIVE, created_at, updated_at)
     P-->>PS: product.id
     loop for each variant in variants[]
@@ -1215,6 +1257,13 @@ sequenceDiagram
     loop for each image storage key in images[]
         PS->>P: INSERT catalog.product_image (product_id, storage_key, position, created_at)
     end
+    PS->>KO: INSERT platform.outbox_event (topic='product.changed', key=product_id, event_type='product.created', payload={product_id, seller_id, change_type:'CREATED', occurred_at}, publication_status='PENDING')
+    Note over P,KO: COMMIT
+
+    Note right of KR: async — post-commit
+    KR->>KO: SELECT WHERE publication_status = 'PENDING'
+    KR->>KR: serialize Avro + publish to product.changed topic
+    KR->>KO: UPDATE SET publication_status = 'PUBLISHED'
 
     PS-->>A: { productId }
     A-->>C: 201 Created { data: { productId } }
@@ -1345,6 +1394,8 @@ sequenceDiagram
     Note over P,KO: BEGIN TRANSACTION
     PS->>P: UPDATE catalog.product SET deleted_at=NOW(), updated_at=NOW() WHERE id=:productId
     PS->>P: UPDATE catalog.offer SET status='INACTIVE', status_changed_reason='SELLER_MANUAL', updated_at=NOW() WHERE product_id=:productId AND seller_id=seller.id AND status='ACTIVE'
+    Note over KO: Unconditional product-level event — fires even if no active offers existed
+    PS->>KO: INSERT platform.outbox_event (topic='product.changed', key=product_id, event_type='product.soft_deleted', payload={product_id, seller_id, change_type:'SOFT_DELETED'}, publication_status='PENDING')
     loop for each active offer deactivated
         PS->>KO: INSERT platform.outbox_event (topic='listing.soft_deleted', payload={product_id, offer_id, seller_id, deleted_at})
     end

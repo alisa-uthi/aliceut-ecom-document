@@ -185,28 +185,22 @@ sequenceDiagram
 
         Note over O,P: Validation phase — acquire row locks, recheck freshness
 
-        loop for each seller/currency group
-            O->>P: SELECT catalog.offer<br/>WHERE id IN :offer_ids FOR UPDATE
-            Note over O,P: Row lock prevents concurrent offer status changes.<br/>Cart data never trusted for offer status.
-            alt any offer.status != ACTIVE
-                Note over O: Mark group FAILED: OFFER_UNAVAILABLE<br/>Cart items for this group remain in cart
-            else all offers ACTIVE
-                O->>P: SELECT pricing.offer_price<br/>WHERE offer_id IN :offer_ids AND currency_code = :seller_currency<br/>filtered by price_type (LIST / SALE / B2B_TIER) and account_type
-                opt seller currency != buyer display currency
-                    O->>P: SELECT pricing.fx_rate<br/>WHERE base = :seller_currency AND quote = :buyer_currency
-                    P-->>O: fx_rate row (display-only, NUMERIC(19,8))
-                end
-                alt price changed beyond tolerance (configurable, e.g. +/-0.01 in offer currency)
-                    O->>P: ROLLBACK
-                    O-->>A: PriceChangedException { updatedPrices[] }
-                    A-->>C: 409 PRICE_CHANGED<br/>{ updatedPrices: [{ offerId, newAmount, currency }] }
-                else price within tolerance
-                    O->>P: SELECT inventory.stock<br/>WHERE offer_id IN :offer_ids FOR UPDATE
-                    Note over O,P: Row lock prevents concurrent over-reservation
-                    alt available_qty (on_hand_qty - reserved_qty) < requested_qty
-                        Note over O: Mark group FAILED: OUT_OF_STOCK<br/>Cart items for this group remain in cart
-                    end
-                end
+        Note over O: for each seller/currency group — validation phase (offer status → price → stock):
+        O->>P: SELECT catalog.offer<br/>WHERE id IN :offer_ids FOR UPDATE
+        Note over O,P: Row lock prevents concurrent offer status changes.<br/>Cart data never trusted for offer status.
+        alt any offer.status != ACTIVE
+            Note over O: Mark group FAILED: OFFER_UNAVAILABLE<br/>Cart items for this group remain in cart
+        else all offers ACTIVE
+            O->>P: SELECT pricing.offer_price<br/>WHERE offer_id IN :offer_ids AND currency_code = :seller_currency<br/>filtered by price_type (LIST / SALE / B2B_TIER) and account_type
+            Note over O,P: If seller_currency != buyer_currency: fetch pricing.fx_rate (display-only, NUMERIC(19,8))
+            alt price changed beyond tolerance (configurable, e.g. +/-0.01 in offer currency)
+                O->>P: ROLLBACK
+                O-->>A: PriceChangedException { updatedPrices[] }
+                A-->>C: 409 PRICE_CHANGED<br/>{ updatedPrices: [{ offerId, newAmount, currency }] }
+            else price within tolerance
+                O->>P: SELECT inventory.stock<br/>WHERE offer_id IN :offer_ids FOR UPDATE
+                Note over O,P: Row lock prevents concurrent over-reservation
+                Note over O: if available_qty (on_hand_qty - reserved_qty) < requested_qty:<br/>Mark group FAILED: OUT_OF_STOCK — cart items remain in cart
             end
         end
 

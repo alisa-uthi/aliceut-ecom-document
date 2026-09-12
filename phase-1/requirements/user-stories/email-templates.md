@@ -660,7 +660,7 @@ AliceUT
 
 ## ET-08 — Listing Flagged (listing.flagged)
 
-**Trigger:** `listing.flagged` event — fired when admin manually creates a moderation case against an active listing via `POST /admin/moderation` (US-A-03) — consumer: `notification.listing-flagged`. Note: keyword/category check at listing creation time returns 422 (rejects the create); ET-08 fires only on admin post-publication flag.  
+**Trigger:** `listing.flagged` event — consumer: `notification.listing-flagged`. Two sources: (1) seller edit save triggers keyword/category guard → listing flagged, ET-08 fires (US-S-04); (2) admin manually creates a moderation case via `POST /admin/moderation` (US-A-03). Note: keyword/category check at listing **creation** time returns 422 and rejects the create — no flag is created and ET-08 does not fire in that case.  
 **To:** seller  
 **CC:** admin  
 **Subject:** `Your listing is under review — {{product_title}}`
@@ -704,7 +704,7 @@ AliceUT
 | `seller.full_name` | Seller's full name |
 | `product_title` | Title of the flagged listing |
 | `flagged_at` | Timestamp when flag was applied |
-| `flag_reason` | Flag source: `Keyword match` or `Prohibited category` |
+| `flag_reason` | Admin-provided free-text reason for flagging the listing. |
 | `admin.email` | Admin email address for CC (from env config) |
 | `base_url` | Website base URL |
 
@@ -892,7 +892,7 @@ ACCOUNT STATUS
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
   Reinstated at: {{reinstated_at}}
-  Reason:        {{reinstatement_reason}}
+  {{#if reinstatement_reason}}Reason:        {{reinstatement_reason}}{{else}}Reason:        No reason provided.{{/if}}
   Your listings have been restored to the catalog.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -912,7 +912,7 @@ AliceUT
 | `seller.full_name` | Seller's full name |
 | `seller.business_name` | Registered business name |
 | `reinstated_at` | Timestamp of reinstatement |
-| `reinstatement_reason` | Admin-provided reason for early reinstatement |
+| `reinstatement_reason` | Admin-provided reason for early reinstatement. Nullable — rendered conditionally: present shows the reason, absent shows "No reason provided." |
 | `base_url` | Website base URL |
 
 ---
@@ -992,7 +992,7 @@ WHAT HAPPENS NEXT
 
 Our team will review your documents. You will receive a separate
 email when a decision has been made. Applications are reviewed in
-submission order; SLA target is 3 business days.
+submission order; SLA target is 72 hours (3 calendar days).
 
 You cannot list products until your application is approved.
 
@@ -1162,7 +1162,7 @@ AliceUT
 | `seller.full_name` | Seller's full name |
 | `seller.business_name` | Registered business name |
 | `submitted_at` | Timestamp of application submission |
-| `review_by` | SLA deadline: `submitted_at` + 3 business days (computed at send time) |
+| `review_by` | SLA deadline: `submitted_at + INTERVAL '72 hours'` (3 calendar days, computed at send time) |
 | `application_id` | KYC application identifier — deep-links directly to the admin review page |
 | `is_resubmission` | Boolean — true when this is a resubmission of a previously rejected application |
 | `prior_rejection_date` | Date of prior rejection (omitted when `is_resubmission` is false) |

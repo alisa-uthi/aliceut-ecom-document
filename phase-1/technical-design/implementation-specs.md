@@ -115,7 +115,12 @@ Single `order.finalized` outbox event in same tx as `placement_outcome` write.
 <a id="kafka-transactional-outbox"></a>
 ## Kafka — Transactional Outbox
 
-Pattern: `outbox_event(id, topic, key, payload, occurred_at, published_at NULL)` in same Postgres tx as domain change. Relay polls `published_at IS NULL`, publishes, marks done. No direct Kafka publish outside outbox (enforce via architecture test).
+Pattern: `outbox_event(id, topic, key, payload, occurred_at, publication_status, published_at)` in same Postgres tx as domain change. No direct Kafka publish outside outbox (enforce via architecture test).
+
+**Relay polling predicate:** `WHERE publication_status = 'PENDING' ORDER BY id LIMIT 100`
+- On successful Kafka publish: set `publication_status = 'PUBLISHED'` and `published_at = NOW()`
+- On failure after max retries: set `publication_status = 'FAILED'`
+- `publication_status` is the canonical state; `published_at` is the audit timestamp when status became `PUBLISHED`
 
 ### Topics
 

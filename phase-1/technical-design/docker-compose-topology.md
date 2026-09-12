@@ -164,6 +164,7 @@ volumes:
   mongodb_data:
   elasticsearch_data:
   kafka_data:
+  minio_data:
 
 services:
 
@@ -236,7 +237,7 @@ services:
 
   api:
     build:
-      context: ./backend
+      context: ../aliceut-ecom-backend
       dockerfile: Dockerfile
       target: api
     container_name: aliceut_api
@@ -275,7 +276,7 @@ services:
 
   workers:
     build:
-      context: ./backend
+      context: ../aliceut-ecom-backend
       dockerfile: Dockerfile
       target: workers
     container_name: aliceut_workers
@@ -466,11 +467,11 @@ services:
     networks:
       - aliceut_backend
     healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-      start_period: 20s
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
 
   minio-init:
     image: minio/mc:latest
@@ -514,6 +515,12 @@ services:
         condition: service_healthy
       schema-registry:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 ```
 
 ---

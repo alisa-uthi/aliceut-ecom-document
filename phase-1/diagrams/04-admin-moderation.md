@@ -38,13 +38,15 @@ subgraph KYC["SECTION 1 - KYC REVIEW QUEUE"]
 end
 
 subgraph LISTING["SECTION 2 - LISTING MODERATION QUEUE"]
-    LA(["Seller creates or edits listing"])
-    LA --> LB{"Auto-flag check"}
-    LB -->|"Keyword blocklist hit"| LC["Listing auto-flagged"]
-    LB -->|"Prohibited category"| LC
-    LB -->|"No flags"| LD(["Listing goes live normally"])
-    LC --> LE["Listing hidden from search"]
-    LE --> LF["ET-08 sent to seller + CC admin\nper flagged listing"]
+    LA_C(["Seller creates listing"])
+    LA_E(["Seller edits listing"])
+    LA_C --> LB_C{"Auto-flag check\n(creation)"}
+    LB_C -->|"Keyword blocklist hit\nor prohibited category"| LC_REJ["HTTP 422 — submit rejected\nNo listing created"]
+    LB_C -->|"No flags"| LD(["Listing goes live normally"])
+    LA_E --> LB_E{"Auto-flag check\n(edit save)"}
+    LB_E -->|"Keyword blocklist hit\nor prohibited category"| LC["Listing auto-flagged\nhidden from search"]
+    LB_E -->|"No flags"| LD
+    LC --> LF["ET-08 sent to seller + CC admin\nper flagged listing"]
     LF --> LG["Flagged listing enters moderation queue\nsorted by flagged_at desc"]
     LG --> LH["Admin reviews flagged listing"]
     LH --> LI{"Admin decision"}

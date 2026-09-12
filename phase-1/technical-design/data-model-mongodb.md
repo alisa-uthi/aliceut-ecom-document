@@ -5,6 +5,8 @@
 
 Collections used for high-write append data: audit accountability and domain lifecycle events. All writes come from the single `audit` Kafka consumer group (see [kafka-events.md](kafka-events.md)).
 
+**Modelling convention:** All MongoDB `_id` fields use UUIDv7 in standard UUID binary representation (BinData subtype 4). Do not use `ObjectId` for domain or audit documents. This aligns with the Postgres UUIDv7 convention and enables correlation across stores.
+
 ---
 
 ## Summary
@@ -32,7 +34,7 @@ Admin/moderation actions. Answers: *who did what, and why.*
 
 | Field | Type | Notes |
 |---|---|---|
-| `_id` | ObjectId | |
+| `_id` | UUID (UUIDv7, BinData subtype 4) | |
 | `event_id` | string | UUID; unique index — idempotency key |
 | `event_type` | string | indexed |
 | `occurred_at` | Date | indexed |
@@ -50,6 +52,7 @@ db.audit_logs.createIndex({ event_id: 1 }, { unique: true })
 db.audit_logs.createIndex({ entity_id: 1, occurred_at: -1 })
 db.audit_logs.createIndex({ event_type: 1, occurred_at: -1 })
 db.audit_logs.createIndex({ actor_id: 1, occurred_at: -1 })
+db.audit_logs.createIndex({ occurred_at: 1 }, { expireAfterSeconds: 63072000 }) // 2-year TTL
 ```
 
 ---
@@ -61,7 +64,7 @@ Domain lifecycle events. Answers: *what happened to this order/product/offer.*
 
 | Field | Type | Notes |
 |---|---|---|
-| `_id` | ObjectId | |
+| `_id` | UUID (UUIDv7, BinData subtype 4) | |
 | `event_id` | string | UUID; unique index — idempotency key |
 | `event_type` | string | indexed |
 | `occurred_at` | Date | indexed |
@@ -79,4 +82,5 @@ db.activity_events.createIndex({ entity_id: 1, occurred_at: -1 })
 db.activity_events.createIndex({ actor_id: 1, occurred_at: -1 })
 db.activity_events.createIndex({ correlation_id: 1 })
 db.activity_events.createIndex({ event_type: 1, occurred_at: -1 })
+db.activity_events.createIndex({ occurred_at: 1 }, { expireAfterSeconds: 7776000 }) // 90-day TTL
 ```

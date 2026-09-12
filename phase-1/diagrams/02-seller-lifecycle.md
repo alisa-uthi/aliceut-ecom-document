@@ -6,7 +6,7 @@
 ## Key invariants
 
 - Seller registration at `/seller/register` — no buyer account required; existing buyer accounts can link SELLER role via same form (must authenticate with password; OAuth-only buyers set password first via US-B-15)
-- KYC submit fires ET-14 to seller AND ET-21 to admin; ET-21 includes SLA deadline (submitted_at + 3 business days); applies to resubmissions too
+- KYC submit fires ET-14 to seller AND ET-21 to admin; ET-21 includes SLA deadline (submitted_at + 72 hours / 3 calendar days); applies to resubmissions too
 - Suspension deactivates all listings; seller retains read-only access to PENDING orders for fulfillment only (US-A-05)
 - On reinstatement: only listings deactivated by the suspension are restored; independently-removed listings remain REMOVED (US-A-05b)
 - Timed suspensions (7/30/90 days) auto-lift via scheduler (US-P-18); listings reactivated automatically + ET-11 to seller
@@ -23,7 +23,7 @@ graph TD
     KYC_PENDING["KYC_PENDING\nApplication submitted\nAdmin review SLA: 3 days"]
     KYC_REJECTED["KYC_REJECTED\nRejected — update docs and resubmit"]
     ACTIVE["ACTIVE\nApproved — can list products and fulfill orders"]
-    SUSPENDED["SUSPENDED\nListings deactivated\n7d / 30d / 90d / permanent"]
+    SUSPENDED["SUSPENDED\nListings deactivated\n7d / 30d / 90d / permanent\nRead-only pending orders access retained for shipment"]
     SUSP_EXP["SUSPENSION_EXPIRED\nTimed TTL elapsed\nAwaiting scheduler auto-lift"]
 
     UNREGISTERED -->|"Create account or link existing buyer\nat /seller/register — email/password"| REGISTERED

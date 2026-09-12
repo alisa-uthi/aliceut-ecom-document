@@ -83,10 +83,10 @@ Active reservations expire after 15 minutes if checkout is not completed. Stock 
 CREATE OR REPLACE FUNCTION inventory.expire_reservations() RETURNS void LANGUAGE plpgsql AS $$
 BEGIN
   UPDATE inventory.stock s
-  SET available = s.available + r.quantity,
+  SET reserved_qty = s.reserved_qty - r.quantity,
       updated_at = NOW()
   FROM inventory.stock_reservation r
-  WHERE r.stock_id = s.id
+  WHERE r.offer_id = s.offer_id
     AND r.status = 'ACTIVE'
     AND r.expires_at < NOW();
 
@@ -215,7 +215,7 @@ BEGIN
       aggregate_type, aggregate_id, topic, event_type, event_version,
       payload, correlation_id, occurred_at, publication_status, attempt_count
     ) VALUES (
-      'seller_profile', r.id, 'seller.events', 'SellerSuspensionLifted', 1,
+      'seller_profile', r.id, 'seller.suspension_expired', 'seller.suspension_expired', 1,
       jsonb_build_object('seller_profile_id', r.id),
       gen_random_uuid(), NOW(), 'PENDING', 0
     );

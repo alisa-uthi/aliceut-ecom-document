@@ -46,6 +46,7 @@ Priority: Must — trace: FR-P-03
 - Order history totals are computed from these snapshots only — never from live pricing or current FX rates.
 - Regression test: mutating a price or FX rate after order placement must not change the order total in either currency.
 - **Grand total computation:** The order's grand total in buyer's preferred currency is computed as the sum of `(fulfillment_offer_currency_total × fulfillment_fx_rate_captured_at_checkout)` for each placed fulfillment. Where offer currency equals buyer preferred currency, `fx_rate = 1.000000`. This computation is performed at checkout and stored as `order.buyer_currency_grand_total` snapshot. It is never recomputed from live data after order creation.
+- The buyer's preferred currency is resolved at checkout submission time and stored as `fulfillment.buyer_display_currency` on each fulfillment. If preferred currency was "AUTO", the resolved currency from the browser's `Accept-Language` header at checkout submission time is stored. This value is immutable after order creation.
 
 ---
 
@@ -83,6 +84,12 @@ Priority: Must — trace: FR-P-06, NFR-03
 - Random subset: 10% SALE prices, 5% B2B_TIER prices.
 - Seed command is idempotent (rerun does not duplicate).
 - Seeded sellers: at minimum 3 seeded seller accounts are created. Each seeded seller has `KYC_STATUS = APPROVED` and `ACCOUNT_STATUS = ACTIVE` as set directly by the seed script (bypassing the KYC application queue — seeded sellers are pre-approved for demo purposes). One seeded seller corresponds to the "seller" demo account in BRD §11 (`seller@aliceut.dev`). The KYC onboarding flow (US-S-01) applies only to non-seeded sellers who register post-seed.
+- Demo accounts (all seeded on first startup):
+  - Consumer buyer:   `consumer@aliceut.dev` / `Consumer1234!`   (account_type: BUYER)
+  - Business buyer:   `business@aliceut.dev` / `Business1234!`   (account_type: B2B_BUYER)
+  - Seller:           `seller@aliceut.dev`   / `Seller1234!`     (account_type: SELLER, KYC status: APPROVED)
+  - Admin:            `admin@aliceut.dev`    / `Admin1234!`       (role: ADMIN)
+  - All passwords meet the password policy (8–128 chars, ≥ 1 letter, ≥ 1 digit).
 
 ---
 

@@ -301,11 +301,17 @@ sequenceDiagram
     A->>S: clearCart(buyer_id)
     activate S
     S->>P: SELECT cart.cart WHERE user_id = :buyer_id
-    P-->>S: cart_id
-    S->>P: DELETE FROM cart.cart_item WHERE cart_id = :cart_id
-    P-->>S: N rows deleted (0 if already empty)
+    alt no cart exists for buyer
+        P-->>S: no row
+        S-->>A: no-op
+        A-->>C: 204 No Content
+    else cart exists
+        P-->>S: cart_id
+        S->>P: DELETE FROM cart.cart_item WHERE cart_id = :cart_id
+        P-->>S: N rows deleted (0 if already empty)
+        A-->>C: 204 No Content
+    end
     deactivate S
-    A-->>C: 204 No Content
     deactivate A
 ```
 
@@ -355,23 +361,19 @@ sequenceDiagram
     S->>P: SELECT cart.cart_item WHERE cart_id = :cart_id
     P-->>S: existing server items (offer_id -> quantity map)
 
-    loop for each guestItem in guestItems
-        S->>P: SELECT catalog.offer<br/>WHERE id = :offerId AND status = 'ACTIVE'
-        alt offer is INACTIVE, REMOVED, or FLAGGED
-            P-->>S: no active row
-            Note over S: Skip — offer unavailable#59; no insert, no error
-        else offer is ACTIVE
-            P-->>S: offer row
-            alt offerId already in server cart
-                Note over S: Server qty wins — no INSERT or UPDATE. Guest quantity discarded.
-            else offerId not in server cart
-                S->>P: SELECT inventory.stock WHERE offer_id = :offerId
-                P-->>S: available_qty (checked live at merge time)
-                Note over S: cappedQty = MIN(guestItem.quantity, available_qty)
-                opt cappedQty > 0
-                    S->>P: INSERT INTO cart.cart_item<br/>(cart_id, offer_id, cappedQty)
-                end
-            end
+    Note over S: for each guestItem in guestItems:
+    S->>P: SELECT catalog.offer<br/>WHERE id = :offerId AND status = 'ACTIVE'
+    alt offer is INACTIVE, REMOVED, or FLAGGED
+        P-->>S: no active row
+        Note over S: Skip — offer unavailable&#59; no insert, no error
+    else offer is ACTIVE
+        P-->>S: offer row
+        alt offerId already in server cart
+            Note over S: Server qty wins — no INSERT or UPDATE. Guest quantity discarded.
+        else offerId not in server cart
+            S->>P: SELECT inventory.stock WHERE offer_id = :offerId
+            P-->>S: available_qty (checked live at merge time)
+            Note over S: cappedQty = MIN(guestItem.quantity, available_qty)<br/>if cappedQty > 0: INSERT INTO cart.cart_item(cart_id, offer_id, cappedQty)
         end
     end
 

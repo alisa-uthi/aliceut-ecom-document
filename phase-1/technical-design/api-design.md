@@ -24,6 +24,7 @@ Maps Phase 1 endpoint groups to NestJS guard classes. `—` = guard not applied.
 | Endpoint group | JwtAuth | Roles | EmailVerified | SellerApproved | SellerNotSuspended |
 |----------------|---------|-------|--------------|----------------|--------------------|
 | `GET /auth/google`, `/auth/facebook`, `/auth/google/callback`, `/auth/facebook/callback` | — | — | — | — | — |
+| `POST /auth/register` | — | — | — | — | — |
 | `POST /auth/login`, `/auth/refresh`, `/auth/forgot-password`, `/auth/reset-password`, `/auth/verify-email` | — | — | — | — | — |
 | `POST /auth/resend-verification` | YES | — | — | — | — |
 | `POST /auth/logout`, `/auth/change-password`, `/auth/set-password` | YES | — | — | — | — |
@@ -35,6 +36,7 @@ Maps Phase 1 endpoint groups to NestJS guard classes. `—` = guard not applied.
 | `GET /orders`, `GET /orders/:id` | YES | BUYER | — | — | — |
 | `POST /seller/register` | YES | BUYER | YES | — | — |
 | `GET /seller/profile`, `GET /seller/kyc` | YES | SELLER | — | — | — |
+| `PATCH /seller/profile` | YES | SELLER | — | — | — |
 | `GET /seller/offers`, `GET /seller/offers/:id` | YES | SELLER | — | YES | — |
 | `POST /seller/offers`, `PATCH /seller/offers/:id`, pricing, inventory | YES | SELLER | — | YES | YES |
 | `GET /seller/orders`, `GET /seller/orders/:id`, `POST /seller/orders/:id/ship` | YES | SELLER | — | — | — |

@@ -88,7 +88,7 @@ Rate limit: 5 attempts per IP per 15 min
   }
 }
 ```
-**Errors:** 400 validation, 401 email already registered (Show Invalid Credentials to user)
+**Errors:** 400 validation, 409 Conflict "Email already registered"
 
 #### Sequence
 
@@ -116,8 +116,8 @@ sequenceDiagram
     A->>IS: register(dto)
     IS->>PG: SELECT identity.user WHERE LOWER(email) = LOWER($1)
     alt email already registered
-        IS-->>A: BadRequestException
-        A-->>C: 401 Bad Request "Invalid Credentials"
+        IS-->>A: ConflictException
+        A-->>C: 409 Conflict "Email already registered"
     end
 
     IS->>IS: argon2id.hash(password)

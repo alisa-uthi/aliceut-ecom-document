@@ -179,7 +179,40 @@ GET /catalog/products/:productId
 Tag: Catalog
 Auth: PUBLIC
 ```
-**Response 200** — `data`-wrapped product with full variant list, images, and active offers (with effective price per offer)  
+**Response 200**
+```json
+{
+  "data": {
+    "id": "uuid",
+    "title": "string",
+    "brand": "string",
+    "description": "string",
+    "categoryId": "uuid",
+    "status": "ACTIVE",
+    "attributes": {},
+    "variants": [{ "id": "uuid", "sku": "string", "attributes": {} }],
+    "images": [{ "storageKey": "string", "altText": "string | null", "position": 0 }],
+    "offers": [
+      {
+        "offerId": "uuid",
+        "sellerId": "uuid",
+        "variantId": "uuid | null",
+        "variantLabel": "string | null",
+        "effectivePrice": {
+          "amount": "99.99",
+          "currency": "USD",
+          "priceType": "LIST | SALE",
+          "saleEndsAt": "ISO8601 | null"
+        },
+        "availableQty": 42,
+        "status": "ACTIVE"
+      }
+    ]
+  }
+}
+```
+**Note:** `effectivePrice.amount` is a string (money-as-string convention). No FX display conversion on this endpoint — use `GET /catalog/products/:id/offers?currency=` for buyer display currency.
+
 **Errors:** 404
 
 **Note:** No `currency` query param — `effectivePrice.amount` / `effectivePrice.currency` reflect the seller's native pricing currency only. No FX display conversion. For buyer display currency, use `GET /catalog/products/:id/offers?currency=` or `GET /pricing/offers/:id/effective-price?currency=`.
@@ -249,7 +282,6 @@ Auth: PUBLIC
 **Field semantics:**
 - `effectivePrice.amount` / `effectivePrice.currency` — seller's native pricing currency (resolved from `pricing.offer_price`)
 - `effectivePrice.displayAmount` / `effectivePrice.displayCurrency` / `effectivePrice.fxRate` — buyer's requested display currency (FX-converted from seller's native price using `pricing.fx_rate`). Omitted when `?currency` matches the offer's native currency.
-```
 
 #### Sequence
 

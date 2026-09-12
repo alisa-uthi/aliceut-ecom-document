@@ -26,6 +26,7 @@ Seller registration is at `/seller/register`. No existing buyer account is requi
 - **Step 2 — KYC application:** legal business name, business type (LLC / sole prop / corp), tax ID (country regex), country, business address, phone, uploads (business license PDF, ID doc, proof of address).
 - On KYC submit → application created with pending status; seller receives confirmation email (→ ET-14) and admin receives alert (→ ET-21).
 - Seller with a pending or approved application cannot submit a new one; rejected application shows "Update and resubmit" CTA instead of the new-application form.
+- The seller registration form does not include the "This is a business account" checkbox. Seller accounts are not BUYER or B2B_BUYER by default. A seller who also wants B2B buyer status must register or update a separate buyer account.
 
 ---
 
@@ -74,6 +75,7 @@ Priority: Must — trace: FR-S-04
 - Editing price on an Offer with PENDING orders is allowed (FR-P-03 snapshot protects existing orders); seller sees a warning that price change does not affect in-flight orders.
 - Deleting a variant that has PENDING orders is blocked with an error message; all PENDING orders on that variant must be refunded or fulfilled first.
 - Delete = soft delete; listing becomes invisible to buyers but historical order data is preserved.
+- Soft-deleting a listing deactivates all associated Price rows (all price_types) by setting `inactive_at = soft_delete timestamp`. The SALE scheduler and PDP price resolver ignore prices for soft-deleted offers.
 - Removing a listing removes it from search results.
 
 ---
@@ -102,7 +104,7 @@ Priority: Must — trace: FR-S-05, FR-B-10
 - Tabs: `Pending`, `Shipped`, `Delivered`, `Refunded`, `Cancelled`.
 - Row: order_id, buyer name masked (`J. Doe`), items, total in offer currency, placed_at, action button.
 - Each row is one seller/currency fulfillment and shows its own lifecycle status.
-- List filterable by date range; searchable by order_id.
+- List filterable by date range; searchable by order_id. Pagination: offset-based — `page` (1-based), `limit` (default 20, max 100); response envelope `{ data, total, page, limit }`. Default sort: `placed_at DESC`.
 - Orders for removed or admin-flagged listings still appear in the relevant tab with a "Listing removed" badge so the seller retains fulfillment visibility.
 - Seller notified by email when a new order is created for them (→ ET-17).
 - **Empty state:** if no orders exist in the selected tab, show tab-specific guidance: Pending tab → "No pending orders — new orders appear here"; other tabs → "No orders in this status."
@@ -158,6 +160,7 @@ Priority: Must — trace: FR-S-08
 - Inventory page: table of variants × on_hand, reserved, available (on_hand − reserved).
 - "Reserved" = units held by PENDING orders not yet shipped. Displayed as a tooltip/legend on the column header.
 - Threshold configurable per SKU (default 5). Below threshold → email (→ ET-15) + in-app banner alert.
+- Low-stock alert trigger is edge-triggered: the alert fires exactly once when available quantity transitions from ≥ threshold to < threshold. No additional alert fires if inventory decreases further while already below threshold. The alert re-arms automatically when available quantity rises back to ≥ threshold.
 - Manual adjust: on_hand editable inline with reason logged.
 - Bulk update via CSV (US-S-09) reuses same alert logic and zero-stock deactivation rule.
 
@@ -204,3 +207,20 @@ Priority: Should — trace: FR-S-05, FR-S-07
   4. Buyer notified by email with reason (→ ET-16).
 - Repeating a cancel on an already-`CANCELLED` fulfillment is a no-op.
 - Cancelled orders appear in a `Cancelled` tab on the fulfillment dashboard (US-S-05).
+
+---
+
+## US-S-12 — Reset forgotten password (seller portal)
+**As a** seller, **I want** to reset my forgotten password via email link, **so that** I can regain access to my seller account without contacting support.  
+Priority: Must — trace: FR-S-01, NFR-05
+
+The seller portal (`/seller/login`) uses email/password exclusively — OAuth is not available. All seller accounts have a local password set at registration (US-S-01) or via the buyer portal password-set flow (US-B-15) for accounts that originated as OAuth buyers.
+
+**Acceptance criteria**
+- **Stage 1 — email submission (enumeration-safe):** Given a seller clicks "Forgot password?" on `/seller/login` and submits any email address, Then they see: "If a seller account with that email exists, we sent a reset link." The response is identical whether the email is registered as a seller, not registered, or not registered as a seller — no email enumeration.
+- Reset email (ET-19) contains a single-use link pointing to `/seller/reset-password?token=<token>` with a 60-minute TTL. ET-19 is only dispatched when a matching seller account is found; the generic response is shown regardless.
+- The reset link token is scoped to the seller portal; opening it navigates to `/seller/reset-password`, not `/reset-password`.
+- **Stage 2 — password reset form:** Given a seller opens a valid reset link at `/seller/reset-password`, When they submit a new password meeting requirements (≥ 8 chars, ≥ 1 letter, ≥ 1 number), Then the password is updated, all other active seller sessions for that account are signed out, and the seller is redirected to `/seller/login` with a success message "Password updated — please sign in."
+- Given a seller opens an expired or already-used reset link, Then they see: "This link has expired or was already used. Request a new one."
+- On successful password reset, an email notification (→ ET-20) is sent to the account holder confirming the change. This fires even if the reset was initiated by the legitimate owner, as a security alert for unauthorized changes.
+- Password-reset tokens issued for the seller portal (`/seller/forgot-password`) are separate from buyer-portal reset tokens. A token issued at one portal cannot be used at the other.

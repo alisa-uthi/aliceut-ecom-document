@@ -2,7 +2,7 @@
 ## seller-app (port 4201)
 
 **Status:** Draft  
-**Stack:** Angular 17+ + Angular Material + `libs/ui/` shared components  
+**Stack:** Angular 22+ + Angular Material + `libs/ui/` shared components  
 **Auth:** Email/password only (no OAuth). JWT with SELLER role.
 
 ---
@@ -23,6 +23,7 @@
 - [Screen 11 — Offer Pricing](#screen-11-offer-pricing)
 - [Screen 12 — Seller Forgot Password](#screen-12-seller-forgot-password)
 - [Screen 13 — Seller Reset Password](#screen-13-seller-reset-password)
+- [Screen 14 — Seller Notifications](#screen-14-seller-notifications)
 
 <a id="shell-layout"></a>
 ## Shell Layout
@@ -228,7 +229,11 @@ mat-stepper [linear] [orientation]="isDesktop ? 'horizontal' : 'vertical'"
       mat-form-field [appearance=outline; fullWidth]
         mat-label — Tax ID / Business Registration Number
         input matInput formControlName="taxId"
-        mat-hint — Format varies by country
+        mat-hint — Your tax ID or business registration number
+        <!-- V1 validation policy: required, maxLength(50). No country-specific format validation.
+             Backend stores as-is. Placeholder: "Enter your tax ID number" -->
+        mat-error *ngIf="taxId.hasError('required')" — Tax ID is required
+        mat-error *ngIf="taxId.hasError('maxlength')" — Tax ID must not exceed 50 characters
       mat-form-field [appearance=outline; fullWidth]
         mat-label — Country
         mat-select formControlName="country"
@@ -1155,6 +1160,62 @@ div.auth-page [display: flex; justify-content: center; padding: 48px 16px]
 ```
 
 **On success:** Redirect to `/seller/login?passwordReset=true`. The login page shows a success banner: "Password reset successfully — please sign in with your new password."
+
+---
+
+<a id="screen-14-seller-notifications"></a>
+## Screen 14 — Seller Notifications
+
+**Route:** `/seller/notifications`
+**Guard:** `KycApprovedGuard` (seller must be KYC-approved; listing/order notifications only relevant post-approval)
+**Component:** `SellerNotificationsComponent`
+
+### Layout
+
+Identical structure to buyer notifications page (see buyer-portal.md Screen 16). Seller-specific notification types only.
+
+```
+h1 mat-h4 — "Notifications"
+div.notifications-header [display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px]
+  button mat-stroked-button [disabled]="allRead" (click)="markAllRead()" — Mark all as read
+
+div.notifications-list [max-width: 800px]
+  mat-card.notification-card *ngFor="let n of notifications"
+    [class.unread]="!n.readAt"
+    [cursor: pointer] (click)="handleClick(n)"
+    [display: flex; align-items: flex-start; gap: 16px; padding: 16px]
+    mat-icon [color]="typeIconColor(n.type)" — {{ typeIcon(n.type) }}
+    div [flex: 1]
+      p mat-body-1 [font-weight]="!n.readAt ? '600' : '400'" — {{ n.title }}
+      p mat-body-2 *ngIf="n.body" — {{ n.body }}
+      p mat-caption color="secondary" — {{ n.createdAt | timeAgo }}
+    div.unread-dot *ngIf="!n.readAt"
+
+  div.load-more *ngIf="hasMore"
+    button mat-stroked-button (click)="loadMore()" — Load more
+
+<aliceut-empty-state *ngIf="!loading && notifications.length === 0"
+  icon="notifications_none"
+  title="No notifications"
+  message="Order and listing alerts will appear here.">
+</aliceut-empty-state>
+```
+
+### Notification types displayed
+
+`ORDER_PLACED`, `LISTING_FLAGGED`, `FULFILLMENT_CANCELLED`, `KYC_APPROVED`, `KYC_REJECTED`,
+`SELLER_SUSPENDED`, `SUSPENSION_EXPIRED` (seller-relevant types per `notifications.md`)
+
+### API calls
+
+- `GET /notifications?page=1&limit=20`
+- `GET /notifications?page=N&limit=20` — load more
+- `PATCH /notifications/read-all`
+- `PATCH /notifications/:id/read`
+
+### Mobile
+
+Full-width cards, same as buyer notifications.
 
 ---
 

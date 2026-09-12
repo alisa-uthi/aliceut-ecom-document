@@ -1,7 +1,7 @@
 # Authentication Portals
 
 **References:** US-B-00, US-B-01, US-B-15, US-S-01, US-A-00b  
-**Email templates:** ET-18 (email verification — buyer), ET-21 (KYC alert — to admin)  
+**Email templates:** ET-14 (KYC received — to seller), ET-18 (email verification — buyer), ET-21 (KYC alert — to admin)  
 
 ## Key invariants
 

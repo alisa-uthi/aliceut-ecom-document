@@ -2,7 +2,7 @@
 ## All Three Angular Portals — Phase 1
 
 **Status:** Draft  
-**Stack:** Angular Router 17+ with `provideRouter()`, lazy-loaded feature modules, standalone components
+**Stack:** Angular Router 22+ with `provideRouter()`, lazy-loaded feature modules, standalone components
 
 ---
 
@@ -366,6 +366,10 @@ export const appRoutes: Routes = [
 | `/seller/listings/**` | `SellerAuthGuard`, `KycApprovedGuard`, `NotSuspendedGuard` | — |
 | `/seller/orders/**` | `SellerAuthGuard`, `KycApprovedGuard` | No `NotSuspendedGuard` — suspended sellers retain read-only Pending tab access; tab restriction enforced at component level in `SellerOrderQueueComponent` (US-A-05) |
 | `/seller/inventory/**` | `SellerAuthGuard`, `KycApprovedGuard`, `NotSuspendedGuard` | — |
+| `/notifications` | `AuthGuard` | Buyer notifications page; bell "View all" link target |
+| `/seller/notifications` | `SellerAuthGuard`, `KycApprovedGuard` | Seller notifications page; bell "View all" link target |
+| `/seller/forgot-password` | None (public) | No auth guard — accessible from any state |
+| `/seller/reset-password` | None (public) | Handles `?token=` query param; no auth guard |
 | `/admin/**` | `AdminAuthGuard` | Exception: `/admin/login` uses `GuestGuard` |
 
 ---

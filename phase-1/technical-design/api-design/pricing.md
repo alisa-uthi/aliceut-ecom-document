@@ -69,7 +69,7 @@ Auth: PUBLIC (buyer account type from JWT if authenticated)
 **Field semantics:**
 - `amount` / `currency` — seller's native pricing currency (the price row stored in `pricing.offer_price`)
 - `displayCurrency` / `displayAmount` / `fxRate` / `fxRateStaleAt` — buyer's requested display currency (FX-converted, display-only). Omitted when `currency` param matches the offer's native currency (no conversion needed). `fxRateStaleAt` is set (and `displayAmount` omitted) when the FX rate is missing or stale.
-**Errors:** 404 offer not found, 422 currency not supported
+**Errors:** 404 offer not found, 422 currency not supported, 422 no price available in requested currency
 
 #### Sequence
 
@@ -86,40 +86,34 @@ sequenceDiagram
 
     PricingService->>Postgres: SELECT id, status FROM catalog.offer WHERE id = :offerId
     Postgres-->>PricingService: offer row
-
     alt offer not found or status != ACTIVE
         PricingService-->>API: not found
         API-->>Client: 404 offer not found
-    else offer is active
-        PricingService->>Postgres: SELECT code, minor_unit_scale FROM pricing.currency<br/>WHERE code = :currency AND is_seller_price_allowed = true
-        Postgres-->>PricingService: currency row
-
-        alt currency not supported (not in USD, THB, JPY, SGD)
-            PricingService-->>API: unsupported currency
-            API-->>Client: 422 currency not supported
-        else currency valid
-            PricingService->>Postgres: SELECT price_type, amount, currency_code, min_qty, starts_at, ends_at<br/>FROM pricing.offer_price WHERE offer_id = :offerId AND currency_code = :currency
-            Postgres-->>PricingService: price rows (LIST#59; optionally SALE and B2B_TIER)
-
-            alt no LIST row exists for requested currency
-                PricingService-->>API: no price in this currency
-                API-->>Client: 404 offer not found
-            else price rows present
-                Note over PricingService: Price resolution (decimal.js arithmetic): Step 1 — B2B_TIER: accountType = B2B AND B2B_TIER row exists AND qty >= B2B_TIER.min_qty — selectedPrice = B2B_TIER row. Step 2 — SALE: SALE row exists AND NOW() BETWEEN starts_at AND ends_at — selectedPrice = SALE row — saleEndsAt = ends_at. Step 3 — Fallback: selectedPrice = LIST row
-
-                alt requestedCurrency is offer native currency (no FX conversion)
-                    PricingService-->>API: effective price result (no display conversion)
-                else requestedCurrency differs from offer native currency
-                    PricingService->>Postgres: SELECT rate, as_of, updated_at FROM pricing.fx_rate<br/>WHERE base_currency_code = :offerCurrency AND quote_currency_code = :displayCurrency
-                    Postgres-->>PricingService: FX rate row (or empty)
-                    Note over PricingService: FX is display-only — never used to reprice orders. If stale or missing: fxRateStaleAt set — displayAmount omitted. If fresh: displayAmount = amount x rate (decimal.js)
-                    PricingService-->>API: effective price with optional FX display conversion
-                end
-
-                API-->>Client: 200 { data: { offerId, amount, currency, priceType, saleEndsAt,<br/>minQty, displayCurrency, displayAmount, fxRate, fxRateStaleAt } }
-            end
-        end
     end
+
+    PricingService->>Postgres: SELECT code, minor_unit_scale FROM pricing.currency<br/>WHERE code = :currency AND is_seller_price_allowed = true
+    Postgres-->>PricingService: currency row
+    alt currency not supported (not in USD, THB, JPY, SGD)
+        PricingService-->>API: unsupported currency
+        API-->>Client: 422 currency not supported
+    end
+
+    PricingService->>Postgres: SELECT price_type, amount, currency_code, min_qty, starts_at, ends_at<br/>FROM pricing.offer_price WHERE offer_id = :offerId AND currency_code = :currency
+    Postgres-->>PricingService: price rows (LIST&#59; optionally SALE and B2B_TIER)
+    alt no LIST row exists for requested currency
+        PricingService-->>API: no price in this currency
+        API-->>Client: 422 Unprocessable Entity "No price available in currency: {currency}"
+    end
+
+    Note over PricingService: Price resolution (decimal.js): B2B_TIER if accountType=B2B+qty≥min_qty → SALE if NOW() BETWEEN starts_at AND ends_at → LIST fallback
+    Note over PricingService: FX display: if requestedCurrency != offer native currency — fetch pricing.fx_rate&#59; if fresh: displayAmount = amount × rate (decimal.js)&#59; if stale/missing: fxRateStaleAt set, displayAmount omitted
+    alt requestedCurrency differs from offer native currency
+        PricingService->>Postgres: SELECT rate, as_of, updated_at FROM pricing.fx_rate<br/>WHERE base_currency_code = :offerCurrency AND quote_currency_code = :displayCurrency
+        Postgres-->>PricingService: FX rate row (or empty)
+    end
+
+    PricingService-->>API: effective price result
+    API-->>Client: 200 { data: { offerId, amount, currency, priceType, saleEndsAt,<br/>minQty, displayCurrency, displayAmount, fxRate, fxRateStaleAt } }
 ```
 
 ---

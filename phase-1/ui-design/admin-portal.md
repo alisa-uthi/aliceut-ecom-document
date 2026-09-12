@@ -2,7 +2,7 @@
 ## admin-app (port 4202)
 
 **Status:** Draft  
-**Stack:** Angular 17+ + Angular Material + `libs/ui/` shared components  
+**Stack:** Angular 22+ + Angular Material + `libs/ui/` shared components  
 **Auth:** Email/password only. JWT with ADMIN role. No self-registration. No OAuth.
 
 ---
@@ -18,6 +18,7 @@
 - [Screen 6 — Moderation Case Detail](#screen-6-moderation-case-detail)
 - [Screen 7 — Seller Management](#screen-7-seller-management)
 - [Screen 8 — Seller Detail](#screen-8-seller-detail)
+- [Screen 9 — Admin Notifications](#screen-9-admin-notifications)
 
 <a id="shell-layout"></a>
 ## Shell Layout
@@ -724,3 +725,60 @@ div.detail-grid [display: grid; grid-template-columns: 1fr 360px; gap: 24px]
 `ConfirmDialog` with `requireReason=true`:
 - Title: "Lift Suspension?"
 - Message: "The seller's account and eligible listings will be reactivated. Enter a reason for reinstatement."
+
+---
+
+<a id="screen-9-admin-notifications"></a>
+## Screen 9 — Admin Notifications
+
+**Route:** `/admin/notifications`
+**Guard:** `AuthGuard` (ADMIN role)
+**Component:** `AdminNotificationsComponent`
+
+### Layout
+
+Identical structure to buyer notifications page (see buyer-portal.md Screen 16).
+
+```
+h1 mat-h4 — "Notifications"
+div.notifications-header [display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px]
+  button mat-stroked-button [disabled]="allRead" (click)="markAllRead()" — Mark all as read
+
+div.notifications-list [max-width: 800px]
+  mat-card.notification-card *ngFor="let n of notifications"
+    [class.unread]="!n.readAt"
+    [cursor: pointer] (click)="handleClick(n)"
+    [display: flex; align-items: flex-start; gap: 16px; padding: 16px]
+    mat-icon [color]="typeIconColor(n.type)" — {{ typeIcon(n.type) }}
+    div [flex: 1]
+      p mat-body-1 [font-weight]="!n.readAt ? '600' : '400'" — {{ n.title }}
+      p mat-body-2 *ngIf="n.body" — {{ n.body }}
+      p mat-caption color="secondary" — {{ n.createdAt | timeAgo }}
+    div.unread-dot *ngIf="!n.readAt"
+
+  div.load-more *ngIf="hasMore"
+    button mat-stroked-button (click)="loadMore()" — Load more
+
+<aliceut-empty-state *ngIf="!loading && notifications.length === 0"
+  icon="notifications_none"
+  title="No notifications"
+  message="System alerts will appear here.">
+</aliceut-empty-state>
+```
+
+### Notification types displayed
+
+Admin-specific system notifications (e.g., KYC queue spikes, moderation queue alerts).
+In V1, admin notifications are informational only — admin actions are initiated from dedicated
+KYC/moderation dashboards, not via notification click-through.
+
+### API calls
+
+- `GET /notifications?page=1&limit=20`
+- `GET /notifications?page=N&limit=20` — load more
+- `POST /notifications/read-all`
+- `PATCH /notifications/:id/read`
+
+### Mobile
+
+Full-width cards, same as buyer notifications.

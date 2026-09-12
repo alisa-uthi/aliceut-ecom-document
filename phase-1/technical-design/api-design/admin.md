@@ -50,8 +50,8 @@
 | `POST /admin/sellers/:id/reinstate` | Postgres | `seller.seller_profile`, `catalog.offer` (re-enable), `platform.outbox_event` (`seller.reinstated`) |
 | `GET /admin/moderation` | Postgres | `admin.moderation_case`, `catalog.offer` |
 | `GET /admin/moderation/:id` | Postgres | `admin.moderation_case` |
-| `POST /admin/moderation/:id/decide` | Postgres | `admin.moderation_case`, `catalog.offer` (status → REMOVED), `platform.outbox_event` (`moderation.listing.removed`); ES deindex async via consumer |
-| `POST /admin/moderation` | Postgres | `admin.moderation_case` (manual flag insert), `catalog.offer` (status → FLAGGED), `platform.outbox_event` (`listing.flagged`) |
+| `POST /admin/moderation/:id/decide` | Postgres | `admin.moderation_case`, `catalog.offer` (status → REMOVED or ACTIVE), `platform.outbox_event` (`moderation.listing.removed` on REMOVE; `offer.changed` on DISMISS); ES deindex/reindex async via consumer |
+| `POST /admin/moderation` | Postgres | `admin.moderation_case` (manual flag insert), `catalog.offer` (status → FLAGGED), `platform.outbox_event` (`listing.flagged`, `offer.changed`); ES deindex async via search consumer |
 | `GET /admin/dashboard/stats` | Postgres | `seller.kyc_application`, `admin.moderation_case`, `seller.seller_profile` (counts) |
 
 ---
@@ -95,16 +95,13 @@ sequenceDiagram
 
     C->>API: GET /admin/kyc
     API->>G: verify token + ADMIN role
-    alt no valid ADMIN token
-        G-->>C: 403 Forbidden
-    else ADMIN role confirmed
-        G-->>API: pass
-        API->>S: listKycApplications(filters, pagination)
-        S->>PG: SELECT kyc_application JOIN seller_profile WHERE status=? LIMIT/OFFSET
-        PG-->>S: rows + total count
-        S-->>API: paginated list
-        API-->>C: 200 { data[], meta }
-    end
+    Note over G: 403 if no valid ADMIN token (missing, invalid, or non-ADMIN role)
+    G-->>API: pass
+    API->>S: listKycApplications(filters, pagination)
+    S->>PG: SELECT kyc_application JOIN seller_profile WHERE status=? LIMIT/OFFSET
+    PG-->>S: rows + total count
+    S-->>API: paginated list
+    API-->>C: 200 { data[], meta }
 ```
 
 ---
@@ -144,18 +141,15 @@ sequenceDiagram
 
     C->>API: GET /admin/kyc/:applicationId
     API->>G: verify token + ADMIN role
-    alt no valid ADMIN token
-        G-->>C: 403 Forbidden
-    else ADMIN role confirmed
-        G-->>API: pass
-        API->>S: getKycDetail(applicationId)
-        S->>PG: SELECT kyc_application JOIN seller_profile, generate presigned doc URLs
-        PG-->>S: application data + document references
-        S->>MDB: INSERT audit_logs { action: KYC_DOC_VIEW, actor: adminId, entity: applicationId }
-        MDB-->>S: ack
-        S-->>API: application with documentUrls
-        API-->>C: 200 { data: { id, seller, submittedData, documentUrls, status } }
-    end
+    Note over G: 403 if no valid ADMIN token (missing, invalid, or non-ADMIN role)
+    G-->>API: pass
+    API->>S: getKycDetail(applicationId)
+    S->>PG: SELECT kyc_application JOIN seller_profile, generate presigned doc URLs
+    PG-->>S: application data + document references
+    S->>MDB: INSERT audit_logs { action: KYC_DOC_VIEW, actor: adminId, entity: applicationId }
+    MDB-->>S: ack
+    S-->>API: application with documentUrls
+    API-->>C: 200 { data: { id, seller, submittedData, documentUrls, status } }
 ```
 
 ---
@@ -189,29 +183,26 @@ sequenceDiagram
 
     C->>API: POST /admin/kyc/:applicationId/decide
     API->>G: verify token + ADMIN role
-    alt no valid ADMIN token
-        G-->>C: 403 Forbidden
-    else ADMIN role confirmed
-        G-->>API: pass
-        API->>S: decideKyc(applicationId, decision, reason)
-        S->>PG: SELECT kyc_application.status
-        alt status != PENDING
-            PG-->>S: already decided
-            S-->>C: 409 Conflict
-        else status = PENDING
-            Note over S,PG: Atomic Postgres transaction
-            S->>PG: BEGIN TX
-            S->>PG: UPDATE kyc_application SET status, reviewer_user_id, decided_at
-            S->>PG: UPDATE seller_profile SET kyc_status = decision
-            S->>PG: INSERT outbox_event (seller.kyc.decided)
-            S->>PG: COMMIT TX
-            S->>MDB: INSERT audit_logs { KYC_DECIDED, decision, reviewer }
-            MDB-->>S: ack
-            S-->>C: 200 { data: { status: APPROVED | REJECTED } }
-            Note over Relay: async — independent of response
-            Relay-)PG: poll outbox_event WHERE publication_status = PENDING
-            Relay-)Relay: publish seller.kyc.decided to Kafka
-        end
+    Note over G: 403 if no valid ADMIN token (missing, invalid, or non-ADMIN role)
+    G-->>API: pass
+    API->>S: decideKyc(applicationId, decision, reason)
+    S->>PG: SELECT kyc_application.status
+    alt status != PENDING
+        PG-->>S: already decided
+        S-->>C: 409 Conflict
+    else status = PENDING
+        Note over S,PG: Atomic Postgres transaction
+        S->>PG: BEGIN TX
+        S->>PG: UPDATE kyc_application SET status, reviewer_user_id, decided_at
+        S->>PG: UPDATE seller_profile SET kyc_status = decision
+        S->>PG: INSERT outbox_event (seller.kyc.decided)
+        S->>PG: COMMIT TX
+        S->>MDB: INSERT audit_logs { KYC_DECIDED, decision, reviewer }
+        MDB-->>S: ack
+        S-->>C: 200 { data: { status: APPROVED | REJECTED } }
+        Note over Relay: async — independent of response
+        Relay-)PG: poll outbox_event WHERE publication_status = PENDING
+        Relay-)Relay: publish seller.kyc.decided to Kafka
     end
 ```
 
@@ -256,16 +247,13 @@ sequenceDiagram
 
     C->>API: GET /admin/sellers
     API->>G: verify token + ADMIN role
-    alt no valid ADMIN token
-        G-->>C: 403 Forbidden
-    else ADMIN role confirmed
-        G-->>API: pass
-        API->>S: listSellers(filters, pagination)
-        S->>PG: SELECT seller_profile JOIN identity.user, COUNT(offer) WHERE filters LIMIT/OFFSET
-        PG-->>S: rows + total count
-        S-->>API: paginated list
-        API-->>C: 200 { data[], meta }
-    end
+    Note over G: 403 if no valid ADMIN token (missing, invalid, or non-ADMIN role)
+    G-->>API: pass
+    API->>S: listSellers(filters, pagination)
+    S->>PG: SELECT seller_profile JOIN identity.user, COUNT(offer) WHERE filters LIMIT/OFFSET
+    PG-->>S: rows + total count
+    S-->>API: paginated list
+    API-->>C: 200 { data[], meta }
 ```
 
 ---
@@ -310,20 +298,17 @@ sequenceDiagram
 
     C->>API: GET /admin/sellers/:sellerId
     API->>G: verify token + ADMIN role
-    alt no valid ADMIN token
-        G-->>C: 403 Forbidden
-    else ADMIN role confirmed
-        G-->>API: pass
-        API->>S: getSellerDetail(sellerId)
-        S->>PG: SELECT seller_profile JOIN identity.user, COUNT(offer) WHERE id = ?
-        alt not found
-            PG-->>S: 0 rows
-            S-->>C: 404 Not Found
-        else found
-            PG-->>S: seller row with listing counts
-            S-->>API: seller detail
-            API-->>C: 200 { data: { id, businessName, taxId, kycStatus, suspensionStatus, ... } }
-        end
+    Note over G: 403 if no valid ADMIN token (missing, invalid, or non-ADMIN role)
+    G-->>API: pass
+    API->>S: getSellerDetail(sellerId)
+    S->>PG: SELECT seller_profile JOIN identity.user, COUNT(offer) WHERE id = ?
+    alt not found
+        PG-->>S: 0 rows
+        S-->>C: 404 Not Found
+    else found
+        PG-->>S: seller row with listing counts
+        S-->>API: seller detail
+        API-->>C: 200 { data: { id, businessName, taxId, kycStatus, suspensionStatus, ... } }
     end
 ```
 
@@ -363,32 +348,29 @@ sequenceDiagram
 
     C->>API: POST /admin/sellers/:sellerId/suspend
     API->>G: verify token + ADMIN role
-    alt no valid ADMIN token
-        G-->>C: 403 Forbidden
-    else ADMIN role confirmed
-        G-->>API: pass
-        API->>S: suspendSeller(sellerId, reason, durationDays)
-        S->>PG: SELECT seller_profile.suspension_status
-        alt already SUSPENDED
-            PG-->>S: SUSPENDED
-            S-->>C: 409 Conflict
-        else ACTIVE
-            PG-->>S: ACTIVE
-            Note over S,PG: Atomic Postgres transaction
-            S->>PG: BEGIN TX
-            S->>PG: UPDATE seller_profile SET suspension_status=SUSPENDED, suspended_until, suspension_reason
-            S->>PG: UPDATE catalog.offer SET status=INACTIVE, status_changed_reason=SUSPENSION WHERE seller_id=? AND status=ACTIVE
-            S->>PG: INSERT outbox_event (seller.suspended, payload includes offer_ids)
-            S->>PG: COMMIT TX
-            S->>MDB: INSERT audit_logs { SELLER_SUSPENDED, actor, reason, duration }
-            MDB-->>S: ack
-            S-->>C: 200 { data: { status: SUSPENDED } }
-            Note over Relay,ES: async cascade
-            Relay-)PG: poll outbox_event WHERE publication_status = PENDING
-            Relay-)Relay: publish seller.suspended to Kafka
-            SC-)SC: consume seller.suspended
-            SC->>ES: deindex all offer_ids from search index
-        end
+    Note over G: 403 if no valid ADMIN token (missing, invalid, or non-ADMIN role)
+    G-->>API: pass
+    API->>S: suspendSeller(sellerId, reason, durationDays)
+    S->>PG: SELECT seller_profile.suspension_status
+    alt already SUSPENDED
+        PG-->>S: SUSPENDED
+        S-->>C: 409 Conflict
+    else ACTIVE
+        PG-->>S: ACTIVE
+        Note over S,PG: Atomic Postgres transaction
+        S->>PG: BEGIN TX
+        S->>PG: UPDATE seller_profile SET suspension_status=SUSPENDED, suspended_until, suspension_reason
+        S->>PG: UPDATE catalog.offer SET status=INACTIVE, status_changed_reason=SUSPENSION WHERE seller_id=? AND status=ACTIVE
+        S->>PG: INSERT outbox_event (seller.suspended, payload includes offer_ids)
+        S->>PG: COMMIT TX
+        S->>MDB: INSERT audit_logs { SELLER_SUSPENDED, actor, reason, duration }
+        MDB-->>S: ack
+        S-->>C: 200 { data: { status: SUSPENDED } }
+        Note over Relay,ES: async cascade
+        Relay-)PG: poll outbox_event WHERE publication_status = PENDING
+        Relay-)Relay: publish seller.suspended to Kafka
+        SC-)SC: consume seller.suspended
+        SC->>ES: deindex all offer_ids from search index
     end
 ```
 
@@ -421,30 +403,27 @@ sequenceDiagram
 
     C->>API: POST /admin/sellers/:sellerId/reinstate
     API->>G: verify token + ADMIN role
-    alt no valid ADMIN token
-        G-->>C: 403 Forbidden
-    else ADMIN role confirmed
-        G-->>API: pass
-        API->>S: reinstateSeller(sellerId)
-        S->>PG: SELECT seller_profile.suspension_status
-        alt not suspended
-            PG-->>S: ACTIVE
-            S-->>C: 409 Conflict
-        else SUSPENDED
-            PG-->>S: SUSPENDED
-            Note over S,PG: Atomic Postgres transaction
-            S->>PG: BEGIN TX
-            S->>PG: UPDATE seller_profile SET suspension_status=ACTIVE, suspended_until=NULL
-            S->>PG: UPDATE catalog.offer SET status=ACTIVE WHERE seller_id=? AND status_changed_reason=SUSPENSION
-            S->>PG: INSERT outbox_event (seller.reinstated, reactivated offer_ids)
-            S->>PG: COMMIT TX
-            S-->>C: 200 { data: { suspensionStatus: ACTIVE } }
-            Note over Relay,ES: async cascade
-            Relay-)PG: poll outbox_event WHERE publication_status = PENDING
-            Relay-)Relay: publish seller.reinstated to Kafka
-            SC-)SC: consume seller.reinstated
-            SC->>ES: re-enable seller offers in search index
-        end
+    Note over G: 403 if no valid ADMIN token (missing, invalid, or non-ADMIN role)
+    G-->>API: pass
+    API->>S: reinstateSeller(sellerId)
+    S->>PG: SELECT seller_profile.suspension_status
+    alt not suspended
+        PG-->>S: ACTIVE
+        S-->>C: 409 Conflict
+    else SUSPENDED
+        PG-->>S: SUSPENDED
+        Note over S,PG: Atomic Postgres transaction
+        S->>PG: BEGIN TX
+        S->>PG: UPDATE seller_profile SET suspension_status=ACTIVE, suspended_until=NULL
+        S->>PG: UPDATE catalog.offer SET status=ACTIVE WHERE seller_id=? AND status_changed_reason=SUSPENSION
+        S->>PG: INSERT outbox_event (seller.reinstated, reactivated offer_ids)
+        S->>PG: COMMIT TX
+        S-->>C: 200 { data: { suspensionStatus: ACTIVE } }
+        Note over Relay,ES: async cascade
+        Relay-)PG: poll outbox_event WHERE publication_status = PENDING
+        Relay-)Relay: publish seller.reinstated to Kafka
+        SC-)SC: consume seller.reinstated
+        SC->>ES: re-enable seller offers in search index
     end
 ```
 
@@ -488,16 +467,13 @@ sequenceDiagram
 
     C->>API: GET /admin/moderation
     API->>G: verify token + ADMIN role
-    alt no valid ADMIN token
-        G-->>C: 403 Forbidden
-    else ADMIN role confirmed
-        G-->>API: pass
-        API->>S: listModerationCases(filters, pagination)
-        S->>PG: SELECT moderation_case JOIN catalog.offer WHERE status=? LIMIT/OFFSET
-        PG-->>S: rows + total count
-        S-->>API: paginated list
-        API-->>C: 200 { data[], meta }
-    end
+    Note over G: 403 if no valid ADMIN token (missing, invalid, or non-ADMIN role)
+    G-->>API: pass
+    API->>S: listModerationCases(filters, pagination)
+    S->>PG: SELECT moderation_case JOIN catalog.offer WHERE status=? LIMIT/OFFSET
+    PG-->>S: rows + total count
+    S-->>API: paginated list
+    API-->>C: 200 { data[], meta }
 ```
 
 ---
@@ -509,6 +485,26 @@ GET /admin/moderation/:caseId
 Tag: Admin
 Auth: ADMIN
 ```
+**Response 200**
+```json
+{
+  "data": {
+    "id": "uuid",
+    "offerId": "uuid",
+    "productTitle": "string",
+    "sellerName": "string",
+    "sellerId": "uuid",
+    "reason": "string",
+    "source": "KEYWORD_MATCH | PROHIBITED_CATEGORY | ADMIN_MANUAL",
+    "status": "OPEN | DISMISSED | REMOVED",
+    "decision": "DISMISS | REMOVE | null",
+    "createdAt": "ISO8601",
+    "decidedAt": "ISO8601 | null",
+    "decidedBy": "uuid | null"
+  }
+}
+```
+**Errors:** 404 case not found
 
 #### Sequence
 
@@ -522,16 +518,13 @@ sequenceDiagram
 
     C->>API: GET /admin/moderation/:caseId
     API->>G: verify token + ADMIN role
-    alt no valid ADMIN token
-        G-->>C: 403 Forbidden
-    else ADMIN role confirmed
-        G-->>API: pass
-        API->>S: getModerationCase(caseId)
-        S->>PG: SELECT moderation_case WHERE id = ?
-        PG-->>S: case row
-        S-->>API: case detail
-        API-->>C: 200 { data: { id, offerId, reason, source, status, decision, ... } }
-    end
+    Note over G: 403 if no valid ADMIN token (missing, invalid, or non-ADMIN role)
+    G-->>API: pass
+    API->>S: getModerationCase(caseId)
+    S->>PG: SELECT moderation_case WHERE id = ?
+    PG-->>S: case row
+    S-->>API: case detail
+    API-->>C: 200 { data: { id, offerId, reason, source, status, decision, ... } }
 ```
 
 ---
@@ -559,41 +552,44 @@ sequenceDiagram
     participant PG as Postgres
     participant Relay as Kafka Relay
     participant SC as search.listing-removed
+    participant SC2 as search.offer-changed
     participant ES as Elasticsearch
 
     C->>API: POST /admin/moderation/:caseId/decide
     API->>G: verify token + ADMIN role
-    alt no valid ADMIN token
-        G-->>C: 403 Forbidden
-    else ADMIN role confirmed
-        G-->>API: pass
-        API->>S: decideModerationCase(caseId, decision, reason)
-        S->>PG: SELECT moderation_case.status
-        alt status != OPEN
-            PG-->>S: already decided
-            S-->>C: 409 Conflict
-        else status = OPEN
-            alt decision = REMOVE
-                Note over S,PG: Atomic Postgres transaction
-                S->>PG: BEGIN TX
-                S->>PG: UPDATE moderation_case SET status=RESOLVED, decision=REMOVE, decided_at, decided_by_user_id
-                S->>PG: UPDATE catalog.offer SET status=REMOVED
-                S->>PG: INSERT outbox_event (moderation.listing.removed)
-                S->>PG: COMMIT TX
-                S-->>C: 200 { data: { decision: REMOVE } }
-                Note over Relay,ES: async cascade
-                Relay-)PG: poll outbox_event WHERE publication_status = PENDING
-                Relay-)Relay: publish moderation.listing.removed to Kafka
-                SC-)SC: consume moderation.listing.removed
-                SC->>ES: deindex offer from search
-            else decision = DISMISS
-                Note over S,PG: Atomic Postgres transaction
-                S->>PG: BEGIN TX
-                S->>PG: UPDATE moderation_case SET status=DISMISSED, decided_at, decided_by_user_id
-                S->>PG: UPDATE catalog.offer SET status=ACTIVE
-                S->>PG: COMMIT TX
-                S-->>C: 200 { data: { decision: DISMISS } }
-            end
+    Note over G: 403 if no valid ADMIN token (missing, invalid, or non-ADMIN role)
+    G-->>API: pass
+    API->>S: decideModerationCase(caseId, decision, reason)
+    S->>PG: SELECT moderation_case.status
+    alt status != OPEN
+        PG-->>S: already decided
+        S-->>C: 409 Conflict
+    else status = OPEN
+        alt decision = REMOVE
+            Note over S,PG: Atomic Postgres transaction
+            S->>PG: BEGIN TX
+            S->>PG: UPDATE moderation_case SET status=RESOLVED, decision=REMOVE, decided_at, decided_by_user_id
+            S->>PG: UPDATE catalog.offer SET status=REMOVED
+            S->>PG: INSERT outbox_event (moderation.listing.removed)
+            S->>PG: COMMIT TX
+            S-->>C: 200 { data: { decision: REMOVE } }
+            Note over Relay,ES: async cascade
+            Relay-)PG: poll outbox_event WHERE publication_status = PENDING
+            Relay-)Relay: publish moderation.listing.removed to Kafka
+            SC-)SC: consume moderation.listing.removed
+            SC->>ES: deindex offer from search
+        else decision = DISMISS
+            Note over S,PG: Atomic Postgres transaction
+            S->>PG: BEGIN TX
+            S->>PG: UPDATE moderation_case SET status=DISMISSED, decided_at, decided_by_user_id
+            S->>PG: UPDATE catalog.offer SET status=ACTIVE
+            S->>PG: INSERT outbox_event (offer.changed, {offer_id, change_type:UPDATED, status:'ACTIVE'})
+            S->>PG: COMMIT TX
+            S-->>C: 200 { data: { decision: DISMISS } }
+            Note over Relay,ES: async — re-index cleared offer in ES
+            Relay-)PG: poll outbox_event WHERE publication_status = PENDING
+            Relay-)Relay: publish offer.changed to Kafka
+            SC2-)SC2: consume offer.changed (status:ACTIVE) → re-index offer in ES
         end
     end
 ```
@@ -621,26 +617,28 @@ sequenceDiagram
     participant PG as Postgres
     participant Relay as Kafka Relay
     participant NC as notification.listing-flagged
+    participant SC as search.offer-changed
+    participant ES as Elasticsearch
 
     C->>API: POST /admin/moderation
     API->>G: verify token + ADMIN role
-    alt no valid ADMIN token
-        G-->>C: 403 Forbidden
-    else ADMIN role confirmed
-        G-->>API: pass
-        API->>S: createModerationCase(offerId, reason)
-        Note over S,PG: Atomic Postgres transaction
-        S->>PG: BEGIN TX
-        S->>PG: INSERT moderation_case (offerId, reason, source=MANUAL, status=OPEN)
-        S->>PG: UPDATE catalog.offer SET status=FLAGGED WHERE id = offerId
-        S->>PG: INSERT outbox_event (listing.flagged, {offer_id, product_id, seller_id, seller_email, seller_name, product_title, moderation_case_id, flag_reason=reason, admin_user_id, flagged_at})
-        S->>PG: COMMIT TX
-        S-->>C: 201 { data: { id, offerId, reason, source, status: OPEN } }
-        Note over Relay,NC: async cascade — sends ET-08 to seller
-        Relay-)PG: poll outbox_event WHERE publication_status = PENDING
-        Relay-)Relay: publish listing.flagged to Kafka
-        NC-)NC: consume listing.flagged → send ET-08 to seller, create in-app notification (LISTING_FLAGGED)
-    end
+    Note over G: 403 if no valid ADMIN token (missing, invalid, or non-ADMIN role)
+    G-->>API: pass
+    API->>S: createModerationCase(offerId, reason)
+    Note over S,PG: Atomic Postgres transaction
+    S->>PG: BEGIN TX
+    S->>PG: INSERT moderation_case (offerId, reason, source=MANUAL, status=OPEN)
+    S->>PG: UPDATE catalog.offer SET status=FLAGGED WHERE id = offerId
+    S->>PG: INSERT outbox_event (listing.flagged, {offer_id, product_id, seller_id, seller_email, seller_name, product_title, moderation_case_id, flag_reason=reason, admin_user_id, flagged_at})
+    S->>PG: INSERT outbox_event (offer.changed, {offer_id, change_type:UPDATED, status:'FLAGGED'})
+    Note over S: listing.flagged → ET-08 notification to seller&#59; offer.changed → ES deindex via search consumer
+    S->>PG: COMMIT TX
+    S-->>C: 201 { data: { id, offerId, reason, source, status: OPEN } }
+    Note over Relay,NC: async cascade
+    Relay-)PG: poll outbox_event WHERE publication_status = PENDING
+    Relay-)Relay: publish listing.flagged and offer.changed to Kafka
+    NC-)NC: consume listing.flagged → send ET-08 to seller, create in-app notification (LISTING_FLAGGED)
+    SC-)SC: consume offer.changed (status:FLAGGED) → deindex offer from ES
 ```
 
 ---
@@ -676,19 +674,18 @@ sequenceDiagram
 
     C->>API: GET /admin/dashboard/stats
     API->>G: verify token + ADMIN role
-    alt no valid ADMIN token
-        G-->>C: 403 Forbidden
-    else ADMIN role confirmed
-        G-->>API: pass
-        API->>S: getDashboardStats()
-        par aggregate queries
-            S->>PG: COUNT kyc_application WHERE status = PENDING
-        and
-            S->>PG: COUNT moderation_case WHERE status = OPEN
-        and
-            S->>PG: COUNT seller_profile WHERE suspension_status = SUSPENDED
-        end
-        PG-->>S: counts
-        S-->>C: 200 { data: { pendingKyc, flaggedListings, activeSuspensions, openModerationCases } }
+    Note over G: 403 if no valid ADMIN token (missing, invalid, or non-ADMIN role)
+    G-->>API: pass
+    API->>S: getDashboardStats()
+    par aggregate queries
+        S->>PG: COUNT kyc_application WHERE status = PENDING
+    and
+        S->>PG: COUNT moderation_case WHERE status = OPEN
+    and
+        S->>PG: COUNT seller_profile WHERE suspension_status = SUSPENDED
+    and
+        S->>PG: SELECT COUNT(*) FROM catalog.offer WHERE status = 'FLAGGED'
     end
+    PG-->>S: counts
+    S-->>C: 200 { data: { pendingKyc, flaggedListings, activeSuspensions, openModerationCases } }
 ```

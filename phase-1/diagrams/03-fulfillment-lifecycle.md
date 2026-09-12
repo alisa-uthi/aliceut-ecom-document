@@ -32,7 +32,7 @@ graph TD
     PENDING -->|Seller full refund — US-S-07\nStock restored, ET-04 to buyer| REFUNDED
     SHIPPED -->|Seller full refund — US-S-07\nStock NOT restored goods in transit, ET-04 to buyer| REFUNDED
     PENDING -->|Seller cancels — US-S-11\nStock restored, fake reversal, ET-16 to buyer| CANCELLED
-    PENDING -->|Auto-refund: seller suspended — US-P-16\nfulfillment_window_days exceeded, stock restored, ET-13| REFUNDED
+    PENDING -->|Auto-refund: seller suspended — US-P-16\nfulfillment_window_days exceeded, stock restored, ET-13 buyer + ET-13b seller| REFUNDED
     DELIVERED -.->|"❌ out of scope V1"| OOS_NOTE
 
     classDef terminal fill:#E4F5F0,stroke:#0C8A64,color:#0E1C2A,font-weight:600

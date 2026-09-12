@@ -106,6 +106,12 @@ Auth: JWT
   "businessLogoUrl": "string | null"
 }
 ```
+**`preferredCurrency` semantics:**
+- ISO 4217 code (`"USD"`, `"THB"`, `"JPY"`, `"SGD"`): display prices converted to that currency using live FX rates.
+- `"AUTO"`: resolve display currency from `Accept-Language` header at each request.
+- `null`: treated identically to `"AUTO"`.
+- The display currency is resolved at checkout submission time and snapshotted as `fulfillment.buyer_display_currency` on each fulfillment. Subsequent profile changes do not alter historical order display.
+
 **Response 200** — updated profile wrapped in `data`
 
 #### Sequence
