@@ -29,157 +29,28 @@ Daily log of work on this project. Newest entry on top. One entry per active day
 ---
 
 **Index**
-- [2026-09-12f](#2026-09-12f) — Developer-readiness alignment audit (fresh): 13 findings fixed across auth, seller, pricing, profile, search, frontend-coding-standards, architecture-overview, api-conventions, docker-compose-topology, cleanup-jobs, module-architecture.
-- [2026-09-12e](#2026-09-12e) — Fresh cross-document alignment audit: 5 BLOCKING + 12 HIGH + 11 MEDIUM findings fixed across 19 files.
-- [2026-09-12d](#2026-09-12d) — Three archify diagrams: system architecture, buyer journey workflow, event-driven dataflow. All pass showcase validation (9/9) + visual-check (all viewports).
-- [2026-09-12c](#2026-09-12c) — Mermaid rendering fix: admin.md all 11 sequences (outer auth-wrapper removed, max nesting depth reduced); diagram/convention/ERD files (background agent).
-- [2026-09-12b](#2026-09-12b) — Full developer-readiness audit: 71 findings (14 BLOCKING) found and fixed across all 37 phase-1 docs; 1 new file (shared-components.md).
-- [2026-09-12](#2026-09-12) — Cross-document alignment audit: kafka-events, email-templates, API design — all Kafka → email → notification wiring corrected.
-
-<a id="2026-09-12f"></a>
-## 2026-09-12f
-**Focus:** Developer-readiness alignment audit — fresh pass, all 13 findings fixed, docs implementation-ready.
-
-**Done:**
-- **A (BRD version):** Bulk `BRD v1.1 → v1.2` across 28 non-BRD files
-- **B (Angular version):** architecture-overview.md `Angular 20+ → 22+`
-- **C (Redis missing):** Added Redis service to docker-compose-topology.md — service inventory, docker-compose.yml snippet (`redis:7-alpine`), `.env.example` (REDIS_URL/REDIS_HOST/REDIS_PORT), `api` depends_on, startup-order diagram, port summary, design-decision note
-- **D (Refresh token in body):** auth.md — removed `refreshToken` from login/refresh JSON bodies; documented `Set-Cookie: refreshToken` HttpOnly cookie delivery; updated both sequence diagrams
-- **E (PROCESSING status):** seller.md — removed invalid `PROCESSING` from 3 fulfillment status enums (valid: PENDING/SHIPPED/DELIVERED/CANCELLED/REFUNDED)
-- **F (listing.soft_deleted ES):** search.md — corrected `listing.soft_deleted` consumer to unconditional product document delete (US-P-11)
-- **G (businessLogoUrl in PATCH):** profile.md — removed `businessLogoUrl` from PATCH /profile/me request body and sequence diagram; logo updates exclusively via POST /profile/me/logo
-- **H (Platform OpenAPI tag):** api-conventions.md — added `Platform` to OpenAPI tags list
-- **I (pricing error text):** pricing.md — fixed `422 no price available in requested currency` → `422 no active price available for this offer`
-- **J (reservation expiry race condition):** cleanup-jobs.md — rewrote `expire_reservations()` to LOOP pattern (matching `lift_expired_suspensions`): stock release + status update + outbox `inventory.reservation_expired` INSERT all atomic per row; module-architecture.md — struck `reservation-expiry.scheduler.ts` (removed)
-- **K (app naming):** frontend-coding-standards.md — `buyer-portal/seller-portal/admin-portal → buyer-app/seller-app/admin-app`
-- **L (lib naming):** frontend-coding-standards.md — `libs/shared-ui/ → libs/ui/` (import alias `@aliceut/shared-ui` retained)
-- **M (search module consumers):** module-architecture.md — added `inventory.reservation_expired`, `seller.suspension_expired`, `listing.soft_deleted`, `fx_rate.updated` to search module consumer list
-
-**Next:**
-- Implementation phase: scaffold backend (NestJS) and frontend (Angular) repos per aliceut-ecom-backend / aliceut-ecom-frontend layouts
-
-<a id="2026-09-12e"></a>
-## 2026-09-12e
-**Focus:** Fresh cross-document alignment audit — all 28 findings fixed, docs ready for developer implementation.
-
-**Done:**
-- **5 BLOCKING fixed:** search.md wrong ES delete for listing.soft_deleted; shared-components.md PriceDisplay inputs + StatusBadge statusType; profile.md missing POST /profile/me/logo + missing preferredCurrency in GET response
-- **12 HIGH fixed:** notifications.md POST → PATCH for read-all; navigation-routing.md wrong frontend guard names (KycApprovedGuard → SellerApprovedGuard, NotSuspendedGuard → SellerNotSuspendedGuard); admin.md suspend seller missing extend-suspension branch + missing slaBreach in dashboard stats; admin-portal.md POST → PATCH for read-all; seller-portal.md KYC_APPROVED/KYC_REJECTED → canonical KYC_DECIDED; buyer-portal.md FULFILLMENT_SHIPPED/DELIVERED + non-canonical types → SHIPMENT_UPDATE/DELIVERY_UPDATE + canonical list; backend-coding-standards.md JWT_REFRESH_TTL_SECONDS 30d → 7d + added REDIS_URL/REDIS_HOST/REDIS_PORT + AES_ENCRYPTION_KEY; design-system.md @aliceut/ui → @aliceut/shared-ui (3 occurrences) + Angular 17+ → 22+
-- **11 MEDIUM fixed:** admin-moderation.md "3 business days" → "72 calendar hours / 3 calendar days"; cart.md 50-item limit added to add-item and merge sequences; module-architecture.md scheduler cron `*/5 min` → @Interval with correct defaults (60s / 3600s per platform.md); docker-compose-topology.md port 3001 (workers health) added to port summary; observability.md Grafana host port 3000 → 3200 (avoids API conflict); development-flow.md invoices bucket → user-assets + alice-ut-utility-pipeline → aliceut-ecom-utility-pipeline (×2) + Angular CLI 20+ → 22+; testing-guidelines.md apps/storefront/ → apps/buyer-portal/; git-workflow.md commitlint scope-enum added pricing/inventory/identity/seller/admin/notifications/workers
-
-**Next:**
-- Implementation phase: scaffold backend (NestJS) and frontend (Angular) repos per aliceut-ecom-backend / aliceut-ecom-frontend layouts
-- [2026-09-03](#2026-09-03) — Developer guidelines (5 new convention files), repo restructure (three-repo layout, folder renames, version bumps), GitHub PR Stack + CI Claude review, TOC pass across all 36 docs.
-- [2026-09-02](#2026-09-02) — Conventions + design doc day: API conventions, data lifecycle, UI cross-validation (15 fixes), API response-shape migration (11 files), Kafka consumer patterns, observability stack. Currency clarity pass: labeled seller-native vs buyer-display in all API + Kafka + ERD currency fields; fixed structural bug and incorrect catalog query.
-- [2026-08-30](#2026-08-30) — Full design doc day: consistency review + fixes (116 findings), repo restructure, MinIO, all 81 sequence diagrams, Mermaid validation.
-- [2026-08-29c](#2026-08-29c) — Technical design revalidation: 8 blocking + 6 high-priority fixes applied across all design docs.
-- [2026-08-29b](#2026-08-29b) — Phase 1 technical design + UI design (parallel agent team).
-- [2026-08-29](#2026-08-29) — Requirements deep-dive: order lifecycle, buyer story validation, auth portals, diagrams, BA revalidation.
-- [2026-08-22](#2026-08-22) — Phase 1 architecture overview.
-- [2026-08-19](#2026-08-19) — Requirements freeze + repo scaffolding.
-
-<a id="2026-09-12d"></a>
-## 2026-09-12 (session 4)
-**Focus:** Interactive HTML architecture diagrams for phase-1 documentation.
-
-**Done:**
-- **`diagrams/architecture.html`** — System architecture (12 nodes, 3 Angular portals, NestJS API+Workers, PostgreSQL, Kafka, MongoDB, Elasticsearch, MinIO, Docker Compose boundary). 9/9 showcase checks, visual-check pass all viewports.
-- **`diagrams/buyer-flow.html`** — Buyer journey workflow (3 lanes: Buyer / NestJS API / Events & Notifications, 6 columns, browse→purchase→confirm). 9/9, visual-check pass.
-- **`diagrams/event-dataflow.html`** — Transactional outbox event pipeline (5 stages: Write(Atomic)→Relay→Kafka→Consumers→Sinks, 3 guided views). 9/9, visual-check pass.
-- Resolved 20+ validation errors across iterations: crossing elimination, label-clearance geometry (labelAt, fromSide/toSide), width overrides, viewBox tuning.
-- Visual-check viewport overflow fixed (all 3 diagrams): trimmed semantically redundant card content to fit 1440×900 containment requirement.
-
-**Next:**
-- Diagrams are in `diagrams/` (untracked). Commit when ready.
-
-<a id="2026-09-12c"></a>
-## 2026-09-12 (session 3)
-**Focus:** Mermaid sequence diagram rendering fix across all files — max depth ≤ 2 enforced.
-
-**Done:**
-- Root cause confirmed: Mermaid `alt/loop/opt` nesting ≥ depth 3 breaks GitHub and VS Code renderers. 4 files had depth 3–4 issues.
-- **api-design/admin.md** — fixed all 11 sequences: removed outer `alt no valid ADMIN token / else ADMIN role confirmed / end` wrapper; replaced with `Note over G: 403 if no valid ADMIN token`. "Decide moderation case" reduced from 3 → 2 levels. Max depth now 2.
-- **api-design/orders.md** — fixed POST /orders checkout sequence: validation `loop` (depth +1) replaced with Note; `opt seller_currency != buyer_currency` replaced with Note; innermost `alt available_qty < requested_qty` replaced with Note. Max depth: 2.
-- **api-design/cart.md** — fixed POST /cart/merge sequence: `loop for each guestItem` replaced with Note; `opt cappedQty > 0` replaced with Note. Max depth: 2.
-- **api-design/pricing.md** — fixed GET /pricing/offers/:id/effective-price: refactored 4-level nested alts into sequential guard alts (each early-returns on failure, main logic continues flat). Max depth: 1.
-- Non-API sequence files audited: `conventions/auth-jwt-design.md` (max depth 1, OK); all `phase-1/diagrams/` use `graph TD` flowcharts (no sequence nesting); `data-model-erd.md` has no sequence diagrams.
-- Final check: all 11 API design files pass at max alt/loop/opt depth ≤ 2.
-
-**Next:**
-- Begin implementation: scaffold `aliceut-ecom-backend` and `aliceut-ecom-frontend` repos per module-architecture.md and guidelines/
-
----
-
-<a id="2026-09-12b"></a>
-## 2026-09-12 (session 2)
-**Focus:** Full developer-readiness audit — 5 review agents + 8 fix agents across all 37 phase-1 documents.
-
-**Done:**
-
-_Audit (5 parallel review agents, 71 findings: 14 BLOCKING, 29 HIGH, 26 LOW):_
-- Requirements: 15 findings — missing demo creds, vague ACs (password policy, country list, pagination, low-stock trigger semantics, B2B logo, cart limits, suspension idempotency, SLA calendar days)
-- Technical design: 12 findings — wrong SQL in cleanup-jobs, duplicate suspension-expiry mechanism, missing ERD table, duplicate column, wrong types, missing MongoDB TTL indexes, ambiguous outbox predicate
-- API design: 22 findings — 6 BLOCKING (wrong HTTP codes, missing ES-sync outbox events on product create/delete/moderation), missing response bodies, inconsistent status enums, guard matrix gaps
-- Events/notifications: 10 findings — missing search consumer for listing.flagged, unnamed in-app notification types, mismatched ET variable descriptions, missing audit consumers on auth events
-- UI/infra: 12 findings — 3 BLOCKING docker-compose issues (build context, minio_data volume, minio healthcheck), stale Angular version in all portals, missing notifications page specs, missing shared component library spec
-
-_Fixes (8 parallel fix agents):_
-- **cleanup-jobs.md** — corrected `expire_reservations` SQL (join + column); corrected outbox topic name `seller.events` → `seller.suspension_expired`
-- **data-model-erd.md** — added `notifications.pending_listing_removal_digest` table; removed duplicate `buyer_currency_code`; added `key` column to `outbox_event`; added §4 PostgreSQL custom enum catalog (16 named types)
-- **data-model-mongodb.md** — `_id` type corrected to UUIDv7; TTL indexes added (audit_logs: 2yr, activity_events: 90d)
-- **implementation-specs.md** — outbox relay predicate clarified: `publication_status = 'PENDING'`; 3-state lifecycle documented
-- **module-architecture.md** — removed duplicate NestJS suspension-expiry scheduler; added 7 missing notification consumer topics; added `listing.flagged` to admin producers
-- **kafka-events.md** — added `search.listing-flagged` consumer (ES deindex); named `DELIVERY_UPDATE` in-app type; fixed order.finalized/order.completed in-app alignment; added `ship_by` to FulfillmentPlacedPayload; added audit consumers to 3 auth events; added seller_name lookup note to §1.5
-- **email-templates.md** — ET-08 flag_reason corrected; ET-12 reinstatement_reason made conditional
-- **api-design/notifications.md** — added DELIVERY_UPDATE type + source row; verified FULFILLMENT_CANCELLED/SUSPENSION_EXPIRED/LISTING_FLAGGED present
-- **api-design.md** — guard matrix: SellerApproved removed from GET /seller/profile + /kyc; added PATCH /seller/profile row; added POST /auth/register row
-- **api-design/auth.md** — 401 duplicate email → 409 Conflict
-- **api-design/profile.md** — AUTO/null currency fallback and checkout snapshot documented
-- **api-design/pricing.md** — 404 no-price → 422 Unprocessable
-- **api-design/cart.md** — null cart DELETE → 204 no-op branch
-- **api-design/health.md** — MinIO probe added
-- **api-design/catalog.md** — offers[] schema added to product detail response
-- **api-design/seller.md** — product.changed outbox on create + soft-delete; GET /seller/orders response body; FUL- prefix; items schema; CANCELLED in status enum; prices[] schema; resubmit error routing
-- **api-design/admin.md** — offer.changed outbox on DISMISS + manual flag (ES sync); flaggedListings COUNT query; GET /admin/moderation/:id response body
-- **docker-compose-topology.md** — build context fixed to `../aliceut-ecom-backend`; `minio_data` added to volumes block; MinIO healthcheck replaced (`mc` → `curl`); kafka-ui healthcheck added
-- **navigation-routing.md** — 4 missing guard rows added; Angular Router version updated to 22+
-- **buyer-portal.md** — Angular 22+; password policy spec; checkout shipping endpoint; bell empty-state; Screen 16 Notifications
-- **seller-portal.md** — Angular 22+; KYC taxId V1 policy; Screen 14 Notifications
-- **admin-portal.md** — Angular 22+; Screen 9 Notifications
-- **shared-components.md** (new) — full specs for 8 shared components + 3 pipes
-- **Requirements user stories** (buyer/seller/admin/platform) — 15 ACs added/fixed: demo creds, cart cap, guest TTL behavior, pagination spec, country list, B2B logo, checkout currency snapshot, B2B checkbox exclusion from seller registration, soft-delete price deactivation, edge-triggered low-stock, already-suspended 409/extend, SLA 72h calendar, US-S-12 seller forgot-password, buyer_display_currency AUTO-resolve immutability
-- **diagrams/01-buyer-journey.md** — auto-refund + seller-initiated refund paths added
-
-**Decisions:**
-- Suspension-expiry mechanism: pg_cron canonical (cleanup-jobs.md); NestJS scheduler removed from module-architecture.md
-- SLA definition: 72h calendar time (not business days)
-- V1 taxId: no country-specific format validation, 1–50 chars
-- Guest cart TTL expiry: silent clear, no UX notification
-
-**Next:**
-- Phase 1 implementation can begin: all documents are developer-ready
-- Recommended start: backend module scaffolding per module-architecture.md, then ERD migration files
-- Fixed **01-buyer-journey.md**: auto-refund REFUNDED branch (BR) now connects to ET-13 email node + terminal; added missing seller-initiated refund paths (BG/BI → BU → ET-04 → terminal)
-- All 37 phase-1 files now developer-ready; no remaining HIGH/BLOCKING open items
-
-**Next:**
-- Begin implementation: scaffold `aliceut-ecom-backend` and `aliceut-ecom-frontend` repos per guidelines, or start with a specific module
-
----
+- [2026-09-12](#2026-09-12) — Phase 1 documentation complete: full developer-readiness audit, cross-doc alignment (multi-pass), Mermaid rendering fixes, interactive architecture diagrams.
 
 <a id="2026-09-12"></a>
 ## 2026-09-12
-**Focus:** Cross-document alignment audit — Kafka events ↔ email templates ↔ API design.
+**Focus:** Phase 1 documentation — developer-readiness audit, cross-doc alignment passes, Mermaid fixes, architecture diagrams.
 
 **Done:**
-- Fixed all mismatched Kafka event names in email-templates.md trigger lines (6 wrong names: `kyc.approved/rejected`, `kyc.received`, `listing.removed`, `fulfillment.created`, etc.)
-- Added missing ET numbers to kafka-events.md consumer descriptions; added missing payload fields to `seller.reinstated` and `fulfillment.cancelled` events so notification consumers can render templates without extra DB reads
-- Added new `listing.flagged` topic (§1.25) wired to `POST /admin/moderation` → ET-08 → seller notification
-- Added 3 missing in-app notification types (`LISTING_FLAGGED`, `FULFILLMENT_CANCELLED`, `SUSPENSION_EXPIRED`) to notifications.md enum and source-event table
-- Added email-templates.md audience-grouped anchor index
+- **Developer-readiness audit** (71 findings: 14 BLOCKING, 29 HIGH fixed) across all 37 phase-1 docs: wrong HTTP codes, missing ES-sync outbox events, docker-compose build context + volume + healthcheck fixes, Angular version bumps to 22+, missing shared-components.md spec (new file), 15 user story ACs added/tightened
+- **Kafka ↔ email ↔ API alignment**: fixed all mismatched Kafka trigger names in email-templates.md; added missing payload fields to seller.reinstated + fulfillment.cancelled events; added listing.flagged topic; added LISTING_FLAGGED/FULFILLMENT_CANCELLED/SUSPENSION_EXPIRED in-app notification types
+- **Cross-doc alignment (28 findings)**: guard names (KycApprovedGuard → SellerApprovedGuard); notification mark-all-read POST → PATCH; KYC_APPROVED/REJECTED → KYC_DECIDED; FULFILLMENT_SHIPPED/DELIVERED → SHIPMENT_UPDATE/DELIVERY_UPDATE; JWT_REFRESH_TTL 30d → 7d; Grafana port 3000 → 3200; design-system @aliceut/ui → @aliceut/shared-ui
+- **Cross-doc alignment (13 findings)**: refresh token delivery corrected to HttpOnly cookie only; invalid PROCESSING fulfillment status removed; listing.soft_deleted ES delete fixed to unconditional; businessLogoUrl removed from PATCH /profile/me; Redis service added to docker-compose (`redis:7-alpine`, JWT revocation); `expire_reservations()` rewrote to LOOP pattern (stock release + outbox event atomic per row, race condition eliminated); search module consumers completed (inventory.reservation_expired, seller.suspension_expired, listing.soft_deleted, fx_rate.updated); app/lib naming aligned (buyer-app/seller-app/admin-app, libs/ui/)
+- **Mermaid rendering**: all sequence diagrams capped at alt/loop/opt nesting depth ≤ 2 (4 files fixed: admin, orders, cart, pricing)
+- **Interactive diagrams** (`diagrams/`): system architecture, buyer journey workflow, event-driven outbox dataflow — all 3 pass 9/9 showcase validation
+
+**Decisions:**
+- Suspension-expiry: pg_cron canonical; NestJS `suspension-expiry.scheduler.ts` removed
+- Reservation-expiry: pg_cron `expire_reservations()` owns stock release + outbox event; NestJS `reservation-expiry.scheduler.ts` removed
+- SLA: 72h calendar time (not business days)
+- Redis: ephemeral (no volume), `maxmemory 256mb allkeys-lru`; only `api` depends on it
 
 **Next:**
-- Continue technical design or begin module scaffolding per BRD §12
+- Implementation: scaffold `aliceut-ecom-backend` + `aliceut-ecom-frontend` repos per module-architecture.md and guidelines/
 
 ---
 
