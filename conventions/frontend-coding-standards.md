@@ -1,6 +1,6 @@
 # Frontend Coding Standards
 
-**Status:** Draft  
+**Status:** Complete  
 **Source of truth:** [BRD v1.2](../phase-1/requirements/BRD.md), [design-system](design-system.md)
 
 ---

@@ -490,8 +490,7 @@ div.checkout-layout [display: grid; grid-template-columns: 1fr 340px; gap: 24px;
     <!-- Step 2: Shipping Method -->
     <!-- Data source: GET /checkout/shipping-methods
          Returns a hardcoded mock list in V1 (real shipping integration is out of scope per BRD §3.2):
-         [{ "id": "standard", "name": "Standard Shipping", "etaLabel": "5–7 business days", "cost": "0.00", "currency": "USD" }]
-         Stub endpoint must be listed in implementation-specs.md mock/stub endpoint list. -->
+         [{ "id": "standard", "name": "Standard Shipping", "etaLabel": "5–7 business days", "cost": "0.00", "currency": "USD" }] -->
     mat-step [label]="'Shipping Method'" [stepControl]="shippingForm"
       form [formGroup]="shippingForm"
         mat-radio-group formControlName="shippingMethodId" [display: flex; flex-direction: column; gap: 12px]

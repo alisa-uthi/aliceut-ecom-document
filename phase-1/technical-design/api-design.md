@@ -3,7 +3,7 @@
 **Status:** Draft  
 **Base URL:** `/api/v1`  
 **Auth scheme:** JWT Bearer (`Authorization: Bearer <access_token>`)  
-**Source of truth:** [BRD v1.2](../requirements/BRD.md), [ERD](data-model-erd.md), [implementation-specs](implementation-specs.md)
+**Source of truth:** [BRD v1.2](../requirements/BRD.md), [ERD](data-model-erd.md)
 
 ---
 

@@ -6,8 +6,6 @@
 
 ---
 
-**Last reviewed:** 2026-08-29 (updated to align with api-design.md, auth-jwt-design.md, and implementation-specs.md)
-
 ## Summary
 
 - [1. Modelling conventions](#modelling-conventions)
@@ -127,7 +125,7 @@ All application enums are defined as PostgreSQL custom types before any schema m
 | `business_logo_storage_key` | `TEXT` | Nullable; B2B buyer only. Object storage key for uploaded business logo; URL derived at serve time. |
 | `created_at`, `updated_at` | `TIMESTAMPTZ` | Required audit timestamps |
 
-**Note on roles change (2026-08-29):** The original ERD used a single `role` column (`user_role` enum: `CONSUMER`, `SELLER`, `ADMIN`). This has been corrected to `roles TEXT[]` to support the multi-role requirement (BUYER + SELLER simultaneously). The value `CONSUMER` is renamed to `BUYER` throughout to match implementation-specs terminology.
+**Note on roles change (2026-08-29):** The original ERD used a single `role` column (`user_role` enum: `BUYER`, `SELLER`, `ADMIN`). This has been corrected to `roles TEXT[]` to support the multi-role requirement (BUYER + SELLER simultaneously).
 
 #### `identity.oauth_identity`
 

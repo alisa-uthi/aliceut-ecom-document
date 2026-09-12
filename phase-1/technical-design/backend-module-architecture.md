@@ -1,9 +1,9 @@
 # Phase 1 — Module Inventory
 
 **Status:** Draft  
-**Source of truth:** [conventions/module-architecture.md](../../conventions/module-architecture.md)
+**Source of truth:** [conventions/backend-module-architecture.md](../../conventions/backend-module-architecture.md)
 
-Module structure conventions (hexagonal layers, CQRS pattern, outbox integration, OpenAPI generation, shared library): see [conventions/module-architecture.md](../../conventions/module-architecture.md).
+Module structure conventions (hexagonal layers, CQRS pattern, outbox integration, OpenAPI generation, shared library): see [conventions/backend-module-architecture.md](../../conventions/backend-module-architecture.md).
 
 ---
 
@@ -15,7 +15,7 @@ Module structure conventions (hexagonal layers, CQRS pattern, outbox integration
 <a id="module-summary-table"></a>
 ## Module summary table
 
-Tier column references [conventions/module-architecture.md §2](../../conventions/module-architecture.md): **T1** = full hexagonal, **T2** = simplified service, **T3** = thin/infrastructure.
+Tier column references [conventions/backend-module-architecture.md §2](../../conventions/backend-module-architecture.md): **T1** = full hexagonal, **T2** = simplified service, **T3** = thin/infrastructure.
 
 | Module lib | Tier | NestJS module | HTTP controllers | Kafka producers | Kafka consumers |
 |------------|------|--------------|-----------------|----------------|----------------|
@@ -37,7 +37,7 @@ Tier column references [conventions/module-architecture.md §2](../../convention
 <a id="scheduled-tasks"></a>
 ## Scheduled tasks (workers)
 
-All schedulers live in `apps/workers/src/schedulers/`. Pattern: see [conventions/module-architecture.md §10](../../conventions/module-architecture.md).
+All schedulers live in `apps/workers/src/schedulers/`. Pattern: see [conventions/backend-module-architecture.md §10](../../conventions/backend-module-architecture.md).
 
 | Scheduler file | Cron | Purpose |
 |---|---|---|

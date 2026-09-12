@@ -39,7 +39,7 @@ aliceut-ecom-document/
 │   ├── database-migrations.md      Raw-SQL migration conventions (TypeORM)
 │   ├── design-system.md            Angular Material theme, 8px grid, shared component specs
 │   ├── kafka-events.md             Event envelope, Avro BACKWARD compat rules
-│   └── module-architecture.md      Hexagonal 4-layer structure, CQRS-lite, outbox integration
+│   └── backend-module-architecture.md      Hexagonal 4-layer structure, CQRS-lite, outbox integration
 │
 ├── phase-1/
 │   ├── requirements/
@@ -70,8 +70,7 @@ aliceut-ecom-document/
 │   │   ├── data-model-mongodb.md   MongoDB collections (audit logs, activity events)
 │   │   ├── kafka-events.md         14 topics, Avro schemas, consumer groups, DLQ topology
 │   │   ├── docker-compose-topology.md  13-service spec, volumes, networks, .env.example
-│   │   ├── module-architecture.md  Phase 1 module inventory, tiers, scheduled tasks
-│   │   └── implementation-specs.md Entity definitions, business rule details
+│   │   ├── backend-module-architecture.md  Phase 1 module inventory, tiers, scheduled tasks
 │   │
 │   └── ui-design/
 │       ├── buyer-portal.md         13 screens (home, search, PDP, cart, checkout, orders, auth)

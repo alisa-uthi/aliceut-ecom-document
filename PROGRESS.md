@@ -50,7 +50,7 @@ Daily log of work on this project. Newest entry on top. One entry per active day
 - Redis: ephemeral (no volume), `maxmemory 256mb allkeys-lru`; only `api` depends on it
 
 **Next:**
-- Implementation: scaffold `aliceut-ecom-backend` + `aliceut-ecom-frontend` repos per module-architecture.md and guidelines/
+- Implementation: scaffold `aliceut-ecom-backend` + `aliceut-ecom-frontend` repos per backend-module-architecture.md and guidelines/
 
 ---
 
@@ -155,7 +155,7 @@ _Cross-artifact review & fixes_
 - Key fixes: 6 new Kafka events, 8 new API endpoints, 10 new ERD columns, consumer group corrections, seller/admin/buyer portal completions, design-system pipes.
 
 _Repo restructure & architecture_
-- Extracted cross-phase conventions into `conventions/`: `auth-jwt-design.md`, `design-system.md`, `module-architecture.md`, `kafka-events.md`.
+- Extracted cross-phase conventions into `conventions/`: `auth-jwt-design.md`, `design-system.md`, `backend-module-architecture.md`, `kafka-events.md`.
 - Added MinIO to stack: 3 buckets (`product-images` public, `kyc-documents` + `user-assets` private); added `minio` + `minio-init` services to docker-compose; closed ERD §10 open decision #2.
 - Rewrote `architecture-overview.md` as cross-phase reference (removed Phase-1-specific framing).
 
@@ -193,7 +193,7 @@ _Mermaid syntax validation_
 - `api-design.md` — BRD version fixed; guard legend updated to `kyc_status`/`suspension_status`; §9.8 DELETE offer removed (duplicate of PATCH); `orders[]` note added (each element = fulfillment); §8.3 response schema added; 409 price-changed response body added; `PATCH /seller/profile` endpoint added; `GET /admin/sellers/:sellerId` added; §10.4 response schema added; §10.6 reinstate side effects added; §10.9 ES deindex now async via Kafka; notification types `REFUND_ISSUED`, `KYC_SUBMITTED`, `ORDER_COMPLETED`, `SELLER_REINSTATED` added.
 - `auth-jwt-design.md` — BRD version fixed; `seller_status` JWT claim split into `seller_kyc_status` + `seller_suspension_status`; OAuth callbacks fixed from URL fragment to query param + `HttpOnly` Set-Cookie; guard definitions updated; guard matrix extended (OAuth endpoints, resend-verification); §13 design decision updated.
 - `implementation-specs.md` — `SellerProfile.status` split into `kyc_status` + `suspension_status`; `User.account_type` `CONSUMER`/`BUSINESS` → `B2C`/`B2B`.
-- `module-architecture.md` — BRD version fixed; inventory consumer group label clarified (`fulfillment.placed` topic vs `inventory.fulfillment-placed` group); `seller.reinstated` added to admin/search/notifications Kafka columns; Workers module row added.
+- `backend-module-architecture.md` — BRD version fixed; inventory consumer group label clarified (`fulfillment.placed` topic vs `inventory.fulfillment-placed` group); `seller.reinstated` added to admin/search/notifications Kafka columns; Workers module row added.
 - `docker-compose-topology.md` — BRD version fixed; MongoDB auth credentials added (`MONGO_INITDB_ROOT_USERNAME/PASSWORD`); healthcheck updated to authenticate; both `MONGODB_URI` values updated with auth; workers `depends_on` mongodb added; `.env.example` MongoDB section updated; FX URL fixed to `api.exchangerate.host`.
 
 **Decisions:**
@@ -214,7 +214,7 @@ _Technical design (`phase-1/technical-design/`)_
 - `kafka-events.md` — 14 topics; full Avro schemas (envelope + payload); consumer groups with side effects; BACKWARD compat rules; DLQ topology.
 - `auth-jwt-design.md` — JWT access token (15 min, HS256, `roles[]`, `seller_status` embedded); opaque refresh token (7 days, HttpOnly cookie, SHA-256 stored); refresh rotation + reuse-detection sequence diagrams; Google + Facebook OAuth flows; guard matrix (5 guards × all endpoint groups); argon2id params; rate limits; security headers.
 - `docker-compose-topology.md` — 11 services (3 nginx, api, workers, postgres, mongo, elasticsearch, kafka KRaft, schema-registry, kafka-ui); full `docker-compose.yml` YAML; health checks; `.env.example`.
-- `module-architecture.md` — hexagonal 4-layer structure per module; CQRS-lite (no `@nestjs/cqrs`); repository interface pattern; outbox integration with `EntityManager` tx propagation; OpenAPI generation pipeline; module dependency table.
+- `backend-module-architecture.md` — hexagonal 4-layer structure per module; CQRS-lite (no `@nestjs/cqrs`); repository interface pattern; outbox integration with `EntityManager` tx propagation; OpenAPI generation pipeline; module dependency table.
 - `data-model-erd.md` (updated) — `role` (single) → `roles TEXT[]`; added `email_verification_token`, `password_reset_token`, `email_template` tables; `idempotency_key_id` on order; corrections log.
 
 _UI design (`phase-1/ui-design/`)_

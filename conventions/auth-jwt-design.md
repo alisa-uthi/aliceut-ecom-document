@@ -1,26 +1,23 @@
 # Auth & JWT Design
 
-**Status:** Draft  
-**Source of truth:** [BRD v1.2](../phase-1/requirements/BRD.md), [implementation-specs](../phase-1/technical-design/implementation-specs.md), [api-design](../phase-1/technical-design/api-design.md)
+**Status:** Complete  
+**Source of truth:** [BRD v1.2](../phase-1/requirements/BRD.md), [api-design](../phase-1/technical-design/api-design.md)
 
 ---
 
 ## Summary
 
 - [1. JWT payload structure](#jwt-payload-structure)
-- [2. Refresh token rotation flow](#refresh-token-rotation-flow)
-- [3. OAuth flow — Google (buyer portal only)](#oauth-flow-google)
-- [4. OAuth flow — Facebook (buyer portal only)](#oauth-flow-facebook)
-- [5. Seller portal auth constraints](#seller-portal-auth-constraints)
-- [6. Admin portal auth constraints](#admin-portal-auth-constraints)
-- [7. Auth guards](#auth-guards)
-- [8. Rate limiting](#rate-limiting)
-- [9. Security headers](#security-headers)
-- [10. Password hashing](#password-hashing)
-- [11. Email verification token design](#email-verification-token-design)
-- [12. Password reset token design](#password-reset-token-design)
-- [13. Token revocation — immediate status enforcement](#token-revocation)
-- [14. Design Decisions](#design-decisions)
+- [2. Seller portal auth constraints](#seller-portal-auth-constraints)
+- [3. Admin portal auth constraints](#admin-portal-auth-constraints)
+- [4. Auth guards](#auth-guards)
+- [5. Rate limiting](#rate-limiting)
+- [6. Security headers](#security-headers)
+- [7. Password hashing](#password-hashing)
+- [8. Email verification token design](#email-verification-token-design)
+- [9. Password reset token design](#password-reset-token-design)
+- [10. Token revocation — immediate status enforcement](#token-revocation)
+- [11. Design Decisions](#design-decisions)
 
 <a id="jwt-payload-structure"></a>
 ## 1. JWT payload structure
@@ -45,7 +42,7 @@
 | `sub` | `string` (UUIDv7) | `identity.user.id` — never exposes email or PII |
 | `roles` | `string[]` | Always an array. Values: `BUYER`, `SELLER`, `ADMIN`. A user may hold `BUYER` + `SELLER` simultaneously; `ADMIN` is never co-held with others. |
 | `email_verified` | `boolean` | `true` after email verification or OAuth login (OAuth = pre-verified). |
-| `account_type` | `"B2C" \| "B2B"` | Buyer account classification. |
+| `account_type` | `"B2C" \| "B2B" \| null` | Buyer account classification. `null` when user is not a buyer. |
 | `seller_kyc_status` | `"PENDING_KYC" \| "APPROVED" \| "REJECTED" \| null` | `null` when user is not a seller. Immutable after a final KYC decision. |
 | `seller_suspension_status` | `"ACTIVE" \| "SUSPENDED" \| null` | `null` when user is not a seller. Independent of `seller_kyc_status`. Both claims embedded so guards avoid a DB lookup per request. |
 | `iat` | `number` | Issued at (Unix seconds). |
@@ -64,7 +61,7 @@ The refresh token is an **opaque** random string (32 bytes, `crypto.randomBytes(
 | Rotation | Every `/auth/refresh` call issues a new pair and revokes the old refresh token atomically |
 | Revocation on password reset | All refresh sessions for the user are hard-deleted |
 | Revocation on password change | All refresh sessions except the current one are hard-deleted |
-| Expired row cleanup | `pg_cron` daily job — see [data-lifecycle.md § refresh_session](./data-lifecycle.md) |
+| Expired row cleanup | `pg_cron` daily job — see [cleanup-refresh-sessions](../phase-1/technical-design/cleanup-jobs.md#cleanup-refresh-sessions) |
 
 ### 1.3 Token storage (client side)
 - `accessToken`: in-memory (JavaScript variable, not localStorage). Reduces XSS token theft surface.
@@ -72,102 +69,8 @@ The refresh token is an **opaque** random string (32 bytes, `crypto.randomBytes(
 
 ---
 
-<a id="refresh-token-rotation-flow"></a>
-## 2. Refresh token rotation flow
-
-```mermaid
-sequenceDiagram
-    participant C as Angular App
-    participant A as NestJS API
-    participant DB as PostgreSQL
-
-    C->>A: POST /auth/login (email, password)
-    A->>DB: SELECT user WHERE email = ?
-    A->>A: argon2id.verify(password, hash)
-    A->>DB: INSERT refresh_session (token_hash, expires_at)
-    A-->>C: { accessToken (15 min), refreshToken (7 days) }
-
-    note over C: Access token expires after 15 min
-    C->>A: POST /auth/refresh (refreshToken)
-    A->>DB: SELECT refresh_session WHERE token_hash = SHA256(token) AND NOT revoked AND expires_at > NOW()
-    alt Token valid
-        A->>DB: BEGIN TRANSACTION
-        A->>DB: UPDATE refresh_session SET revoked_at = NOW() (old token)
-        A->>DB: INSERT refresh_session (new token_hash, new expires_at)
-        A->>DB: COMMIT
-        A-->>C: { new accessToken, new refreshToken }
-    else Token invalid/expired
-        A-->>C: 401 Unauthorized
-        note over C: Redirect to login
-    end
-
-    C->>A: POST /auth/logout (refreshToken)
-    A->>DB: UPDATE refresh_session SET revoked_at = NOW()
-    A-->>C: 204 No Content
-```
-
-**Reuse detection:** If a revoked refresh token is presented again (token reuse attack), the server revokes ALL sessions for that user and returns 401. This forces a full re-login. Reuse detection requires the revoked row to remain until its `expires_at` — do not hard-delete on rotation. Rows are cleaned by the daily `pg_cron` job once expired.
-
----
-
-<a id="oauth-flow-google"></a>
-## 3. OAuth flow — Google (buyer portal only)
-
-```mermaid
-sequenceDiagram
-    participant B as Browser (buyer-app)
-    participant A as NestJS API
-    participant G as Google OAuth
-    participant DB as PostgreSQL
-
-    B->>A: GET /auth/google
-    A-->>B: 302 redirect to Google consent URL (state, nonce)
-
-    B->>G: User consents
-    G-->>B: 302 redirect to /auth/google/callback?code=...&state=...
-
-    B->>A: GET /auth/google/callback
-    A->>G: Exchange code for access_token + id_token
-    G-->>A: tokens + { sub, email, email_verified, name }
-
-    alt Email already linked to account via Google
-        A->>DB: SELECT user via oauth_identity (provider=GOOGLE, provider_subject)
-        A->>DB: INSERT refresh_session
-        A-->>B: 302 to buyer-app/auth/callback?accessToken=...
-        note over B,A: HttpOnly refreshToken cookie (Secure, SameSite=Strict, Path=/api/v1/auth/refresh)
-    else Email exists but NOT linked to Google
-        A->>DB: SELECT user WHERE LOWER(email) = LOWER(google_email)
-        A->>DB: INSERT oauth_identity (provider=GOOGLE) for existing user
-        A->>DB: UPDATE user SET email_verified = true
-        A->>DB: INSERT refresh_session
-        A-->>B: 302 to buyer-app/auth/callback?accessToken=...
-        note over B,A: HttpOnly refreshToken cookie (Secure, SameSite=Strict, Path=/api/v1/auth/refresh)
-    else New email - create account
-        A->>DB: INSERT user (role=BUYER, email_verified=true, no password_hash)
-        A->>DB: INSERT oauth_identity
-        A->>DB: INSERT refresh_session
-        A-->>B: 302 to buyer-app/auth/callback?accessToken=...
-        note over B,A: HttpOnly refreshToken cookie (Secure, SameSite=Strict, Path=/api/v1/auth/refresh)
-    end
-```
-
-**State validation:** `state` param is a CSRF token stored in a short-lived session cookie; validated on callback before processing.
-
----
-
-<a id="oauth-flow-facebook"></a>
-## 4. OAuth flow — Facebook (buyer portal only)
-
-Same callback transport as Google: `accessToken` as query param, `refreshToken` via `HttpOnly; Secure; SameSite=Strict` Set-Cookie. Differences:
-- Provider: `FACEBOOK`
-- Passport strategy: `passport-facebook`
-- Profile fields requested: `id`, `email`, `name`
-- Email: Facebook does not guarantee an email is returned. If no email is present in the callback, the user is prompted to supply one before their account is created. **[DESIGN DECISION]** Require email for account creation; reject accounts without a verified email from Facebook.
-
----
-
 <a id="seller-portal-auth-constraints"></a>
-## 5. Seller portal auth constraints
+## 2. Seller portal auth constraints
 
 The seller portal uses **email/password only**. No OAuth. Reasons:
 - KYC process requires a verified local identity with a set password.
@@ -176,7 +79,7 @@ The seller portal uses **email/password only**. No OAuth. Reasons:
 ---
 
 <a id="admin-portal-auth-constraints"></a>
-## 6. Admin portal auth constraints
+## 3. Admin portal auth constraints
 
 - Email/password only. No registration endpoint.
 - Admin accounts are **seeded in the database** (`pnpm run seed`); no self-service sign-up.
@@ -186,9 +89,9 @@ The seller portal uses **email/password only**. No OAuth. Reasons:
 ---
 
 <a id="auth-guards"></a>
-## 7. Auth guards
+## 4. Auth guards
 
-### 7.1 Guard definitions
+### 4.1 Guard definitions
 
 | Guard name | Implementation | Check |
 |------------|---------------|-------|
@@ -206,14 +109,14 @@ Guards are applied via decorators:
 @Roles('BUYER')
 ```
 
-### 7.2 Guard evaluation matrix
+### 4.2 Guard evaluation matrix
 
 Maintained alongside each Phase API spec since it references phase-specific endpoints.
 
 ---
 
 <a id="rate-limiting"></a>
-## 8. Rate limiting
+## 5. Rate limiting
 
 NestJS `@nestjs/throttler` with per-endpoint overrides.
 
@@ -232,7 +135,7 @@ Rate limit headers returned: `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `Retr
 ---
 
 <a id="security-headers"></a>
-## 9. Security headers
+## 6. Security headers
 
 Applied globally via `helmet()` in NestJS bootstrap:
 
@@ -251,7 +154,7 @@ CORS: origin restricted to `BUYER_APP_URL`, `SELLER_APP_URL`, `ADMIN_APP_URL` en
 ---
 
 <a id="password-hashing"></a>
-## 10. Password hashing
+## 7. Password hashing
 
 - Algorithm: **argon2id** (`@node-rs/argon2` or `argon2` npm package)
 - Parameters: `memoryCost: 65536` (64 MiB), `timeCost: 3`, `parallelism: 4`
@@ -261,7 +164,7 @@ CORS: origin restricted to `BUYER_APP_URL`, `SELLER_APP_URL`, `ADMIN_APP_URL` en
 ---
 
 <a id="email-verification-token-design"></a>
-## 11. Email verification token design
+## 8. Email verification token design
 
 - Token: `crypto.randomBytes(32).toString('hex')` — 64-hex-char string
 - Storage: hashed in a dedicated `identity.email_verification_token` table (or as a column on `identity.user`)
@@ -274,7 +177,7 @@ CORS: origin restricted to `BUYER_APP_URL`, `SELLER_APP_URL`, `ADMIN_APP_URL` en
 ---
 
 <a id="password-reset-token-design"></a>
-## 12. Password reset token design
+## 9. Password reset token design
 
 - Token: `crypto.randomBytes(32).toString('hex')`
 - Storage: table `identity.password_reset_token (user_id, token_hash, expires_at, used_at)`
@@ -286,11 +189,11 @@ CORS: origin restricted to `BUYER_APP_URL`, `SELLER_APP_URL`, `ADMIN_APP_URL` en
 
 
 <a id="token-revocation"></a>
-## 13. Token revocation — immediate status enforcement
+## 10. Token revocation — immediate status enforcement
 
 Redis per-user revocation timestamp ensures `seller_kyc_status` and `seller_suspension_status` changes take effect on the next API request, without waiting for the 15-min access token to expire.
 
-### 13.1 Mechanism
+### 10.1 Mechanism
 
 **Redis key:** `auth:revoke_before:{userId}` → Unix timestamp in seconds  
 **TTL:** 960 s (access token max lifetime 900 s + 60 s clock-skew buffer)
@@ -316,7 +219,7 @@ if (revokeTs && payload.iat < Number(revokeTs)) {
 
 **On next `/auth/refresh`** — server re-reads `seller_kyc_status` and `seller_suspension_status` from DB and embeds fresh values in the new access token. New token's `iat > revokeTimestamp`, so it passes the check.
 
-### 13.2 Revocation triggers
+### 10.2 Revocation triggers
 
 | Event | Redis write | Notes |
 |-------|-------------|-------|
@@ -326,11 +229,11 @@ if (revokeTs && payload.iat < Number(revokeTs)) {
 | KYC rejected | Yes | Blocks seller routes immediately |
 | Admin force-logout user | Yes | Paired with refresh session hard-delete |
 
-### 13.3 Performance
+### 10.3 Performance
 
 Redis `GET` on every authenticated request. Key is absent for the vast majority of requests (happy path = cache miss, no revocation). Redis round-trip ~0.1–0.5 ms within same datacenter. Key auto-expires — no manual cleanup required.
 
-### 13.4 Refresh flow interaction
+### 10.4 Refresh flow interaction
 
 The Angular `auth` interceptor already handles 401 → `POST /auth/refresh` → retry. When a revoked token returns 401:
 1. Interceptor calls `/auth/refresh` with the `HttpOnly` refresh token cookie.
@@ -341,7 +244,7 @@ The Angular `auth` interceptor already handles 401 → `POST /auth/refresh` → 
 ---
 
 <a id="design-decisions"></a>
-## 14. [DESIGN DECISIONS]
+## 11. [DESIGN DECISIONS]
 
 - **[DESIGN DECISION]** `seller_kyc_status` and `seller_suspension_status` are both embedded in the JWT as independent claims, replacing the previous single `seller_status` field. This allows guards to check each independently (e.g. a seller can be KYC-approved but suspended, or KYC-rejected regardless of suspension). Status changes take effect immediately via Redis per-user revocation — see §14.
 - **[DESIGN DECISION]** Refresh token stored as `HttpOnly` cookie on path `/api/v1/auth/refresh`. The Angular `auth` interceptor handles 401 → refresh → retry automatically.

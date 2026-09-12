@@ -2,8 +2,6 @@
 
 Cross-phase convention for time-bounded data cleanup using `pg_cron`.
 
-**Source of truth:** [BRD v1.2](../phase-1/requirements/BRD.md), [data-model-erd](../phase-1/technical-design/data-model-erd.md), [auth-jwt-design](./auth-jwt-design.md)
-
 ---
 
 ## Summary

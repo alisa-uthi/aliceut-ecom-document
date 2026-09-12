@@ -218,7 +218,7 @@ sequenceDiagram
     IS->>PG: INSERT identity.refresh_session (user_id, token_hash, expires_at=NOW()+7d, device_metadata)
 
     IS-->>A: {accessToken, refreshToken, user}
-    A-->>C: 200 { data: { accessToken, user } } + Set-Cookie: refreshToken (HttpOnly; Secure; SameSite=Strict; Path=/api/v1/auth/refresh)
+    A-->>C: 200 { data: { accessToken, user } } + Set-Cookie: refreshToken (HttpOnly&#59; Secure&#59; SameSite=Strict&#59; Path=/api/v1/auth/refresh)
 ```
 
 ---
@@ -243,7 +243,7 @@ sequenceDiagram
     participant IS as IdentityService
     participant PG as Postgres
 
-    C->>A: POST /auth/refresh (no body; refreshToken HttpOnly cookie sent automatically by browser)
+    C->>A: POST /auth/refresh (no body&#59; refreshToken HttpOnly cookie sent automatically by browser)
 
     A->>IS: rotateRefreshToken(refreshToken from cookie)
     IS->>IS: SHA-256(refreshToken) → token_hash
@@ -277,8 +277,9 @@ sequenceDiagram
     IS->>PG: COMMIT
 
     IS-->>A: {accessToken, newRefreshToken, user}
-    A-->>C: 200 { data: { accessToken, user } } + Set-Cookie: refreshToken (new HttpOnly cookie; replaces old)
+    A-->>C: 200 { data: { accessToken, user } } + Set-Cookie: refreshToken (new HttpOnly cookie&#59; replaces old)
 ```
+**Reuse detection:** If a revoked refresh token is presented again (token reuse attack), the server revokes ALL sessions for that user and returns 401. This forces a full re-login. Reuse detection requires the revoked row to remain until its `expires_at` — do not hard-delete on rotation. Rows are cleaned by the daily `pg_cron` job once expired.
 
 ---
 
@@ -773,6 +774,7 @@ sequenceDiagram
         Note right of C: HttpOnly Secure SameSite=Strict refreshToken cookie set
     end
 ```
+**State validation:** `state` param is a CSRF token stored in a short-lived session cookie; validated on callback before processing.
 
 ---
 

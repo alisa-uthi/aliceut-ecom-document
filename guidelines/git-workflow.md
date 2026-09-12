@@ -169,7 +169,7 @@ Before opening PR, complete locally:
 - [ ] Commit messages follow Conventional Commits format
 - [ ] No hardcoded secrets (API keys, passwords, tokens)
 - [ ] `.gitignore` excludes generated/local files
-- [ ] Changes align with [BRD §12 locked decisions](../phase-1/requirements/BRD.md)
+- [ ] Changes align with the [conventions](../conventions/) and technical design of each phase
 - [ ] Type-safe: no `any` types without justification
 - [ ] No console.log left in; debug output removed or logged via logger
 - [ ] Monetary calculations use `Decimal` (never `number`), amounts in JSON as strings
@@ -524,13 +524,13 @@ jobs:
 
           Design spec and conventions live in aliceut-ecom-document/:
           - Architecture: aliceut-ecom-document/architecture-overview.md
-          - Module architecture: aliceut-ecom-document/conventions/module-architecture.md
+          - Module architecture: aliceut-ecom-document/conventions/backend-module-architecture.md
           - Backend coding standards: aliceut-ecom-document/conventions/backend-coding-standards.md
           - API conventions: aliceut-ecom-document/conventions/api-conventions.md
           - Kafka events: aliceut-ecom-document/conventions/kafka-events.md
           - Auth/JWT design: aliceut-ecom-document/conventions/auth-jwt-design.md
           - Database migrations: aliceut-ecom-document/conventions/database-migrations.md
-          - Phase-1 implementation spec: aliceut-ecom-document/phase-1/technical-design/implementation-specs.md
+          - Phase-1 implementation spec: aliceut-ecom-document/phase-1/technical-design
 
           PR diff:
           \$(cat pr_diff.txt)

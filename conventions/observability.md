@@ -1,6 +1,6 @@
 # Observability Conventions
 
-**Status:** Draft  
+**Status:** Complete  
 **Source of truth:** [BRD v1.2](../phase-1/requirements/BRD.md)
 
 ---
@@ -170,7 +170,11 @@ export class OrdersService {
 
 ### Sensitive field masking
 
-Two-layer approach: pino `redact` for headers (fast path at serialization), `sanitizeBody()` for request/response bodies (recursive, catches any depth).
+Request and response bodies are always logged. Because bodies may contain PII, credentials, secrets, or large payloads, body logging uses the configured sanitizer before serialization. The sanitizer recursively redacts configured sensitive fields and enforces the configured maximum body size.
+
+Two-layer approach: 
+- pino `redact` for headers (fast path at serialization)
+- `sanitizeBody()` for request/response bodies, and outgoing HTTP bodies (recursive, catches any depth).
 
 **Layer 1 — pino `redact` (headers):**
 
@@ -214,6 +218,7 @@ export function buildSanitizer(
 - **Recursive:** JSON replacer visits every node at every depth — no nested object escapes.
 - **Size guard:** bodies over `maxBodyLogBytes` replaced with `{ _truncated: true, _bytes: N }` — protects against logging multipart uploads or large payloads.
 - **Root key guard:** `key !== ''` skips the root `''` key emitted by `JSON.parse` for the top-level value.
+- **Body logging policy**: request and response bodies are always included in HTTP logs after sanitization/truncation.
 
 **Response body — `LoggingInterceptor`:**
 
@@ -261,16 +266,34 @@ export class LoggingInterceptor implements NestInterceptor {
 app.useGlobalInterceptors(app.get(LoggingInterceptor));
 ```
 
-**Dev rules:**
+### Body logging rules
+
+Request and response bodies are always logged.
 
 ```typescript
-// WRONG — logs full object; sanitize() not called on direct logger calls
-this.logger.log('User loaded', { user });
+// CORRECT — body is logged and sanitized automatically.
+this.logger.log('Payload received', {
+  direction: 'incoming',
+  body: this.sanitize(dto),
+});
 
-// CORRECT — log IDs only; inject and call sanitize() explicitly if you must log an object
-this.logger.log('User loaded', { userId: user.id });
-this.logger.log('Payload received', { data: this.sanitize(dto) }); // sanitize injected via constructor
+// CORRECT — response body is captured by LoggingInterceptor.
+this.logger.log('Response', {
+  direction: 'outgoing',
+  body: this.sanitize(response),
+});
 ```
+
+Direct domain logging should still prefer IDs and relevant structured fields when the full object is not useful:
+```typescript
+// PREFERRED for domain events — avoid unnecessary duplication.
+this.logger.log('User loaded', {
+  userId: user.id,
+});
+```
+
+The global HTTP logging path is responsible for ensuring request and response bodies are present in the corresponding HTTP logs.
+
 
 ### Outgoing HTTP — Axios interceptor
 
@@ -283,24 +306,42 @@ this.logger.log('Payload received', { data: this.sanitize(dto) }); // sanitize i
   exports: [HttpModule],
 })
 export class HttpLoggingModule implements OnModuleInit {
+  private readonly sanitize: (body: unknown) => unknown;
+
   constructor(
     private readonly http: HttpService,
     private readonly logger: Logger,
     private readonly als: AsyncLocalStorage<{ correlationId: string }>,
-  ) {}
+    private readonly config: ConfigService,
+  ) {
+    const sensitiveKeys = new Set<string>(
+      this.config.get<string[]>('log.sensitiveKeys', []),
+    );
+
+    const maxBytes = this.config.get<number>(
+      'log.maxBodyLogBytes',
+      10_000,
+    );
+
+    this.sanitize = buildSanitizer(sensitiveKeys, maxBytes);
+  }
 
   onModuleInit() {
     this.http.axiosRef.interceptors.request.use((config) => {
       const { correlationId } = this.als.getStore() ?? {};
+
       if (correlationId) {
         config.headers['x-correlation-id'] = correlationId;
       }
+
       this.logger.log('Outgoing request', {
         direction: 'outgoing',
         method: config.method?.toUpperCase(),
         url: config.url,
         correlationId,
+        body: this.sanitize(config.data),
       });
+
       return config;
     });
 
@@ -309,19 +350,26 @@ export class HttpLoggingModule implements OnModuleInit {
         this.logger.log('Outgoing response', {
           direction: 'outgoing',
           status: response.status,
+          method: response.config.method?.toUpperCase(),
           url: response.config.url,
           correlationId: response.config.headers['x-correlation-id'],
+          body: this.sanitize(response.data),
         });
+
         return response;
       },
       (error: AxiosError) => {
         this.logger.error('Outgoing request failed', {
           direction: 'outgoing',
           status: error.response?.status,
+          method: error.config?.method?.toUpperCase(),
           url: error.config?.url,
+          correlationId: error.config?.headers?.['x-correlation-id'],
           message: error.message,
-          correlationId: error.config?.headers['x-correlation-id'],
+          requestBody: this.sanitize(error.config?.data),
+          responseBody: this.sanitize(error.response?.data),
         });
+
         return Promise.reject(error);
       },
     );
@@ -331,8 +379,12 @@ export class HttpLoggingModule implements OnModuleInit {
 
 **Rules:**
 - Always forward `X-Correlation-ID` on outbound calls — propagation is the primary goal, logging is secondary.
-- Add `direction: 'outgoing'` field — distinguishes from inbound in Loki queries (`| json | direction = "outgoing"`).
-- Never log request/response bodies — may contain PII or large payloads. Log URL, method, status only.
+- Always log outgoing request and response bodies.
+- Apply buildSanitizer() to both outgoing request and response bodies.
+- direction: `outgoing` distinguishes outbound HTTP entries from inbound HTTP entries in Loki queries.
+- Body size is controlled by `LOG_MAX_BODY_BYTES`.
+- Sensitive fields are controlled by `LOG_SENSITIVE_KEYS`.
+- PII and large payloads are permitted by the logging policy; configured sanitization and truncation still apply.
 - Import `HttpLoggingModule` instead of `HttpModule` in any feature module that makes outbound HTTP calls.
 
 ---
@@ -374,8 +426,10 @@ Every log line emitted to stdout must be valid JSON containing these fields. `ne
 | `traceId` / `spanId` | No | Reserved for OpenTelemetry Phase 2 |
 | `message` | Yes | Log call |
 | `context` | No | Domain-specific structured data |
+| `body` | HTTP logs | Sanitized/truncated request or response body |
 
-**Monetary values in logs:** same rule as API — strings, never numbers.
+**Monetary values in logs:** same rule as API — strings, never numbers.  
+**HTTP bodies**: request and response bodies are always logged after applying the configured sensitive-field masking and body-size limit.
 
 ---
 
@@ -392,12 +446,17 @@ Client request
   → NestJS middleware reads or generates correlationId
   → stored in AsyncLocalStorage (correlation context)
   → pino-http attaches to all log lines for this request
+  → request body is logged through the configured sanitizer
+  → response body is logged through LoggingInterceptor
   → response includes X-Correlation-ID header back to client
 
 NestJS → downstream service
   → Axios interceptor reads correlationId from AsyncLocalStorage
   → forwards as X-Correlation-ID on the outbound request
+  → logs sanitized request body
   → downstream service continues the chain identically
+  → downstream response body is logged
+
 ```
 
 **Middleware:**
@@ -417,7 +476,8 @@ export class CorrelationMiddleware implements NestMiddleware {
 
 ### Kafka flow
 
-`correlationId` is a mandatory field in the Kafka event envelope (see [kafka-events.md](./kafka-events.md)). Consumers that write their own logs must propagate this field from the consumed event.
+`correlationId` is a mandatory field in the Kafka event envelope (see [kafka-events.md](./kafka-events.md)). Consumers that write their own logs must propagate this field from the consumed event.  
+Kafka event bodies should follow the same structured logging and sensitive-field handling conventions when logged.
 
 ### Async context
 
@@ -562,7 +622,7 @@ volumes:
 <a id="e2e-testing"></a>
 ## 7. E2E Testing — Playwright CI/CD Correlation
 
-Goal: assert UI state ↔ API response ↔ DB state in a single test with full observability trace.
+**Goal**: assert UI state ↔ API response ↔ DB state in a single test with full observability trace.
 
 ### Strategy
 

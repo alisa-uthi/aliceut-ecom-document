@@ -1,7 +1,7 @@
 # Kafka Events — Phase 1
 
 **Status:** Draft  
-**Source of truth:** [BRD v1.2](../requirements/BRD.md), [implementation-specs](implementation-specs.md)
+**Source of truth:** [BRD v1.2](../requirements/BRD.md)
 
 Event envelope conventions, schema registry, consumer idempotency template (including processing flow diagram and per-family step patterns), DLQ topology, and BACKWARD compat protocol: see [conventions/kafka-events.md](../../conventions/kafka-events.md).
 

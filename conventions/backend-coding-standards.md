@@ -1,7 +1,7 @@
 # Backend Coding Standards
 
-**Status:** Draft  
-**Source of truth:** [BRD v1.2](../phase-1/requirements/BRD.md), [module-architecture](module-architecture.md)
+**Status:** Complete  
+**Source of truth:** [BRD v1.2](../phase-1/requirements/BRD.md), [module-architecture](backend-module-architecture.md)
 
 ---
 
@@ -110,8 +110,8 @@ Never set `"strict": false` in a package-level override. If a third-party type r
 | `@typescript-eslint/explicit-function-return-type` | `error` (public functions) | Makes API surface visible at a glance |
 | `no-console` | `error` | Use injected `Logger` / `PinoLogger`; see [observability.md](observability.md) |
 | `@typescript-eslint/no-unsafe-assignment` | `error` | Part of `recommended-requiring-type-checking` |
-| `import/order` | `error` | See §2.4 |
 | `no-restricted-syntax` (money lint) | `error` | See §2.3 |
+| `import/order` | `error` | See §2.4 |
 
 ### 2.3 Money lint rule
 
@@ -502,7 +502,7 @@ Use `getOrThrow` rather than `get` when the value must be present — it throws 
 <a id="7-database-query-patterns"></a>
 ## 7. Database query patterns
 
-See [database-migrations.md](database-migrations.md) for migration authoring rules. See [module-architecture.md](module-architecture.md) §2 for the repository interface / TypeORM adapter split.
+See [database-migrations.md](database-migrations.md) for migration authoring rules. See [backend-module-architecture.md §2](backend-module-architecture.md#2-module-tiers) for the repository interface / TypeORM adapter split.
 
 ### 7.1 When to use what
 

@@ -64,6 +64,7 @@ Locked in BRD §12. Not revisable without a BRD amendment.
 | Frontend | Angular 22+ + Angular Material                                                  |
 | Backend | NestJS 11+ (modular monolith, microservice-ready)                               |
 | Primary DB | PostgreSQL (transactional source of truth)                                      |
+| Cache | Redis                                      |
 | Audit / activity | MongoDB (append-only, event-fed)                                                |
 | Search | Elasticsearch / OpenSearch (self-hosted, single-node in V1)                     |
 | Event bus | Apache Kafka + Confluent Schema Registry (Avro, BACKWARD compat) + Kafka UI     |
@@ -147,6 +148,7 @@ Weapons, drugs, adult content. Checked at listing time via taxonomy flag and key
 |---|---|---|
 | PostgreSQL | Source of truth for users, catalog, offers, prices, inventory, carts, orders, KYC, moderation, and outbox | Raw SQL migrations; one schema per module; repository interfaces isolate ORM usage |
 | MongoDB | Audit logs and activity events (append-only) | Populated from Kafka events; never source of truth for order or catalog state |
+| Redis | Caching, session storage, and fast temporary data access | Use for short-lived or high-speed data. Set appropriate TTLs. Do not treat Redis as the primary source of truth unless explicitly designed for persistence. Avoid storing sensitive data unnecessarily. Monitor memory usage and eviction policies. |
 | Elasticsearch | Search documents and facets | Written from Kafka consumers only; never from the API request path |
 | Kafka | Durable domain-event transport | At-least-once delivery; consumers idempotent; BACKWARD-compatible Avro schemas |
 | MinIO | Binary assets (images, documents, user files) | Three buckets: `product-images` (public read), `kyc-documents` (private, presigned GET), `user-assets` (private) |
@@ -189,7 +191,7 @@ See `phase-1/technical-design/data-model-erd.md` for the full table-level design
 <a id="implementation-structure"></a>
 ## 12. Implementation structure
 
-**Backend** is a Nx monorepo (`aliceut-ecom-backend/`) with `apps/api`, `apps/workers`, and one `libs/<module>/` per bounded context. `libs/contracts/` holds OpenAPI specs and Avro event definitions; `libs/shared/` holds technical primitives only (logging, error, validation, money, auth) — never domain logic owned by a module. See `phase-1/technical-design/module-architecture.md` for the full structure.
+**Backend** is a Nx monorepo (`aliceut-ecom-backend/`) with `apps/api`, `apps/workers`, and one `libs/<module>/` per bounded context. `libs/contracts/` holds OpenAPI specs and Avro event definitions; `libs/shared/` holds technical primitives only (logging, error, validation, money, auth) — never domain logic owned by a module. See `phase-1/technical-design/backend-module-architecture.md` for the full structure.
 
 **Frontend** is a Nx monorepo (`aliceut-ecom-frontend/`) with `apps/buyer-app`, `apps/seller-app`, `apps/admin-app` and shared libraries under `libs/`, including a generated TypeScript API client from the OpenAPI spec. Generated client files must not be manually edited. See `phase-1/ui-design/` for screen-level design.
 
@@ -221,6 +223,5 @@ Detailed design evolves within each phase's directory.
 | REST API contracts | `phase-1/technical-design/api-design.md` |
 | Kafka / Avro event schemas | `phase-1/technical-design/kafka-events.md` |
 | Docker Compose topology | `phase-1/technical-design/docker-compose-topology.md` |
-| NestJS module architecture | `phase-1/technical-design/module-architecture.md` |
-| Implementation specifications | `phase-1/technical-design/implementation-specs.md` |
+| NestJS module architecture | `phase-1/technical-design/backend-module-architecture.md` |
 | UI design and screen specs | `phase-1/ui-design/` |

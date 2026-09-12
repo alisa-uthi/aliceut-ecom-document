@@ -3,7 +3,7 @@
 **Status:** Draft  
 **Source of truth:** [BRD v1.2](../phase-1/requirements/BRD.md), [architecture-overview](../architecture-overview.md)
 
-This document is the developer's starting point for AliceUT. Read it once when onboarding; return to it when you need to understand how the pieces connect. It does not duplicate the detailed conventions โ€” it maps the full workflow and points to the right document for each concern.
+This document is the developer's starting point for AliceUT. Read it once when onboarding; return to it when you need to understand how the pieces connect. It does not duplicate the detailed conventions ─ it maps the full workflow and points to the right document for each concern.
 
 ---
 
@@ -13,7 +13,7 @@ This document is the developer's starting point for AliceUT. Read it once when o
 |---|---------|-------------|
 | 1 | [Repository overview](#1-repository-overview) | Monorepo layout: backend, frontend, docs, utility pipeline |
 | 2 | [Local development setup](#2-local-development-setup) | Prerequisites, `.env`, docker compose, seed data |
-| 3 | [Daily development workflow](#3-daily-development-workflow) | Branch โ’ code โ’ test โ’ PR โ’ merge cycle |
+| 3 | [Daily development workflow](#3-daily-development-workflow) | Branch , code , test , PR , merge cycle |
 | 4 | [Conventions map](#4-conventions-map) | Which convention to read for which concern |
 | 5 | [Technology decisions reference](#5-technology-decisions-reference) | Stack summary and locked decisions |
 | 6 | [API client generation](#6-api-client-generation) | When and how to regenerate the Angular client |
@@ -33,9 +33,9 @@ AliceUT is a three-repo system:
 | Repo | Contents |
 |------|----------|
 | `aliceut-ecom-document` | Design docs, architecture, conventions, guidelines, phase requirements |
-| `aliceut-ecom-backend` | NestJS backend โ€” Nx monorepo: API server, Kafka workers, domain libs |
-| `aliceut-ecom-frontend` | Angular frontend โ€” Nx monorepo: buyer/seller/admin portals, shared libs |
-| `aliceut-ecom-utility-pipeline` | Database migrations (`database/phase-N/`), CI workflows for schema changes |
+| `aliceut-ecom-backend` | NestJS backend ─ Nx monorepo: API server, Kafka workers, domain libs |
+| `aliceut-ecom-frontend` | Angular frontend ─ Nx monorepo: buyer/seller/admin portals, shared libs |
+| `aliceut-ecom-utility-pipeline` | Database migrations (`database/phase-N/`), CI workflows for schema changes, other GitHub actions utility workflow |
 
 ### Local workspace layout
 
@@ -43,10 +43,10 @@ Clone all repos as siblings under a single parent folder:
 
 ```
 aliceut-ecom/
-โ”œโ”€โ”€ aliceut-ecom-document/          # this repo โ€” design docs and conventions
-โ”œโ”€โ”€ aliceut-ecom-backend/           # NestJS backend
-โ”œโ”€โ”€ aliceut-ecom-frontend/          # Angular frontend
-โ””โ”€โ”€ aliceut-ecom-utility-pipeline/  # DB migrations
+├── aliceut-ecom-document/          # this repo ─ design docs and conventions
+├── aliceut-ecom-backend/           # NestJS backend
+├── aliceut-ecom-frontend/          # Angular frontend
+├── aliceut-ecom-utility-pipeline/  # DB Migration, Utility Pipelines
 ```
 
 Migrations are kept separate so they can be run by a dedicated operator workflow without touching application code.
@@ -64,7 +64,7 @@ aliceut-ecom-backend/
     └── shared/        Technical primitives (money, errors, logger, pagination)
 ```
 
-See [module-architecture.md](../conventions/module-architecture.md) for module tier rules, layer dependency rules, and CQRS-lite handler pattern.
+See [backend-module-architecture.md](../conventions/backend-module-architecture.md) for module tier rules, layer dependency rules, and CQRS-lite handler pattern.
 
 ### Monorepo layout (frontend)
 
@@ -80,7 +80,7 @@ aliceut-ecom-frontend/
     └── shared-util/     Pure utility functions (money formatting, date helpers)
 ```
 
-See [frontend-coding-standards.md](../conventions/frontend-coding-standards.md) ยง1 for import boundary rules and path aliases.
+See [frontend-coding-standards.md](../conventions/frontend-coding-standards.md) for import boundary rules and path aliases.
 
 ---
 
@@ -97,7 +97,7 @@ See [frontend-coding-standards.md](../conventions/frontend-coding-standards.md) 
 | golang-migrate CLI | 4.18+ | `brew install golang-migrate` / download binary |
 | Angular CLI | 22+ | `pnpm add -g @angular/cli` |
 
-### Step 1 โ€” Clone and install
+### Step 1 ─ Clone and install
 
 ```bash
 mkdir aliceut-ecom && cd aliceut-ecom
@@ -112,7 +112,7 @@ cd aliceut-ecom-backend && pnpm install && cd ..
 cd aliceut-ecom-frontend && pnpm install && cd ..
 ```
 
-### Step 2 โ€” Environment files
+### Step 2 ─ Environment files
 
 Copy the example env files and fill in development values. Never commit `.env` files.
 
@@ -122,12 +122,12 @@ cp apps/api/.env.example     apps/api/.env
 cp apps/workers/.env.example apps/workers/.env
 ```
 
-Required variables per service are documented in [backend-coding-standards.md ยง6.2](../conventions/backend-coding-standards.md#6-environment-config). Commit `.env.example` files alongside source code with placeholder values (no secrets).
+Required variables per service are documented in [backend-coding-standards.md §6.2](../conventions/backend-coding-standards.md#6-environment-config). Commit `.env.example` files alongside source code with placeholder values (no secrets).
 
-### Step 3 โ€” Start infrastructure
+### Step 3 ─ Start infrastructure
 
 ```bash
-# Start all infrastructure services (Postgres, MongoDB, MinIO, Kafka, Schema Registry, Elasticsearch, Kafka UI)
+# Start all infrastructure services (Postgres, MongoDB, Redis, MinIO, Kafka, Schema Registry, Elasticsearch, Kafka UI)
 docker compose up -d
 
 # Verify all containers are healthy
@@ -140,13 +140,14 @@ Compose services:
 |---------|------|---------|
 | `postgres` | 5432 | Primary DB |
 | `mongodb` | 27017 | Audit/activity logs |
+| `redis` | 6379 | Cache |
 | `minio` | 9000 / 9001 | Object storage / console |
 | `kafka` | 9092 | Event bus |
 | `schema-registry` | 8081 | Avro schema registry |
 | `kafka-ui` | 8080 | Kafka topic browser (provectus/kafka-ui) |
 | `elasticsearch` | 9200 | Search index |
 
-### Step 4 โ€” Run migrations
+### Step 4 ─ Run migrations
 
 Migrations live in `aliceut-ecom-utility-pipeline/database/phase-1/`. The repo is a sibling of `aliceut-ecom-backend/` in the local workspace. Run from the `aliceut-ecom/` parent:
 
@@ -160,16 +161,16 @@ migrate \
 
 See [database-migrations.md](../conventions/database-migrations.md) for full migration conventions.
 
-### Step 5 โ€” Seed development data
+### Step 5 ─ Seed development data
 
 ```bash
-# Load the 100-product Kaggle seed (local dev only โ€” never in test fixtures)
+# Load the 100-product Kaggle seed (local dev only ─ never in test fixtures)
 pnpm run seed:dev
 ```
 
 The seed script is defined in `apps/api/package.json` inside `aliceut-ecom-backend/`. It calls `POST /internal/dev/seed` on a running API. Start the API first.
 
-### Step 6 โ€” Start the applications
+### Step 6 ─ Start the applications
 
 ```bash
 # Backend API
@@ -178,13 +179,13 @@ pnpm --filter @aliceut/api dev
 # Workers (Kafka consumers + outbox relay)
 pnpm --filter @aliceut/workers dev
 
-# Frontend โ€” buyer portal
+# Frontend ─ buyer portal
 pnpm --filter @aliceut/buyer-portal serve
 
-# Frontend โ€” seller portal
+# Frontend ─ seller portal
 pnpm --filter @aliceut/seller-portal serve
 
-# Frontend โ€” admin portal
+# Frontend ─ admin portal
 pnpm --filter @aliceut/admin-portal serve
 ```
 
@@ -230,7 +231,7 @@ One logical change per commit. Compile and pass tests at each commit. No `WIP` c
 | Concern | Document |
 |---------|----------|
 | Git branching, commits, PRs, releases | [git-workflow.md](git-workflow.md) |
-| NestJS module structure, layers, CQRS | [module-architecture.md](../conventions/module-architecture.md) |
+| NestJS module structure, layers, CQRS | [backend-module-architecture.md](../conventions/backend-module-architecture.md) |
 | REST API naming, response shapes, pagination, auth guards | [api-conventions.md](../conventions/api-conventions.md) |
 | Database migrations (SQL files, golang-migrate) | [database-migrations.md](../conventions/database-migrations.md) |
 | JWT claims, refresh token storage, token TTLs | [auth-jwt-design.md](../conventions/auth-jwt-design.md) |
@@ -247,7 +248,7 @@ One logical change per commit. Compile and pass tests at each commit. No `WIP` c
 <a id="5-technology-decisions-reference"></a>
 ## 5. Technology decisions reference
 
-All decisions below are signed off in BRD ยง12 โ€” treat as constraints.
+All decisions below are signed off in BRD §12 ─ treat as constraints.
 
 | Layer | Technology                               | Notes |
 |-------|------------------------------------------|-------|
@@ -255,6 +256,7 @@ All decisions below are signed off in BRD ยง12 โ€” treat as constraint
 | Backend | NestJS 11+ (modular monolith)            | Microservice-ready; no microservices in V1 |
 | Primary DB | PostgreSQL                               | Transactional core, all domain state |
 | Document DB | MongoDB                                  | Audit logs, activity feeds, high-write append data only |
+| Cache | Redis                                    | Use for short-lived or high-speed data |
 | File storage | MinIO                                    | Product images, KYC documents, user assets |
 | Search | Elasticsearch / OpenSearch               | Single-node; updated async from Kafka |
 | Event bus | Apache Kafka + Confluent Schema Registry | Avro, BACKWARD compatibility |
@@ -291,7 +293,7 @@ This script calls `openapi-generator-cli typescript-angular` against `libs/contr
 
 ### CI enforcement
 
-A CI step runs the generator and diffs the output against the committed `api-client/`. A diff fails the build. This prevents the frontend consuming a stale client after a backend API change. See [module-architecture.md ยง8](../conventions/module-architecture.md#8-openapi-contract-generation) for the full OpenAPI generation pipeline.
+A CI step runs the generator and diffs the output against the committed `api-client/`. A diff fails the build. This prevents the frontend consuming a stale client after a backend API change. See [backend-module-architecture.md §8](../conventions/backend-module-architecture.md#8-openapi-contract-generation) for the full OpenAPI generation pipeline.
 
 ---
 
@@ -311,7 +313,7 @@ See [database-migrations.md](../conventions/database-migrations.md) for SQL rule
 
 ### Deploying migrations
 
-Migrations are applied via GitHub Actions `workflow_dispatch` in the utility pipeline repo โ€” never automatically on code deploy. Production requires a manual reviewer approval step.
+Migrations are applied via GitHub Actions `workflow_dispatch` in the utility pipeline repo ─ never automatically on code deploy. Production requires a manual reviewer approval step.
 
 ---
 
@@ -322,12 +324,12 @@ MongoDB (`MONGODB_URI`) is for **append-only, high-write data with no relational
 
 | Use MongoDB | Use Postgres |
 |-------------|-------------|
-| User activity feed (product views, search history) | All domain entities (User, Product, Offer, Order, โ€ฆ) |
+| User activity feed (product views, search history) | All domain entities (User, Product, Offer, Order) |
 | Seller performance audit trail | Any table with foreign-key relationships |
 | Admin audit log (KYC decisions, moderation actions) | Financial records (prices, transactions) |
 | Notification read/unread state | Cart, inventory, outbox |
 
-**Access pattern:** inject `MongoClient` or a Mongoose model in the relevant NestJS service. MongoDB collections are **not** managed by TypeORM โ€” they have their own migration-free schema evolution. Document the collection schema in the relevant module's `README.md` when the collection is first created.
+**Access pattern:** inject `MongoClient` or a Mongoose model in the relevant NestJS service. MongoDB collections are **not** managed by TypeORM ─ they have their own migration-free schema evolution. Document the collection schema in the relevant module's `README.md` when the collection is first created.
 
 **No transactions across Postgres and MongoDB.** If a domain change must write to both, write to Postgres first (with outbox), then let a Kafka consumer write the denormalized copy to MongoDB. Never attempt a two-phase commit across both stores.
 
@@ -347,9 +349,12 @@ MinIO (`MINIO_ENDPOINT`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`) stores binary o
 ### Rules
 
 - **Never store MinIO object URLs in Postgres directly.** Store the object key (e.g. `product-images/products/{productId}/{uuid}.jpg`). Generate presigned URLs at read time.
-- **Presigned URL TTL:** product images — 1 hour (long, public bucket, CDN-cacheable). KYC documents — 15 minutes (short, private, one-time download). User assets — 1 hour.
+- **Presigned URL TTL:** 
+  - Product images — 1 hour (long, public bucket, CDN-cacheable). 
+  - KYC documents — 15 minutes (short, private, one-time download). 
+  - User assets — 1 hour.
 - **Virus scan on upload:** all KYC documents must pass a ClamAV scan before being made accessible. Block the upload API response until the scan completes (synchronous in V1).
-- **Filename policy:** generate a UUID4 filename server-side. Never trust the client-supplied filename โ€” it is stored only in a metadata column alongside the object key.
+- **Filename policy:** generate a UUIDv7 filename server-side. Never trust the client-supplied filename ─ it is stored only in a metadata column alongside the object key.
 
 ---
 
@@ -366,13 +371,13 @@ These rules apply project-wide. Violating any one of them is a PR blocker.
 - TypeScript: monetary fields typed as `string` at API/DB boundaries, `Decimal` inside arithmetic. `number` on a monetary field is a lint error.
 - Currency-specific display scale: JPY=0, BHD=3, USD/THB/SGD=2. Storage stays 4 dp regardless.
 
-See [backend-coding-standards.md ยง3](../conventions/backend-coding-standards.md#3-money-handling-code-patterns) (backend) and [frontend-coding-standards.md ยง5](../conventions/frontend-coding-standards.md#5-money-display-patterns) (frontend).
+See [backend-coding-standards.md §3](../conventions/backend-coding-standards.md#3-money-handling-code-patterns) (backend) and [frontend-coding-standards.md §5](../conventions/frontend-coding-standards.md#5-money-display-patterns) (frontend).
 
 ### Event-driven writes
 
-Every domain state change that must propagate externally (product, offer, inventory, order, KYC, moderation) publishes via transactional outbox โ€” the `outbox_event` row is written in the **same Postgres transaction** as the domain change. No direct Kafka publish from application code.
+Every domain state change that must propagate externally (product, offer, inventory, order, KYC, moderation) publishes via transactional outbox ─ the `outbox_event` row is written in the **same Postgres transaction** as the domain change. No direct Kafka publish from application code.
 
-See [kafka-events.md](../conventions/kafka-events.md) and [module-architecture.md ยง6](../conventions/module-architecture.md#6-outbox-integration-pattern).
+See [kafka-events.md](../conventions/kafka-events.md) and [backend-module-architecture.md §6](../conventions/backend-module-architecture.md#6-outbox-integration-pattern).
 
 ### Order immutability
 
@@ -384,7 +389,7 @@ Access token lives in memory only (frontend); refresh token in httpOnly cookie o
 
 ### Prohibited categories
 
-No weapons, drugs, or adult content. Moderation flags on taxonomy + keyword blocklist at listing time. The admin portal enforces this โ€” no bypass in any API endpoint.
+No weapons, drugs, or adult content. Moderation flags on taxonomy + keyword blocklist at listing time. The admin portal enforces this ─ no bypass in any API endpoint.
 
 ### V1 seller currencies
 
@@ -401,18 +406,18 @@ Gate every PR against this list before merging. CI handles the automated checks;
 
 - [ ] `tsc --noEmit` passes (both `api` and all Angular apps)
 - [ ] `eslint` passes including money lint rule
-- [ ] Unit tests pass; coverage thresholds met per module tier (see [testing-guidelines.md ยง2](testing-guidelines.md#coverage-thresholds))
+- [ ] Unit tests pass; coverage thresholds met per module tier (see [testing-guidelines.md §2](testing-guidelines.md#coverage-thresholds))
 - [ ] Commitlint: PR title and all commit messages follow Conventional Commits
 - [ ] OpenAPI spec diff: if backend changed, frontend `api-client` is regenerated and committed
 - [ ] **(Backend PRs)** Claude design review has posted findings; all BLOCKER items addressed before merge
 
-See [git-workflow.md ยง7.3](git-workflow.md#73-ci-pipeline) for the `claude-design-review` CI job setup.
+See [git-workflow.md §7.3](git-workflow.md#73-ci-pipeline) for the `claude-design-review` CI job setup.
 
 ### Manual (self-review before opening PR)
 
 **Domain layer:**
 - [ ] No NestJS / TypeORM / class-validator imports inside `domain/` layer
-- [ ] Repository interface defines contracts only โ€” no TypeORM types leak through
+- [ ] Repository interface defines contracts only ─ no TypeORM types leak through
 
 **Money correctness:**
 - [ ] No JS `number` type on monetary field
@@ -427,7 +432,7 @@ See [git-workflow.md ยง7.3](git-workflow.md#73-ci-pipeline) for the `claude-
 
 **Cross-module boundaries:**
 - [ ] No direct cross-module DB join (each module queries only its own tables)
-- [ ] No direct cross-module service injection except via `index.ts` public API or checkoutโ’inventory approved exception
+- [ ] No direct cross-module service injection except via `index.ts` public API or checkout,inventory approved exception
 
 **Security:**
 - [ ] No hardcoded secret, key, or password
@@ -441,7 +446,7 @@ See [git-workflow.md ยง7.3](git-workflow.md#73-ci-pipeline) for the `claude-
 - [ ] No test reads `process.env` directly (use stubbed `ConfigService`)
 
 **Frontend:**
-- [ ] No raw `HttpClient` call for API endpoints โ€” always use generated client
+- [ ] No raw `HttpClient` call for API endpoints ─ always use generated client
 - [ ] Access token never written to localStorage / sessionStorage
 - [ ] Every data-fetching component handles loading / empty / error states
 - [ ] All feature routes are lazily loaded
@@ -449,5 +454,5 @@ See [git-workflow.md ยง7.3](git-workflow.md#73-ci-pipeline) for the `claude-
 **Docs and migrations:**
 - [ ] If a new DB column or table is added, a migration pair exists in `aliceut-ecom-utility-pipeline`
 - [ ] If a new MongoDB collection is introduced, schema is documented in the module README
-- [ ] If a new env var is required, it is added to the `.env.example` file and [backend-coding-standards.md ยง6.2](../conventions/backend-coding-standards.md#6-environment-config)
+- [ ] If a new env var is required, it is added to the `.env.example` file and [backend-coding-standards.md §6.2](../conventions/backend-coding-standards.md#6-environment-config)
 

@@ -1,6 +1,6 @@
 # Module Architecture
 
-**Status:** Draft  
+**Status:** Complete  
 **Source of truth:** [architecture-overview §10](../architecture-overview.md), [BRD v1.2](../phase-1/requirements/BRD.md)
 
 ---

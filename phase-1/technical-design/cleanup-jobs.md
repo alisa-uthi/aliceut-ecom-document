@@ -79,7 +79,7 @@ SELECT cron.schedule(
 
 Active reservations expire after 15 minutes if checkout is not completed. Stock must be returned when a reservation expires, **and a `inventory.reservation_expired` Kafka event must be emitted for each expired hold** so downstream consumers (search index, notifications) react. Stock release, status update, and outbox insert must all be atomic — implemented as a PostgreSQL function using the same per-row LOOP pattern as `lift_expired_suspensions`.
 
-The former `reservation-expiry.scheduler.ts` worker (which emitted the event but did not release stock) is **removed** — this function now owns the full lifecycle. See [module-architecture.md §scheduled-tasks](./module-architecture.md#scheduled-tasks).
+The former `reservation-expiry.scheduler.ts` worker (which emitted the event but did not release stock) is **removed** — this function now owns the full lifecycle. See [backend-module-architecture.md §scheduled-tasks](./backend-module-architecture.md#scheduled-tasks).
 
 ```sql
 CREATE OR REPLACE FUNCTION inventory.expire_reservations() RETURNS void LANGUAGE plpgsql AS $$
