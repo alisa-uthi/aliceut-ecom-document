@@ -1,7 +1,7 @@
 # Database Migrations Convention
 
 **Status:** Draft  
-**Source of truth:** [BRD v1.1](../phase-1/requirements/BRD.md), [module-architecture](module-architecture.md)
+**Source of truth:** [BRD v1.2](../phase-1/requirements/BRD.md), [module-architecture](module-architecture.md)
 
 Migration scripts live in a separate utility pipeline repository — **`alice-ut-utility-pipeline`** — not in the application source tree. The application repo (`alice-ut`) never runs migrations automatically; all migrations are intentional, operator-triggered actions.
 

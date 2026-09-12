@@ -29,11 +29,34 @@ Daily log of work on this project. Newest entry on top. One entry per active day
 ---
 
 **Index**
+- [2026-09-12f](#2026-09-12f) — Developer-readiness alignment audit (fresh): 13 findings fixed across auth, seller, pricing, profile, search, frontend-coding-standards, architecture-overview, api-conventions, docker-compose-topology, cleanup-jobs, module-architecture.
 - [2026-09-12e](#2026-09-12e) — Fresh cross-document alignment audit: 5 BLOCKING + 12 HIGH + 11 MEDIUM findings fixed across 19 files.
 - [2026-09-12d](#2026-09-12d) — Three archify diagrams: system architecture, buyer journey workflow, event-driven dataflow. All pass showcase validation (9/9) + visual-check (all viewports).
 - [2026-09-12c](#2026-09-12c) — Mermaid rendering fix: admin.md all 11 sequences (outer auth-wrapper removed, max nesting depth reduced); diagram/convention/ERD files (background agent).
 - [2026-09-12b](#2026-09-12b) — Full developer-readiness audit: 71 findings (14 BLOCKING) found and fixed across all 37 phase-1 docs; 1 new file (shared-components.md).
 - [2026-09-12](#2026-09-12) — Cross-document alignment audit: kafka-events, email-templates, API design — all Kafka → email → notification wiring corrected.
+
+<a id="2026-09-12f"></a>
+## 2026-09-12f
+**Focus:** Developer-readiness alignment audit — fresh pass, all 13 findings fixed, docs implementation-ready.
+
+**Done:**
+- **A (BRD version):** Bulk `BRD v1.1 → v1.2` across 28 non-BRD files
+- **B (Angular version):** architecture-overview.md `Angular 20+ → 22+`
+- **C (Redis missing):** Added Redis service to docker-compose-topology.md — service inventory, docker-compose.yml snippet (`redis:7-alpine`), `.env.example` (REDIS_URL/REDIS_HOST/REDIS_PORT), `api` depends_on, startup-order diagram, port summary, design-decision note
+- **D (Refresh token in body):** auth.md — removed `refreshToken` from login/refresh JSON bodies; documented `Set-Cookie: refreshToken` HttpOnly cookie delivery; updated both sequence diagrams
+- **E (PROCESSING status):** seller.md — removed invalid `PROCESSING` from 3 fulfillment status enums (valid: PENDING/SHIPPED/DELIVERED/CANCELLED/REFUNDED)
+- **F (listing.soft_deleted ES):** search.md — corrected `listing.soft_deleted` consumer to unconditional product document delete (US-P-11)
+- **G (businessLogoUrl in PATCH):** profile.md — removed `businessLogoUrl` from PATCH /profile/me request body and sequence diagram; logo updates exclusively via POST /profile/me/logo
+- **H (Platform OpenAPI tag):** api-conventions.md — added `Platform` to OpenAPI tags list
+- **I (pricing error text):** pricing.md — fixed `422 no price available in requested currency` → `422 no active price available for this offer`
+- **J (reservation expiry race condition):** cleanup-jobs.md — rewrote `expire_reservations()` to LOOP pattern (matching `lift_expired_suspensions`): stock release + status update + outbox `inventory.reservation_expired` INSERT all atomic per row; module-architecture.md — struck `reservation-expiry.scheduler.ts` (removed)
+- **K (app naming):** frontend-coding-standards.md — `buyer-portal/seller-portal/admin-portal → buyer-app/seller-app/admin-app`
+- **L (lib naming):** frontend-coding-standards.md — `libs/shared-ui/ → libs/ui/` (import alias `@aliceut/shared-ui` retained)
+- **M (search module consumers):** module-architecture.md — added `inventory.reservation_expired`, `seller.suspension_expired`, `listing.soft_deleted`, `fx_rate.updated` to search module consumer list
+
+**Next:**
+- Implementation phase: scaffold backend (NestJS) and frontend (Angular) repos per aliceut-ecom-backend / aliceut-ecom-frontend layouts
 
 <a id="2026-09-12e"></a>
 ## 2026-09-12e
@@ -439,7 +462,7 @@ _BA revalidation (41 findings)_
 **Focus:** Requirements freeze + repo scaffolding for Phase 1.
 
 **Done:**
-- BRD v1.1 signed off (`phase-1/requirements/BRD.md`).
+- BRD v1.2 signed off (`phase-1/requirements/BRD.md`).
 - User stories split by role into `phase-1/requirements/user-stories/` — 39 stories across buyer / seller / admin / platform, indexed by `README.md`.
 - Linked Figma file "AliceUT" (`F69ukaWjsqx4adgo26vDFQ`) as authoritative design source; recorded in `CLAUDE.md` → *Design Reference*.
 - Draft screens for "Buyer" in Figma

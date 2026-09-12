@@ -1,7 +1,7 @@
 ﻿# Development Flow
 
 **Status:** Draft  
-**Source of truth:** [BRD v1.1](../phase-1/requirements/BRD.md), [architecture-overview](../architecture-overview.md)
+**Source of truth:** [BRD v1.2](../phase-1/requirements/BRD.md), [architecture-overview](../architecture-overview.md)
 
 This document is the developer's starting point for AliceUT. Read it once when onboarding; return to it when you need to understand how the pieces connect. It does not duplicate the detailed conventions โ€” it maps the full workflow and points to the right document for each concern.
 

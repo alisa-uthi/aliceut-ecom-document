@@ -1,7 +1,7 @@
 # Frontend Coding Standards
 
 **Status:** Draft  
-**Source of truth:** [BRD v1.1](../phase-1/requirements/BRD.md), [design-system](design-system.md)
+**Source of truth:** [BRD v1.2](../phase-1/requirements/BRD.md), [design-system](design-system.md)
 
 ---
 
@@ -33,12 +33,12 @@ aliceut-ecom-frontend/
 ├── angular.json
 ├── tsconfig.base.json
 ├── apps/
-│   ├── buyer-portal/       # mobile-first; public catalog + auth flows
-│   ├── seller-portal/      # desktop-first; listing, inventory, order management
-│   └── admin-portal/       # desktop-first; KYC, moderation, platform ops
+│   ├── buyer-app/       # mobile-first; public catalog + auth flows
+│   ├── seller-app/      # desktop-first; listing, inventory, order management
+│   └── admin-app/       # desktop-first; KYC, moderation, platform ops
 └── libs/
     ├── api-client/         # generated TypeScript client (openapi-generator-cli)
-    ├── shared-ui/          # presentational components, pipes, directives (no domain logic)
+    ├── ui/                 # presentational components, pipes, directives (no domain logic)
     └── shared-util/        # pure functions: money formatting, date helpers, validators
 ```
 
@@ -47,8 +47,8 @@ aliceut-ecom-frontend/
 | Code | Location |
 |------|----------|
 | Generated API services and models | `libs/api-client/` — never hand-edit |
-| `ProductCardComponent`, `StatusBadgeComponent`, all shared UI | `libs/shared-ui/` |
-| `CurrencyDisplayPipe`, `TimeAgoPipe`, `TruncatePipe` | `libs/shared-ui/src/lib/pipes/` |
+| `ProductCardComponent`, `StatusBadgeComponent`, all shared UI | `libs/ui/` |
+| `CurrencyDisplayPipe`, `TimeAgoPipe`, `TruncatePipe` | `libs/ui/src/lib/pipes/` |
 | `formatMoney()`, `parseCurrencyScale()` pure utils | `libs/shared-util/` |
 | `CartService`, `AuthService`, `NotificationService` | App-level (`apps/<portal>/src/app/core/`) — not shared-ui |
 | Feature modules (product listing, checkout, KYC flow) | `apps/<portal>/src/app/features/<name>/` |
@@ -62,7 +62,7 @@ Path aliases in `tsconfig.base.json`:
 {
   "paths": {
     "@aliceut/api-client": ["libs/api-client/src/index.ts"],
-    "@aliceut/shared-ui": ["libs/shared-ui/src/index.ts"],
+    "@aliceut/shared-ui": ["libs/ui/src/index.ts"],
     "@aliceut/shared-util": ["libs/shared-util/src/index.ts"]
   }
 }
@@ -254,7 +254,7 @@ Never convert a monetary string to a JS `number` for arithmetic or display. Use 
 
 ### CurrencyDisplayPipe
 
-Lives at `libs/shared-ui/src/lib/pipes/currency-display.pipe.ts`. Exported from `@aliceut/shared-ui`.
+Lives at `libs/ui/src/lib/pipes/currency-display.pipe.ts`. Exported from `@aliceut/shared-ui`.
 
 ```typescript
 @Pipe({ name: 'currencyDisplay', standalone: true, pure: true })
@@ -538,7 +538,7 @@ interface CartItem {
 
 ### Barrel files
 
-`index.ts` barrels are allowed at lib root boundaries only (`libs/shared-ui/src/index.ts`). Do not create barrels inside feature folders — they cause circular dependency issues.
+`index.ts` barrels are allowed at lib root boundaries only (`libs/ui/src/index.ts`). Do not create barrels inside feature folders — they cause circular dependency issues.
 
 ### ESLint config baseline
 

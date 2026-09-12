@@ -1,7 +1,7 @@
 # API Conventions
 
 Cross-phase REST API conventions for all AliceUT services.  
-**Source of truth:** [BRD v1.1](../phase-1/requirements/BRD.md)
+**Source of truth:** [BRD v1.2](../phase-1/requirements/BRD.md)
 
 ---
 
@@ -149,4 +149,4 @@ Checkout endpoint requires `Idempotency-Key: <client-uuid>` header. Same key ret
 <a id="openapi-tags"></a>
 ## OpenAPI Tags
 
-`Identity`, `Auth`, `Profile`, `Catalog`, `Pricing`, `Search`, `Cart`, `Orders`, `Seller`, `Admin`, `Notifications`
+`Identity`, `Auth`, `Profile`, `Catalog`, `Pricing`, `Search`, `Cart`, `Orders`, `Seller`, `Admin`, `Notifications`, `Platform`

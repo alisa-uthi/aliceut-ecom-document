@@ -1,7 +1,7 @@
 # Docker Compose Topology — Phase 1
 
 **Status:** Draft  
-**Source of truth:** [BRD v1.1 §12](../requirements/BRD.md), [architecture-overview §8](../../architecture-overview.md)
+**Source of truth:** [BRD v1.2 §12](../requirements/BRD.md), [architecture-overview §8](../../architecture-overview.md)
 
 ---
 
@@ -37,6 +37,7 @@
 | `kafka-ui` | `provectus/kafka-ui:latest` | `8080:8080` | Kafka management UI |
 | `minio` | `minio/minio:RELEASE.2024-11-07T00-52-20Z` | `9000:9000`, `9001:9001` | S3-compatible object storage (product images, KYC docs, user assets) |
 | `minio-init` | `minio/mc:latest` | — | One-shot bucket creation init container |
+| `redis` | `redis:7-alpine` | `6379:6379` | JWT revocation key store (`auth:revoke_before:{userId}` keys, TTL 960 s) |
 
 ---
 
@@ -45,7 +46,7 @@
 
 ```
 aliceut_frontend   buyer-nginx, seller-nginx, admin-nginx (no backend access)
-aliceut_backend    api, workers, postgres, mongodb, elasticsearch, kafka, schema-registry, kafka-ui
+aliceut_backend    api, workers, postgres, mongodb, elasticsearch, kafka, schema-registry, kafka-ui, redis
 ```
 
 nginx containers are on **both** networks; they proxy `/api/*` to `api:3000`.  
@@ -94,6 +95,11 @@ MONGO_INITDB_ROOT_PASSWORD=change_me_mongodb
 
 # ── Elasticsearch ────────────────────────────────────────
 ELASTICSEARCH_NODE=http://elasticsearch:9200
+
+# ── Redis ──────────────────────────────────────────────────
+REDIS_URL=redis://redis:6379
+REDIS_HOST=redis
+REDIS_PORT=6379
 
 # ── Kafka ────────────────────────────────────────────────
 KAFKA_BROKERS=kafka:9092
@@ -252,6 +258,7 @@ services:
       ELASTICSEARCH_NODE: http://elasticsearch:9200
       KAFKA_BROKERS: kafka:9092
       KAFKA_SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      REDIS_URL: redis://redis:6379
     networks:
       - aliceut_backend
     depends_on:
@@ -264,6 +271,8 @@ services:
       kafka:
         condition: service_healthy
       schema-registry:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/api/v1/health"]
@@ -495,6 +504,24 @@ services:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minio_admin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
 
+  # ── Redis ─────────────────────────────────────────────────
+
+  redis:
+    image: redis:7-alpine
+    container_name: aliceut_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly no --maxmemory 256mb --maxmemory-policy allkeys-lru
+    networks:
+      - aliceut_backend
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
   # ── Kafka UI ─────────────────────────────────────────────
 
   kafka-ui:
@@ -615,12 +642,13 @@ elasticsearch ────────────────┤──► api �
 kafka ────────────────────────┤         ├─ seller-nginx
 kafka ──► schema-registry ────┤         └─ admin-nginx
 kafka ──► kafka-ui            │
+redis ────────────────────────┤
                               ├──► workers
                               │
 schema-registry ──────────────┘
 ```
 
-`api` and `workers` both wait for all four data stores plus schema-registry (`condition: service_healthy`) before starting. nginx containers wait for `api` to be healthy.
+`api` waits for all five data stores plus schema-registry (`condition: service_healthy`) before starting. `workers` waits for postgres, mongodb, kafka, schema-registry, and elasticsearch. nginx containers wait for `api` to be healthy.
 
 ---
 
@@ -632,7 +660,7 @@ schema-registry ──────────────┘
 cp .env.example .env
 
 # Start infrastructure only (no app containers)
-docker compose up postgres mongodb elasticsearch kafka schema-registry kafka-ui -d
+docker compose up postgres mongodb elasticsearch kafka schema-registry kafka-ui redis -d
 
 # Run migrations
 npm run migration:run
@@ -671,6 +699,7 @@ docker compose up -d
 | kafka-ui | 8080 | http://localhost:8080 |
 | minio (S3 API) | 9000 | http://localhost:9000 |
 | minio (console) | 9001 | http://localhost:9001 |
+| redis | 6379 | `redis-cli -h localhost` |
 
 ---
 
@@ -682,3 +711,4 @@ docker compose up -d
 - **[DESIGN DECISION]** Workers expose a minimal health endpoint on port 3001 for the compose health check. This is a lightweight HTTP server in the worker process checking Kafka consumer lag and outbox relay status.
 - **[DESIGN DECISION]** Object storage uses MinIO (`minio/minio:RELEASE.2024-11-07T00-52-20Z`). Three buckets: `product-images` (public read, served via presigned URLs or direct path), `kyc-documents` (private; NestJS generates short-lived presigned GET URLs on demand), `user-assets` (business logos; private). `minio-init` is a one-shot service that creates buckets on first compose-up. Production must use a dedicated service-account access key, not the root credentials.
 - **[DESIGN DECISION]** Schema Registry uses Community License (`confluentinc/cp-schema-registry:7.7.0`). No commercial license key required. Does not use Schema Linking, exporters, or RBAC security plugin.
+- **[DESIGN DECISION]** Redis (`redis:7-alpine`) is ephemeral — no persistent volume. JWT revocation keys (`auth:revoke_before:{userId}`) carry a 960 s TTL (15-min JWT lifetime + 60 s buffer). If Redis restarts in development, the worst-case window for a revoked token is at most 15 minutes until the access JWT expires naturally. Persistent storage is not justified for this TTL. `maxmemory 256mb` with `allkeys-lru` prevents unbounded growth. Only `api` depends on Redis; `workers` processes Kafka events and does not validate JWTs.

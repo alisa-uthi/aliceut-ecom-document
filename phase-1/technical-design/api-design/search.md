@@ -2,7 +2,7 @@
 
 **Module:** `Search`  
 **Parent:** [API Design Index](../api-design.md)  
-**Source of truth:** [BRD v1.1](../../requirements/BRD.md), [ERD](../data-model-erd.md)
+**Source of truth:** [BRD v1.2](../../requirements/BRD.md), [ERD](../data-model-erd.md)
 
 ---
 
@@ -297,14 +297,14 @@ sequenceDiagram
         Relay->>Kafka: Produce to moderation.listing.removed (partition key: offer_id)
         Kafka-->>Consumer: Consume moderation.listing.removed (group: search.listing-removed)
         Note over Consumer: Idempotency check on platform.processed_event
-        Consumer->>ES: Remove offer from /products/_doc/:productId nested offers array<br/>If no active offers remain: remove product doc or mark inStock = false
+        Consumer->>ES: Remove seller's offer entry from /products/_doc/:productId nested offers array<br/>If no active offers remain for this product: delete product document entirely
     else Seller soft-deletes own listing (listing.soft_deleted)
         Source->>Postgres: BEGIN TX<br/>UPDATE catalog.offer SET status = REMOVED<br/>INSERT platform.outbox_event (topic=listing.soft_deleted)
         Postgres-->>Source: COMMIT
         Relay->>Kafka: Produce to listing.soft_deleted (partition key: offer_id)
         Kafka-->>Consumer: Consume listing.soft_deleted (group: search.listing-soft-deleted)
         Note over Consumer: Idempotency check on platform.processed_event
-        Consumer->>ES: Remove offer from /products/_doc/:productId nested offers array<br/>If no active offers remain: remove product doc or mark inStock = false
+        Consumer->>ES: Delete product document (/products/_doc/:productId) — unconditional (US-P-11).<br/>Idempotent: no error if document already absent.
     end
     ES-->>Consumer: acknowledged
     Consumer->>Postgres: INSERT platform.processed_event

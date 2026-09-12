@@ -61,7 +61,7 @@ Locked in BRD §12. Not revisable without a BRD amendment.
 
 | Concern | Choice                                                                          |
 |---|---------------------------------------------------------------------------------|
-| Frontend | Angular 20+ + Angular Material                                                  |
+| Frontend | Angular 22+ + Angular Material                                                  |
 | Backend | NestJS 11+ (modular monolith, microservice-ready)                               |
 | Primary DB | PostgreSQL (transactional source of truth)                                      |
 | Audit / activity | MongoDB (append-only, event-fed)                                                |

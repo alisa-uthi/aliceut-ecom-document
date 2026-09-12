@@ -1,7 +1,7 @@
 # Phase 1 Data Model and ERD
 
 **Status:** Draft  
-**Source of truth:** [BRD v1.1](../requirements/BRD.md), [architecture overview](../../architecture-overview.md), and Phase 1 user stories.  
+**Source of truth:** [BRD v1.2](../requirements/BRD.md), [architecture overview](../../architecture-overview.md), and Phase 1 user stories.  
 **Scope:** Logical data design for V1. It defines ownership and constraints; physical indexes and migration order follow in the database-migration design.
 
 ---

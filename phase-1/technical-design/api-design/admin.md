@@ -2,7 +2,7 @@
 
 **Module:** `Admin`  
 **Parent:** [API Design Index](../api-design.md)  
-**Source of truth:** [BRD v1.1](../../requirements/BRD.md), [ERD](../data-model-erd.md)
+**Source of truth:** [BRD v1.2](../../requirements/BRD.md), [ERD](../data-model-erd.md)
 
 > **Auth note:** Routes under `/admin/*` return `HTTP 403` for both unauthenticated requests (no/invalid token) and unauthorized requests (valid token but not ADMIN role), to avoid leaking the existence of admin-only routes.
 

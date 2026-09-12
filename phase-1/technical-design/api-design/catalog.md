@@ -2,7 +2,7 @@
 
 **Module:** `Catalog`  
 **Parent:** [API Design Index](../api-design.md)  
-**Source of truth:** [BRD v1.1](../../requirements/BRD.md), [ERD](../data-model-erd.md)
+**Source of truth:** [BRD v1.2](../../requirements/BRD.md), [ERD](../data-model-erd.md)
 
 ---
 

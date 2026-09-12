@@ -77,22 +77,46 @@ SELECT cron.schedule(
 <a id="stock-reservation"></a>
 ### `inventory.stock_reservation`
 
-Active reservations expire after 15 minutes if checkout is not completed. Stock must be returned when a reservation expires. Stock release and reservation expiry must be atomic — implemented as a PostgreSQL function.
+Active reservations expire after 15 minutes if checkout is not completed. Stock must be returned when a reservation expires, **and a `inventory.reservation_expired` Kafka event must be emitted for each expired hold** so downstream consumers (search index, notifications) react. Stock release, status update, and outbox insert must all be atomic — implemented as a PostgreSQL function using the same per-row LOOP pattern as `lift_expired_suspensions`.
+
+The former `reservation-expiry.scheduler.ts` worker (which emitted the event but did not release stock) is **removed** — this function now owns the full lifecycle. See [module-architecture.md §scheduled-tasks](./module-architecture.md#scheduled-tasks).
 
 ```sql
 CREATE OR REPLACE FUNCTION inventory.expire_reservations() RETURNS void LANGUAGE plpgsql AS $$
+DECLARE
+  r RECORD;
 BEGIN
-  UPDATE inventory.stock s
-  SET reserved_qty = s.reserved_qty - r.quantity,
-      updated_at = NOW()
-  FROM inventory.stock_reservation r
-  WHERE r.offer_id = s.offer_id
-    AND r.status = 'ACTIVE'
-    AND r.expires_at < NOW();
+  FOR r IN
+    SELECT id, offer_id, quantity
+    FROM inventory.stock_reservation
+    WHERE status = 'ACTIVE' AND expires_at < NOW()
+  LOOP
+    -- Release reserved stock
+    UPDATE inventory.stock
+    SET reserved_qty = reserved_qty - r.quantity,
+        updated_at = NOW()
+    WHERE offer_id = r.offer_id;
 
-  UPDATE inventory.stock_reservation
-  SET status = 'EXPIRED', updated_at = NOW()
-  WHERE status = 'ACTIVE' AND expires_at < NOW();
+    -- Mark reservation expired
+    UPDATE inventory.stock_reservation
+    SET status = 'EXPIRED', updated_at = NOW()
+    WHERE id = r.id;
+
+    -- Emit outbox event (same tx) — relay ships to Kafka as inventory.reservation_expired
+    INSERT INTO platform.outbox_event (
+      aggregate_type, aggregate_id, topic, event_type, event_version,
+      payload, correlation_id, occurred_at, publication_status, attempt_count
+    ) VALUES (
+      'stock_reservation', r.id,
+      'inventory.reservation_expired', 'inventory.reservation_expired', 1,
+      jsonb_build_object(
+        'reservation_id', r.id,
+        'offer_id', r.offer_id,
+        'released_qty', r.quantity
+      ),
+      gen_random_uuid(), NOW(), 'PENDING', 0
+    );
+  END LOOP;
 END;
 $$;
 

@@ -1,7 +1,7 @@
 # Git Workflow
 
 **Status:** Draft
-**Source of truth:** [BRD v1.1](../phase-1/requirements/BRD.md)
+**Source of truth:** [BRD v1.2](../phase-1/requirements/BRD.md)
 
 This document establishes Git conventions for AliceUT to ensure a clean, auditable history suitable for a learning/portfolio project while maintaining production discipline. Solo developer context: self-review gates and CI enforcement replace team oversight.
 
@@ -735,7 +735,7 @@ BREAKING CHANGE: Login response no longer includes refresh_token in body; client
 <a id="related-documents"></a>
 ## 11. Related Documents
 
-- [BRD v1.1 — Locked Decisions §12](../phase-1/requirements/BRD.md)
+- [BRD v1.2 — Locked Decisions §12](../phase-1/requirements/BRD.md)
 - [Architecture Overview](../architecture-overview.md)
 - [API Conventions](../conventions/api-conventions.md)
 - [Database Migrations](../conventions/database-migrations.md)

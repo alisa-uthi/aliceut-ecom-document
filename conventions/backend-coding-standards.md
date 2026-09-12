@@ -1,7 +1,7 @@
 # Backend Coding Standards
 
 **Status:** Draft  
-**Source of truth:** [BRD v1.1](../phase-1/requirements/BRD.md), [module-architecture](module-architecture.md)
+**Source of truth:** [BRD v1.2](../phase-1/requirements/BRD.md), [module-architecture](module-architecture.md)
 
 ---
 

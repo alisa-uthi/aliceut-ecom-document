@@ -2,7 +2,7 @@
 
 **Module:** `Seller`  
 **Parent:** [API Design Index](../api-design.md)  
-**Source of truth:** [BRD v1.1](../../requirements/BRD.md), [ERD](../data-model-erd.md)
+**Source of truth:** [BRD v1.2](../../requirements/BRD.md), [ERD](../data-model-erd.md)
 
 ---
 
@@ -930,7 +930,7 @@ Tag: Seller
 Auth: SELLER (suspended sellers may also access)
 Pagination: offset
 ```
-**Query params:** `status` (`PENDING | PROCESSING | SHIPPED | DELIVERED | CANCELLED | REFUNDED`), `page` (1-based, default 1), `limit` (default 20, max 100)  
+**Query params:** `status` (`PENDING | SHIPPED | DELIVERED | CANCELLED | REFUNDED`), `page` (1-based, default 1), `limit` (default 20, max 100)  
 **Response 200**
 ```json
 {
@@ -938,7 +938,7 @@ Pagination: offset
     {
       "id": "uuid",
       "displayId": "FUL-XXXXXXXX",
-      "status": "PENDING | PROCESSING | SHIPPED | DELIVERED | CANCELLED | REFUNDED",
+      "status": "PENDING | SHIPPED | DELIVERED | CANCELLED | REFUNDED",
       "placedAt": "ISO8601",
       "totalAmount": "99.99",
       "currency": "THB",
@@ -994,7 +994,7 @@ Auth: SELLER (suspended sellers may also access)
   "data": {
     "id": "uuid",
     "displayId": "FUL-3F2A1B9C",
-    "status": "PENDING | PROCESSING | SHIPPED | DELIVERED | CANCELLED | REFUNDED",
+    "status": "PENDING | SHIPPED | DELIVERED | CANCELLED | REFUNDED",
     "buyerName": "string",
     "shippingAddress": { ... },
     "trackingNumber": "TRK-...",

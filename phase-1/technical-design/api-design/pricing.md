@@ -2,7 +2,7 @@
 
 **Module:** `Pricing`  
 **Parent:** [API Design Index](../api-design.md)  
-**Source of truth:** [BRD v1.1](../../requirements/BRD.md), [ERD](../data-model-erd.md)
+**Source of truth:** [BRD v1.2](../../requirements/BRD.md), [ERD](../data-model-erd.md)
 
 ---
 
@@ -69,7 +69,7 @@ Auth: PUBLIC (buyer account type from JWT if authenticated)
 **Field semantics:**
 - `amount` / `currency` — seller's native pricing currency (the price row stored in `pricing.offer_price`)
 - `displayCurrency` / `displayAmount` / `fxRate` / `fxRateStaleAt` — buyer's requested display currency (FX-converted, display-only). Omitted when `currency` param matches the offer's native currency (no conversion needed). `fxRateStaleAt` is set (and `displayAmount` omitted) when the FX rate is missing or stale.
-**Errors:** 404 offer not found, 422 currency not supported, 422 no price available in requested currency
+**Errors:** 404 offer not found, 422 currency not supported, 422 no active price available for this offer
 
 #### Sequence
 

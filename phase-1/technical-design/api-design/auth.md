@@ -2,7 +2,7 @@
 
 **Module:** `Identity` / `Auth`  
 **Parent:** [API Design Index](../api-design.md)  
-**Source of truth:** [BRD v1.1](../../requirements/BRD.md), [auth-jwt-design](../../../conventions/auth-jwt-design.md), [ERD](../data-model-erd.md)
+**Source of truth:** [BRD v1.2](../../requirements/BRD.md), [auth-jwt-design](../../../conventions/auth-jwt-design.md), [ERD](../data-model-erd.md)
 
 ---
 
@@ -158,7 +158,6 @@ Rate limit: 10 attempts per IP per 15 min (lockout after 10 failures)
 {
   "data": {
     "accessToken": "string (JWT, 15 min)",
-    "refreshToken": "string (opaque, 7 days)",
     "user": {
       "id": "uuid",
       "email": "string",
@@ -170,6 +169,8 @@ Rate limit: 10 attempts per IP per 15 min (lockout after 10 failures)
   }
 }
 ```
+**Cookie set:** `Set-Cookie: refreshToken=<opaque>; HttpOnly; Secure; SameSite=Strict; Path=/api/v1/auth/refresh; Max-Age=604800`  
+The refresh token is delivered exclusively as an HttpOnly cookie — it is never present in the JSON response body.  
 **Errors:** 401 invalid credentials, 403 account suspended/banned
 
 #### Sequence
@@ -217,8 +218,7 @@ sequenceDiagram
     IS->>PG: INSERT identity.refresh_session (user_id, token_hash, expires_at=NOW()+7d, device_metadata)
 
     IS-->>A: {accessToken, refreshToken, user}
-    A-->>C: 200 { data: { accessToken, refreshToken, user } }
-    Note right of C: refreshToken delivered via HttpOnly Secure SameSite=Strict cookie (path=/api/v1/auth/refresh)
+    A-->>C: 200 { data: { accessToken, user } } + Set-Cookie: refreshToken (HttpOnly; Secure; SameSite=Strict; Path=/api/v1/auth/refresh)
 ```
 
 ---
@@ -228,13 +228,10 @@ sequenceDiagram
 ```
 POST /auth/refresh
 Tag: Auth
-Auth: PUBLIC (refresh token in body)
+Auth: PUBLIC (refresh token read from HttpOnly cookie)
 ```
-**Request body**
-```json
-{ "refreshToken": "string" }
-```
-**Response 200** — same shape as login response (new access + refresh token pair, wrapped in `data`). Old refresh token is immediately invalidated.  
+**Request body:** None. The refresh token is read automatically from the `refreshToken` HttpOnly cookie sent by the browser.  
+**Response 200** — `{ data: { accessToken, user } }` + new `refreshToken` HttpOnly cookie (replaces prior cookie). Old refresh token immediately invalidated.  
 **Errors:** 401 token expired/revoked/not found
 
 #### Sequence
@@ -246,9 +243,9 @@ sequenceDiagram
     participant IS as IdentityService
     participant PG as Postgres
 
-    C->>A: POST /auth/refresh {refreshToken}
+    C->>A: POST /auth/refresh (no body; refreshToken HttpOnly cookie sent automatically by browser)
 
-    A->>IS: rotateRefreshToken(refreshToken)
+    A->>IS: rotateRefreshToken(refreshToken from cookie)
     IS->>IS: SHA-256(refreshToken) → token_hash
     IS->>PG: SELECT identity.refresh_session WHERE token_hash = $1
 
@@ -280,8 +277,7 @@ sequenceDiagram
     IS->>PG: COMMIT
 
     IS-->>A: {accessToken, newRefreshToken, user}
-    A-->>C: 200 { data: { accessToken, refreshToken, user } }
-    Note right of C: new HttpOnly refreshToken cookie replaces old
+    A-->>C: 200 { data: { accessToken, user } } + Set-Cookie: refreshToken (new HttpOnly cookie; replaces old)
 ```
 
 ---

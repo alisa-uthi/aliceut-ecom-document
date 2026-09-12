@@ -2,7 +2,7 @@
 
 **Module:** `Profile`  
 **Parent:** [API Design Index](../api-design.md)  
-**Source of truth:** [BRD v1.1](../../requirements/BRD.md), [ERD](../data-model-erd.md)
+**Source of truth:** [BRD v1.2](../../requirements/BRD.md), [ERD](../data-model-erd.md)
 
 ---
 
@@ -112,8 +112,7 @@ Auth: JWT
 {
   "fullName": "string",
   "preferredCurrency": "USD | THB | JPY | SGD | AUTO | null",
-  "businessName": "string (max 120 chars, B2B accounts only) | null",
-  "businessLogoUrl": "string | null"
+  "businessName": "string (max 120 chars, B2B accounts only) | null"
 }
 ```
 **`preferredCurrency` semantics:**
@@ -133,7 +132,7 @@ sequenceDiagram
     participant A as NestJS API
     participant PG as Postgres
 
-    C->>G: PATCH /profile/me {fullName?, preferredCurrency?, businessName?, businessLogoUrl?} (Bearer accessToken)
+    C->>G: PATCH /profile/me {fullName?, preferredCurrency?, businessName?} (Bearer accessToken)
     G->>G: Verify JWT signature + expiry
     alt token missing or invalid/expired
         G-->>C: 401 Unauthorized
@@ -145,11 +144,11 @@ sequenceDiagram
         A-->>C: 400 Bad Request {errors[]}
     end
 
-    alt businessName or businessLogoUrl supplied AND user.account_type != 'B2B'
+    alt businessName supplied AND user.account_type != 'B2B'
         A-->>C: 422 Unprocessable Entity "Business fields require B2B account"
     end
 
-    A->>PG: UPDATE identity.user SET full_name=$1, preferred_currency=$2, business_name=$3, business_logo_storage_key=$4 WHERE id=JWT.sub
+    A->>PG: UPDATE identity.user SET full_name=$1, preferred_currency=$2, business_name=$3 WHERE id=JWT.sub
 
     A->>PG: SELECT identity.user WHERE id = JWT.sub
     A-->>C: 200 { data: { id, email, fullName, roles, emailVerified, accountType, sellerStatus, preferredCurrency, businessName } }
