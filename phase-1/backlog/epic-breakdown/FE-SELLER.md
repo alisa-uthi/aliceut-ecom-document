@@ -2,8 +2,7 @@
 
 **Epic ID:** FE-SELLER  
 **Sprint(s):** 17–18  
-**Status:** Later  
-**Total Tasks:** 11  
+**Total Tasks:** 12  
 
 ## Epic Goal
 
@@ -15,9 +14,10 @@ Seller portal (separate Angular app at `seller-app`): KYC onboarding flow, produ
 
 ### FE-SELLER-001 — Seller dashboard
 
-**Estimate:** M (4h)  
-**User Story:** US-S-01  
-**Dependencies:** FE-SHARED-001, FE-SHARED-002  
+- **US Ref:** US-S-01
+- **Estimate:** M
+- **Dependencies:** FE-SHARED-001, FE-SHARED-002
+- **Spec References:** `phase-1/technical-design/api-design/seller.md`, `phase-1/technical-design/api-design/catalog.md`
 
 **Implementation Notes:**
 - Route: `/dashboard` (seller-app root; requires `sellerGuard` + `sellerActiveGuard`)
@@ -37,9 +37,10 @@ Seller portal (separate Angular app at `seller-app`): KYC onboarding flow, produ
 
 ### FE-SELLER-002 — KYC status page
 
-**Estimate:** M (4h)  
-**User Story:** US-S-02  
-**Dependencies:** FE-SHARED-001  
+- **US Ref:** US-S-02
+- **Estimate:** M
+- **Dependencies:** FE-SHARED-001
+- **Spec References:** `phase-1/technical-design/api-design/seller.md`
 
 **Implementation Notes:**
 - Route: `/kyc/status`
@@ -60,9 +61,10 @@ Seller portal (separate Angular app at `seller-app`): KYC onboarding flow, produ
 
 ### FE-SELLER-003 — KYC document upload (onboarding)
 
-**Estimate:** L (8h)  
-**User Story:** US-S-03  
-**Dependencies:** FE-SELLER-002  
+- **US Ref:** US-S-03
+- **Estimate:** L
+- **Dependencies:** FE-SELLER-002
+- **Spec References:** `phase-1/technical-design/api-design/seller.md`
 
 **Implementation Notes:**
 - Route: `/kyc/submit` (multi-step form)
@@ -86,9 +88,10 @@ Seller portal (separate Angular app at `seller-app`): KYC onboarding flow, produ
 
 ### FE-SELLER-004 — Product/offer form (create & edit)
 
-**Estimate:** XL (12h)  
-**User Story:** US-S-04  
-**Dependencies:** FE-SELLER-001  
+- **US Ref:** US-S-04
+- **Estimate:** XL
+- **Dependencies:** FE-SELLER-001
+- **Spec References:** `phase-1/technical-design/api-design/catalog.md`, `phase-1/technical-design/api-design/pricing.md`
 
 **Implementation Notes:**
 - Routes: `/listings/new`, `/listings/:offerId/edit`
@@ -112,9 +115,10 @@ Seller portal (separate Angular app at `seller-app`): KYC onboarding flow, produ
 
 ### FE-SELLER-005 — Pricing sub-form
 
-**Estimate:** L (8h)  
-**User Story:** US-S-05  
-**Dependencies:** FE-SELLER-004  
+- **US Ref:** US-S-05
+- **Estimate:** L
+- **Dependencies:** FE-SELLER-004
+- **Spec References:** `phase-1/technical-design/api-design/pricing.md`
 
 **Implementation Notes:**
 - Embedded inside product form (FE-SELLER-004) as reusable component: `<app-pricing-form>`
@@ -138,9 +142,10 @@ Seller portal (separate Angular app at `seller-app`): KYC onboarding flow, produ
 
 ### FE-SELLER-006 — Image upload
 
-**Estimate:** M (4h)  
-**User Story:** US-S-06  
-**Dependencies:** FE-SELLER-004  
+- **US Ref:** US-S-06
+- **Estimate:** M
+- **Dependencies:** FE-SELLER-004
+- **Spec References:** `phase-1/technical-design/api-design/catalog.md`
 
 **Implementation Notes:**
 - Image upload widget inside product form
@@ -161,9 +166,10 @@ Seller portal (separate Angular app at `seller-app`): KYC onboarding flow, produ
 
 ### FE-SELLER-007 — Listings management
 
-**Estimate:** M (4h)  
-**User Story:** US-S-07  
-**Dependencies:** FE-SELLER-004  
+- **US Ref:** US-S-07
+- **Estimate:** M
+- **Dependencies:** FE-SELLER-004
+- **Spec References:** `phase-1/technical-design/api-design/catalog.md`, `phase-1/technical-design/api-design/seller.md`
 
 **Implementation Notes:**
 - Route: `/listings`
@@ -185,9 +191,10 @@ Seller portal (separate Angular app at `seller-app`): KYC onboarding flow, produ
 
 ### FE-SELLER-008 — Inventory management
 
-**Estimate:** M (4h)  
-**User Story:** US-S-08  
-**Dependencies:** FE-SELLER-007  
+- **US Ref:** US-S-08
+- **Estimate:** M
+- **Dependencies:** FE-SELLER-007
+- **Spec References:** `phase-1/technical-design/api-design/catalog.md`, `phase-1/technical-design/api-design/seller.md`
 
 **Implementation Notes:**
 - Route: `/inventory`
@@ -205,9 +212,10 @@ Seller portal (separate Angular app at `seller-app`): KYC onboarding flow, produ
 
 ### FE-SELLER-009 — CSV bulk import
 
-**Estimate:** L (8h)  
-**User Story:** US-S-09  
-**Dependencies:** FE-SELLER-007  
+- **US Ref:** US-S-09
+- **Estimate:** L
+- **Dependencies:** FE-SELLER-007
+- **Spec References:** `phase-1/technical-design/api-design/catalog.md`, `phase-1/technical-design/api-design/seller.md`
 
 **Implementation Notes:**
 - Route: `/listings/import`
@@ -229,9 +237,10 @@ Seller portal (separate Angular app at `seller-app`): KYC onboarding flow, produ
 
 ### FE-SELLER-010 — Fulfillment dashboard
 
-**Estimate:** L (8h)  
-**User Story:** US-S-10  
-**Dependencies:** FE-SELLER-001  
+- **US Ref:** US-S-10
+- **Estimate:** L
+- **Dependencies:** FE-SELLER-001
+- **Spec References:** `phase-1/technical-design/api-design/orders.md`, `phase-1/technical-design/api-design/seller.md`
 
 **Implementation Notes:**
 - Route: `/fulfillments`
@@ -250,9 +259,10 @@ Seller portal (separate Angular app at `seller-app`): KYC onboarding flow, produ
 
 ### FE-SELLER-011 — Fulfillment detail + ship/refund/cancel
 
-**Estimate:** L (8h)  
-**User Story:** US-S-11  
-**Dependencies:** FE-SELLER-010  
+- **US Ref:** US-S-11
+- **Estimate:** L
+- **Dependencies:** FE-SELLER-010
+- **Spec References:** `phase-1/technical-design/api-design/orders.md`, `phase-1/technical-design/api-design/seller.md`
 
 **Implementation Notes:**
 - Route: `/fulfillments/:fulfillmentId`
@@ -274,9 +284,10 @@ Seller portal (separate Angular app at `seller-app`): KYC onboarding flow, produ
 
 ### FE-SELLER-012 — Suspended seller view
 
-**Estimate:** S (2h)  
-**User Story:** US-S-12  
-**Dependencies:** FE-SHARED-005  
+- **US Ref:** US-S-12
+- **Estimate:** S
+- **Dependencies:** FE-SHARED-005
+- **Spec References:** `phase-1/technical-design/api-design/seller.md`
 
 **Implementation Notes:**
 - Shown when `sellerActiveGuard` detects `seller_status === 'SUSPENDED'`

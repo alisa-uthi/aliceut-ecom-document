@@ -2,7 +2,6 @@
 
 **Sprint:** 1–2  
 **Total Tasks:** 9  
-**Status:** Now  
 
 Cross-cutting utilities consumed by every module: money value objects, UUIDv7 generation, pagination DTOs, outbox integration helpers, base exception classes, storage service, and OpenAPI configuration. Must be completed before any feature module starts.
 
@@ -10,11 +9,10 @@ Cross-cutting utilities consumed by every module: money value objects, UUIDv7 ge
 
 ## SHARED-001 — Money Value Object (`MoneyVO`)
 
-| Field | Value |
-|-------|-------|
-| **US Ref** | FR-P-04 |
-| **Estimate** | M (1d) |
-| **Dependencies** | INFRA-001 |
+- **US Ref:** FR-P-04
+- **Estimate:** M (1d)
+- **Dependencies:** INFRA-001
+- **Spec References:** `phase-1/technical-design/backend-module-architecture.md`, `phase-1/technical-design/data-model-erd.md`
 
 **Implementation Notes**
 
@@ -45,11 +43,10 @@ Cross-cutting utilities consumed by every module: money value objects, UUIDv7 ge
 
 ## SHARED-002 — UUIDv7 Generator Utility
 
-| Field | Value |
-|-------|-------|
-| **US Ref** | — |
-| **Estimate** | S (½d) |
-| **Dependencies** | INFRA-001 |
+- **US Ref:** —
+- **Estimate:** S (½d)
+- **Dependencies:** INFRA-001
+- **Spec References:** `phase-1/technical-design/backend-module-architecture.md`, `phase-1/technical-design/data-model-erd.md`
 
 **Implementation Notes**
 
@@ -74,11 +71,10 @@ Cross-cutting utilities consumed by every module: money value objects, UUIDv7 ge
 
 ## SHARED-003 — Pagination DTO + Cursor Helpers
 
-| Field | Value |
-|-------|-------|
-| **US Ref** | — |
-| **Estimate** | S (½d) |
-| **Dependencies** | INFRA-001 |
+- **US Ref:** —
+- **Estimate:** S (½d)
+- **Dependencies:** INFRA-001
+- **Spec References:** `phase-1/technical-design/backend-module-architecture.md`, `phase-1/technical-design/data-model-erd.md`
 
 **Implementation Notes**
 
@@ -120,11 +116,10 @@ Cross-cutting utilities consumed by every module: money value objects, UUIDv7 ge
 
 ## SHARED-004 — Base Domain Exception Classes
 
-| Field | Value |
-|-------|-------|
-| **US Ref** | — |
-| **Estimate** | S (½d) |
-| **Dependencies** | INFRA-001 |
+- **US Ref:** —
+- **Estimate:** S (½d)
+- **Dependencies:** INFRA-001
+- **Spec References:** `phase-1/technical-design/backend-module-architecture.md`
 
 **Implementation Notes**
 
@@ -162,11 +157,10 @@ Cross-cutting utilities consumed by every module: money value objects, UUIDv7 ge
 
 ## SHARED-005 — Outbox Event Writer Service
 
-| Field | Value |
-|-------|-------|
-| **US Ref** | FR-P-09 |
-| **Estimate** | M (1d) |
-| **Dependencies** | INFRA-004, SHARED-002 |
+- **US Ref:** FR-P-09
+- **Estimate:** M (1d)
+- **Dependencies:** INFRA-004, SHARED-002
+- **Spec References:** `phase-1/technical-design/backend-module-architecture.md`, `phase-1/technical-design/data-model-erd.md`, `phase-1/technical-design/kafka-events.md`
 
 **Implementation Notes**
 
@@ -217,11 +211,10 @@ Cross-cutting utilities consumed by every module: money value objects, UUIDv7 ge
 
 ## SHARED-006 — Storage Service (MinIO Wrapper)
 
-| Field | Value |
-|-------|-------|
-| **US Ref** | — |
-| **Estimate** | M (1d) |
-| **Dependencies** | INFRA-010, INFRA-001 |
+- **US Ref:** —
+- **Estimate:** M (1d)
+- **Dependencies:** INFRA-010, INFRA-001
+- **Spec References:** `phase-1/technical-design/backend-module-architecture.md`, `phase-1/technical-design/docker-compose-topology.md`
 
 **Implementation Notes**
 
@@ -256,11 +249,10 @@ Cross-cutting utilities consumed by every module: money value objects, UUIDv7 ge
 
 ## SHARED-007 — Redis Module + Rate Limit Guard
 
-| Field | Value |
-|-------|-------|
-| **US Ref** | — |
-| **Estimate** | M (1d) |
-| **Dependencies** | INFRA-006, INFRA-001 |
+- **US Ref:** —
+- **Estimate:** M (1d)
+- **Dependencies:** INFRA-006, INFRA-001
+- **Spec References:** `phase-1/technical-design/backend-module-architecture.md`, `phase-1/technical-design/api-design/auth.md`
 
 **Implementation Notes**
 
@@ -294,11 +286,10 @@ Cross-cutting utilities consumed by every module: money value objects, UUIDv7 ge
 
 ## SHARED-008 — OpenAPI / Swagger Setup
 
-| Field | Value |
-|-------|-------|
-| **US Ref** | — |
-| **Estimate** | S (½d) |
-| **Dependencies** | INFRA-001 |
+- **US Ref:** —
+- **Estimate:** S (½d)
+- **Dependencies:** INFRA-001
+- **Spec References:** `phase-1/technical-design/backend-module-architecture.md`, `phase-1/technical-design/api-design.md`
 
 **Implementation Notes**
 
@@ -329,11 +320,10 @@ Cross-cutting utilities consumed by every module: money value objects, UUIDv7 ge
 
 ## SHARED-009 — Global Validation Pipe + Transform Config
 
-| Field | Value |
-|-------|-------|
-| **US Ref** | — |
-| **Estimate** | S (½d) |
-| **Dependencies** | INFRA-001 |
+- **US Ref:** —
+- **Estimate:** S (½d)
+- **Dependencies:** INFRA-001
+- **Spec References:** `phase-1/technical-design/backend-module-architecture.md`
 
 **Implementation Notes**
 

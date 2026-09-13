@@ -35,16 +35,16 @@
 
 | Schema | Tables | Purpose |
 |---|---|---|
-| `identity` | `user`, `oauth_identity`, `refresh_session`, `address`, `email_verification_token`, `password_reset_token` | Accounts, reusable buyer addresses, login identities, refresh-token rotation, and single-use credential tokens. |
-| `catalog` | `category`, `product`, `product_variant`, `product_image`, `offer` | Buyer-visible product catalogue and seller offers. |
-| `pricing` | `currency`, `offer_price`, `fx_rate` | Multi-currency price rows and display-only FX cache. |
-| `inventory` | `stock`, `stock_reservation` | Available stock and checkout reservations. |
-| `cart` | `cart`, `cart_item` | Server-side authenticated carts. Guest carts remain in browser local storage. |
-| `orders` | `order`, `fulfillment`, `fulfillment_item`, `payment_attempt`, `idempotency_key` | Checkout records, per-seller fulfillment groups, immutable line-item snapshots, and retry safety. |
-| `seller` | `seller_profile`, `kyc_application` | Seller identity and KYC lifecycle. |
-| `admin` | `moderation_case` | Listing moderation decisions. |
-| `notifications` | `in_app_notification`, `email_template`, `pending_listing_removal_digest` | Buyer/seller/admin notification read model, email template store, and staging table for daily listing-removal digest. |
-| `platform` | `outbox_event`, `processed_event` | Event relay and consumer idempotency. |
+| [`identity`](#schema-identity) | [`user`](#table-identity-user), [`oauth_identity`](#table-identity-oauth-identity), [`refresh_session`](#table-identity-refresh-session), [`address`](#table-identity-address), [`email_verification_token`](#table-identity-email-verification-token), [`password_reset_token`](#table-identity-password-reset-token) | Accounts, reusable buyer addresses, login identities, refresh-token rotation, and single-use credential tokens. |
+| [`catalog`](#schema-catalog) | [`category`](#table-catalog-category), [`product`](#table-catalog-product), [`product_variant`](#table-catalog-product-variant), [`product_image`](#table-catalog-product-image), [`offer`](#table-catalog-offer) | Buyer-visible product catalogue and seller offers. |
+| [`pricing`](#schema-pricing) | [`currency`](#table-pricing-currency), [`offer_price`](#table-pricing-offer-price), [`fx_rate`](#table-pricing-fx-rate) | Multi-currency price rows and display-only FX cache. |
+| [`inventory`](#schema-inventory) | [`stock`](#table-inventory-stock), [`stock_reservation`](#table-inventory-stock-reservation) | Available stock and checkout reservations. |
+| [`cart`](#schema-cart) | [`cart`](#table-cart-cart), [`cart_item`](#table-cart-cart-item) | Server-side authenticated carts. Guest carts remain in browser local storage. |
+| [`orders`](#schema-orders) | [`order`](#table-orders-order), [`fulfillment`](#table-orders-fulfillment), [`fulfillment_item`](#table-orders-fulfillment-item), [`payment_attempt`](#table-orders-payment-attempt), [`idempotency_key`](#table-orders-idempotency-key) | Checkout records, per-seller fulfillment groups, immutable line-item snapshots, and retry safety. |
+| [`seller`](#schema-seller) | [`seller_profile`](#table-seller-seller-profile), [`kyc_application`](#table-seller-kyc-application) | Seller identity and KYC lifecycle. |
+| [`admin`](#schema-admin) | [`moderation_case`](#table-admin-moderation-case) | Listing moderation decisions. |
+| [`notifications`](#schema-notifications) | [`in_app_notification`](#table-notifications-in-app-notification), [`email_template`](#table-notifications-email-template), [`pending_listing_removal_digest`](#table-notifications-pending-listing-removal-digest) | Buyer/seller/admin notification read model, email template store, and staging table for daily listing-removal digest. |
+| [`platform`](#schema-platform) | [`outbox_event`](#table-platform-outbox-event), [`processed_event`](#table-platform-processed-event) | Event relay and consumer idempotency. |
 
 <a id="core-relationship-diagram"></a>
 ## 3. Core relationship diagram
@@ -106,8 +106,10 @@ All application enums are defined as PostgreSQL custom types before any schema m
 <a id="schema-level-table-design"></a>
 ## 5. Schema-level table design
 
+<a id="schema-identity"></a>
 ### `identity`
 
+<a id="table-identity-user"></a>
 #### `identity.user` [V1]
 
 | Column | Type | Constraints / purpose |
@@ -127,6 +129,7 @@ All application enums are defined as PostgreSQL custom types before any schema m
 
 **Note on roles change (2026-08-29):** The original ERD used a single `role` column (`user_role` enum: `BUYER`, `SELLER`, `ADMIN`). This has been corrected to `roles TEXT[]` to support the multi-role requirement (BUYER + SELLER simultaneously).
 
+<a id="table-identity-oauth-identity"></a>
 #### `identity.oauth_identity`
 
 | Column | Type | Constraints / purpose |
@@ -140,6 +143,7 @@ All application enums are defined as PostgreSQL custom types before any schema m
 
 Unique constraint: `(provider, provider_subject)`.
 
+<a id="table-identity-refresh-session"></a>
 #### `identity.refresh_session`
 
 | Column | Type | Constraints / purpose |
@@ -152,22 +156,24 @@ Unique constraint: `(provider, provider_subject)`.
 | `device_metadata` | `JSONB` | Nullable client/device context |
 | `created_at`, `updated_at` | `TIMESTAMPTZ` | Required audit timestamps |
 
+<a id="table-identity-address"></a>
 #### `identity.address`
 
-| Column | Type | Constraints / purpose |
-|---|---|---|
-| `id` | `UUID` | PK; `DEFAULT uuidv7()` |
-| `user_id` | `UUID` | Required FK → `identity.user(id)` |
-| `label` | `TEXT` | Nullable buyer label, for example `Home` or `Office` |
-| `recipient_name` | `TEXT` | Required |
-| `address_line_1`, `address_line_2` | `TEXT` | First line required; second line nullable |
-| `city`, `state_region`, `postal_code` | `TEXT` | Required location fields except state/region when country validation permits it |
-| `country_code` | `CHAR(2)` | Required allowed delivery country |
-| `is_default` | `BOOLEAN` | Required, default `false` |
+| Column | Type          | Constraints / purpose |
+|---|---------------|---|
+| `id` | `UUID`        | PK; `DEFAULT uuidv7()` |
+| `user_id` | `UUID`        | Required FK → `identity.user(id)` |
+| `label` | `TEXT`        | Nullable buyer label, for example `Home` or `Office` |
+| `recipient_name` | `TEXT`        | Required |
+| `address_line_1`, `address_line_2` | `TEXT`        | First line required; second line nullable |
+| `city`, `state_region`, `postal_code` | `TEXT`        | Required location fields except state/region when country validation permits it |
+| `country_code` | `CHAR(3)`     | Required allowed delivery country |
+| `is_default` | `BOOLEAN`     | Required, default `false` |
 | `created_at`, `updated_at` | `TIMESTAMPTZ` | Required audit timestamps |
 
 Identity owns the reusable buyer address book. A buyer can query and select a saved address for a later checkout.
 
+<a id="table-identity-email-verification-token"></a>
 #### `identity.email_verification_token` [V1]
 
 | Column | Type | Constraints / purpose |
@@ -180,6 +186,7 @@ Identity owns the reusable buyer address book. A buyer can query and select a sa
 
 One active token per user enforced by unique index on `user_id`. Insert-on-create replaces the previous token.
 
+<a id="table-identity-password-reset-token"></a>
 #### `identity.password_reset_token` [V1]
 
 | Column | Type | Constraints / purpose |
@@ -191,8 +198,10 @@ One active token per user enforced by unique index on `user_id`. Insert-on-creat
 | `used_at` | `TIMESTAMPTZ` | Nullable; set on successful use; used tokens are rejected |
 | `created_at` | `TIMESTAMPTZ` | Required |
 
+<a id="schema-catalog"></a>
 ### `catalog`
 
+<a id="table-catalog-category"></a>
 #### `catalog.category` [V1]
 
 | Column | Type | Constraints / purpose |
@@ -204,6 +213,7 @@ One active token per user enforced by unique index on `user_id`. Insert-on-creat
 | `is_prohibited` | `BOOLEAN` | Required, default `false`; flags blocked taxonomy branches |
 | `created_at`, `updated_at` | `TIMESTAMPTZ` | Required audit timestamps |
 
+<a id="table-catalog-product"></a>
 #### `catalog.product`
 
 | Column | Type | Constraints / purpose |
@@ -218,6 +228,7 @@ One active token per user enforced by unique index on `user_id`. Insert-on-creat
 
 `catalog.product` has no price and no seller owner.
 
+<a id="table-catalog-product-variant"></a>
 #### `catalog.product_variant`
 
 | Column | Type | Constraints / purpose |
@@ -228,6 +239,7 @@ One active token per user enforced by unique index on `user_id`. Insert-on-creat
 | `attributes` | `JSONB` | Required normalized buyer-facing attributes, such as colour and size |
 | `created_at`, `updated_at` | `TIMESTAMPTZ` | Required audit timestamps |
 
+<a id="table-catalog-product-image"></a>
 #### `catalog.product_image`
 
 | Column | Type | Constraints / purpose |
@@ -239,6 +251,7 @@ One active token per user enforced by unique index on `user_id`. Insert-on-creat
 | `position` | `SMALLINT` | Required display order; unique with `product_id` |
 | `created_at`, `updated_at` | `TIMESTAMPTZ` | Required audit timestamps |
 
+<a id="table-catalog-offer"></a>
 #### `catalog.offer`
 
 | Column | Type | Constraints / purpose |
@@ -255,8 +268,10 @@ An offer is the seller-scoped listing and the only product reference used by car
 
 `offer.variant_id`, when present, must belong to `offer.product_id`; enforce this in the application transaction and a composite database constraint/index introduced in the physical migration design.
 
+<a id="schema-pricing"></a>
 ### `pricing`
 
+<a id="table-pricing-currency"></a>
 #### `pricing.currency`
 
 | Column | Type | Constraints / purpose |
@@ -266,6 +281,7 @@ An offer is the seller-scoped listing and the only product reference used by car
 | `is_seller_price_allowed` | `BOOLEAN` | Required; V1 true only for `USD`, `THB`, `JPY`, and `SGD` |
 | `created_at`, `updated_at` | `TIMESTAMPTZ` | Required audit timestamps |
 
+<a id="table-pricing-offer-price"></a>
 #### `pricing.offer_price`
 
 | Column | Type | Constraints / purpose |
@@ -283,6 +299,7 @@ Unique constraint: `(offer_id, currency_code, price_type, min_qty)`.
 
 The V1 `SALE` row already supports a seller's time-bounded, no-code discount. Coupon-code promotions are a future-phase capability defined below and are not part of the V1 migration.
 
+<a id="table-pricing-fx-rate"></a>
 #### `pricing.fx_rate`
 
 | Column | Type | Constraints / purpose |
@@ -296,8 +313,10 @@ The V1 `SALE` row already supports a seller's time-bounded, no-code discount. Co
 
 Primary key: `(base_currency_code, quote_currency_code)`. This table is display-only and never reprices an order.
 
+<a id="schema-inventory"></a>
 ### `inventory`
 
+<a id="table-inventory-stock"></a>
 #### `inventory.stock`
 
 | Column | Type | Constraints / purpose |
@@ -311,6 +330,7 @@ Primary key: `(base_currency_code, quote_currency_code)`. This table is display-
 
 Available quantity is `on_hand_qty - reserved_qty`.
 
+<a id="table-inventory-stock-reservation"></a>
 #### `inventory.stock_reservation`
 
 | Column | Type | Constraints / purpose |
@@ -323,8 +343,10 @@ Available quantity is `on_hand_qty - reserved_qty`.
 | `expires_at` | `TIMESTAMPTZ` | Required; active reservations expire after 15 minutes |
 | `created_at`, `updated_at` | `TIMESTAMPTZ` | Required audit timestamps |
 
+<a id="schema-cart"></a>
 ### `cart`
 
+<a id="table-cart-cart"></a>
 #### `cart.cart`
 
 | Column | Type | Constraints / purpose |
@@ -333,6 +355,7 @@ Available quantity is `on_hand_qty - reserved_qty`.
 | `user_id` | `UUID` | Required FK → `identity.user(id)`; unique for one authenticated cart per user |
 | `created_at`, `updated_at` | `TIMESTAMPTZ` | Required audit timestamps |
 
+<a id="table-cart-cart-item"></a>
 #### `cart.cart_item`
 
 | Column | Type | Constraints / purpose |
@@ -345,8 +368,10 @@ Available quantity is `on_hand_qty - reserved_qty`.
 
 Unique constraint: `(cart_id, offer_id)`. No price is persisted; the server alone recalculates the effective price during checkout. Client-supplied prices, discounts, totals, and FX values are ignored.
 
+<a id="schema-orders"></a>
 ### `orders`
 
+<a id="table-orders-order"></a>
 #### `orders.order` [V1]
 
 One `order` is created per checkout attempt. It may contain multiple `fulfillment` rows — one per seller/currency group. The `display_id` and `placement_outcome` belong here; per-seller shipping, tracking, and status live on `orders.fulfillment`.
@@ -377,6 +402,7 @@ One `order` is created per checkout attempt. It may contain multiple `fulfillmen
 | `REFUNDED` | All fulfillments `REFUNDED` |
 | `CANCELLED` | All fulfillments `CANCELLED` |
 
+<a id="table-orders-fulfillment"></a>
 #### `orders.fulfillment` [V1]
 
 One fulfillment per seller/currency group within a checkout. Carries the per-seller status, shipping details, and monetary totals. State machine: `PENDING → SHIPPED → DELIVERED`; `PENDING → CANCELLED` (seller cancel, US-S-11); `PENDING → REFUNDED` (auto-refund monitor for suspended-seller orders, US-P-16); `SHIPPED → REFUNDED`.
@@ -403,6 +429,7 @@ One fulfillment per seller/currency group within a checkout. Carries the per-sel
 
 The `order.completed` event fires when all fulfillments under the same `order_id` reach `DELIVERED` (and the count ≥ 2). The delivery-tracker consumer queries `SELECT COUNT(*) FROM orders.fulfillment WHERE order_id = ? AND status != 'DELIVERED'` after each delivery event.
 
+<a id="table-orders-fulfillment-item"></a>
 #### `orders.fulfillment_item` [V1]
 
 Immutable line-item snapshot created at reservation time. Never updated after insert.
@@ -421,6 +448,7 @@ Immutable line-item snapshot created at reservation time. Never updated after in
 | `fx_rate_used_at_capture` | `NUMERIC(19,8)` | Nullable; `base=currency_code` (seller's native) → `quote=buyer's display currency`; `NULL` when no FX conversion was applied (buyer display currency == seller native) |
 | `created_at` | `TIMESTAMPTZ` | Required snapshot creation time; no `updated_at` |
 
+<a id="table-orders-payment-attempt"></a>
 #### `orders.payment_attempt`
 
 | Column | Type | Constraints / purpose |
@@ -435,6 +463,7 @@ Immutable line-item snapshot created at reservation time. Never updated after in
 | `idempotency_key_id` | `UUID` | Nullable FK → `orders.idempotency_key(id)` |
 | `created_at` | `TIMESTAMPTZ` | Required; attempts are append-only |
 
+<a id="table-orders-idempotency-key"></a>
 #### `orders.idempotency_key`
 
 | Column | Type | Constraints / purpose |
@@ -451,8 +480,10 @@ Unique constraint: `(buyer_id, key)`. Replaying a completed key returns its orig
 
 At checkout, the buyer may select an `identity.address` record. The checkout service reads it through the Identity application interface and copies it into `order.shipping_address_snapshot`; it does not retain a foreign key to the mutable address. Historical orders are therefore not changed when a buyer updates or deletes a saved address. All fulfillment and fulfillment_item money columns are snapshots and never recalculated from `pricing.offer_price` or live FX rates.
 
+<a id="schema-seller"></a><a id="schema-admin"></a>
 ### `seller` and `admin`
 
+<a id="table-seller-seller-profile"></a>
 #### `seller.seller_profile`
 
 | Column | Type | Constraints / purpose |
@@ -467,6 +498,7 @@ At checkout, the buyer may select an `identity.address` record. The checkout ser
 | `suspension_reason` | `TEXT` | Nullable; free text reason recorded by admin at suspension time. |
 | `created_at`, `updated_at` | `TIMESTAMPTZ` | Required audit timestamps |
 
+<a id="table-seller-kyc-application"></a>
 #### `seller.kyc_application`
 
 | Column | Type | Constraints / purpose |
@@ -481,6 +513,7 @@ At checkout, the buyer may select an `identity.address` record. The checkout ser
 | `submitted_at`, `decided_at` | `TIMESTAMPTZ` | Submission required; decision nullable |
 | `created_at`, `updated_at` | `TIMESTAMPTZ` | Required audit timestamps |
 
+<a id="table-admin-moderation-case"></a>
 #### `admin.moderation_case`
 
 | Column | Type | Constraints / purpose |
@@ -495,8 +528,10 @@ At checkout, the buyer may select an `identity.address` record. The checkout ser
 
 A removal changes offer status and emits a moderation event.
 
+<a id="schema-notifications"></a><a id="schema-platform"></a>
 ### `notifications` and `platform`
 
+<a id="table-notifications-email-template"></a>
 #### `notifications.email_template` [V1]
 
 | Column | Type | Constraints / purpose |
@@ -510,6 +545,7 @@ A removal changes offer status and emits a moderation event.
 
 Notification consumers render emails by loading the template row by `template_key`, substituting Handlebars variables, and dispatching via SMTP adapter.
 
+<a id="table-notifications-in-app-notification"></a>
 #### `notifications.in_app_notification` [V1]
 
 | Column | Type | Constraints / purpose |
@@ -522,6 +558,7 @@ Notification consumers render emails by loading the template row by `template_ke
 | `read_at` | `TIMESTAMPTZ` | Nullable |
 | `created_at` | `TIMESTAMPTZ` | Required |
 
+<a id="table-notifications-pending-listing-removal-digest"></a>
 #### `notifications.pending_listing_removal_digest` [V1]
 
 Staging table for the daily listing-removal email digest (ET-09). The `notification.listing-removed` Kafka consumer writes rows here; it does **not** send email immediately. The daily digest cron at 23:00 UTC aggregates rows per seller, renders ET-09, sends email, and deletes processed rows.
@@ -538,6 +575,7 @@ Staging table for the daily listing-removal email digest (ET-09). The `notificat
 
 Index: `(seller_id, removed_at)`. Rows are deleted after digest send — no retention needed beyond one digest cycle.
 
+<a id="table-platform-outbox-event"></a>
 #### `platform.outbox_event`
 
 | Column | Type | Constraints / purpose |
@@ -557,6 +595,7 @@ Index: `(seller_id, removed_at)`. Rows are deleted after digest send — no rete
 
 Inserted in the same transaction as the originating state change.
 
+<a id="table-platform-processed-event"></a>
 #### `platform.processed_event`
 
 | Column | Type | Constraints / purpose |

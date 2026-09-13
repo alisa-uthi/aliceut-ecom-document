@@ -2,7 +2,6 @@
 
 **Epic ID:** FE-ADMIN  
 **Sprint(s):** 18  
-**Status:** Later  
 **Total Tasks:** 9  
 
 ## Epic Goal
@@ -15,9 +14,10 @@ Admin portal (separate Angular app at `admin-app`): KYC review queue, listing mo
 
 ### FE-ADMIN-001 — Admin dashboard
 
-**Estimate:** M (4h)  
-**User Story:** US-A-01  
-**Dependencies:** FE-SHARED-001, FE-SHARED-002  
+- **US Ref:** US-A-01
+- **Estimate:** M
+- **Dependencies:** FE-SHARED-001, FE-SHARED-002
+- **Spec References:** `phase-1/technical-design/api-design/admin.md`
 
 **Implementation Notes:**
 - Route: `/dashboard` (admin-app root; requires `adminGuard`)
@@ -39,9 +39,10 @@ Admin portal (separate Angular app at `admin-app`): KYC review queue, listing mo
 
 ### FE-ADMIN-002 — KYC review queue
 
-**Estimate:** M (4h)  
-**User Story:** US-A-02  
-**Dependencies:** FE-ADMIN-001  
+- **US Ref:** US-A-02
+- **Estimate:** M
+- **Dependencies:** FE-ADMIN-001
+- **Spec References:** `phase-1/technical-design/api-design/admin.md`
 
 **Implementation Notes:**
 - Route: `/kyc`
@@ -61,9 +62,10 @@ Admin portal (separate Angular app at `admin-app`): KYC review queue, listing mo
 
 ### FE-ADMIN-003 — KYC review page
 
-**Estimate:** L (8h)  
-**User Story:** US-A-03  
-**Dependencies:** FE-ADMIN-002  
+- **US Ref:** US-A-03
+- **Estimate:** L
+- **Dependencies:** FE-ADMIN-002
+- **Spec References:** `phase-1/technical-design/api-design/admin.md`
 
 **Implementation Notes:**
 - Route: `/kyc/:sellerId`
@@ -87,9 +89,10 @@ Admin portal (separate Angular app at `admin-app`): KYC review queue, listing mo
 
 ### FE-ADMIN-004 — Flagged listings queue
 
-**Estimate:** M (4h)  
-**User Story:** US-A-04  
-**Dependencies:** FE-ADMIN-001  
+- **US Ref:** US-A-04
+- **Estimate:** M
+- **Dependencies:** FE-ADMIN-001
+- **Spec References:** `phase-1/technical-design/api-design/admin.md`
 
 **Implementation Notes:**
 - Route: `/moderation`
@@ -107,9 +110,10 @@ Admin portal (separate Angular app at `admin-app`): KYC review queue, listing mo
 
 ### FE-ADMIN-005 — Listing moderation actions
 
-**Estimate:** L (8h)  
-**User Story:** US-A-05  
-**Dependencies:** FE-ADMIN-004  
+- **US Ref:** US-A-05
+- **Estimate:** L
+- **Dependencies:** FE-ADMIN-004
+- **Spec References:** `phase-1/technical-design/api-design/admin.md`
 
 **Implementation Notes:**
 - Route: `/moderation/:offerId`
@@ -130,9 +134,10 @@ Admin portal (separate Angular app at `admin-app`): KYC review queue, listing mo
 
 ### FE-ADMIN-006 — Seller search
 
-**Estimate:** M (4h)  
-**User Story:** US-A-06  
-**Dependencies:** FE-ADMIN-001  
+- **US Ref:** US-A-06
+- **Estimate:** M
+- **Dependencies:** FE-ADMIN-001
+- **Spec References:** `phase-1/technical-design/api-design/admin.md`
 
 **Implementation Notes:**
 - Route: `/sellers`
@@ -152,9 +157,10 @@ Admin portal (separate Angular app at `admin-app`): KYC review queue, listing mo
 
 ### FE-ADMIN-007 — Seller profile view
 
-**Estimate:** M (4h)  
-**User Story:** US-A-07  
-**Dependencies:** FE-ADMIN-006  
+- **US Ref:** US-A-07
+- **Estimate:** M
+- **Dependencies:** FE-ADMIN-006
+- **Spec References:** `phase-1/technical-design/api-design/admin.md`
 
 **Implementation Notes:**
 - Route: `/sellers/:sellerId`
@@ -178,9 +184,10 @@ Admin portal (separate Angular app at `admin-app`): KYC review queue, listing mo
 
 ### FE-ADMIN-008 — Suspend modal
 
-**Estimate:** M (4h)  
-**User Story:** US-A-08  
-**Dependencies:** FE-ADMIN-007  
+- **US Ref:** US-A-08
+- **Estimate:** M
+- **Dependencies:** FE-ADMIN-007
+- **Spec References:** `phase-1/technical-design/api-design/admin.md`
 
 **Implementation Notes:**
 - MatDialog component: `SuspendSellerDialogComponent`
@@ -203,9 +210,10 @@ Admin portal (separate Angular app at `admin-app`): KYC review queue, listing mo
 
 ### FE-ADMIN-009 — Reinstate modal
 
-**Estimate:** S (2h)  
-**User Story:** US-A-09  
-**Dependencies:** FE-ADMIN-007  
+- **US Ref:** US-A-09
+- **Estimate:** S
+- **Dependencies:** FE-ADMIN-007
+- **Spec References:** `phase-1/technical-design/api-design/admin.md`
 
 **Implementation Notes:**
 - MatDialog component: `ReinstateSellerDialogComponent`

@@ -2,7 +2,6 @@
 
 **Sprint:** 9–10  
 **Total Tasks:** 7  
-**Status:** Planned  
 
 Shared Angular libraries used by all three portals: API client, Angular Material theme, auth state management, common UI components, HTTP interceptors, guards, and error handling. Must be in place before any portal-specific feature work begins.
 
@@ -10,11 +9,10 @@ Shared Angular libraries used by all three portals: API client, Angular Material
 
 ## FE-SHARED-001 — Angular Material Theme Setup
 
-| Field | Value |
-|-------|-------|
-| **US Ref** | — |
-| **Estimate** | M (1d) |
-| **Dependencies** | INFRA-002 |
+- **US Ref:** —
+- **Estimate:** M
+- **Dependencies:** INFRA-002
+- **Spec References:** `phase-1/technical-design/backend-module-architecture.md`
 
 **Implementation Notes**
 
@@ -58,11 +56,10 @@ Shared Angular libraries used by all three portals: API client, Angular Material
 
 ## FE-SHARED-002 — API Client (OpenAPI-Generated)
 
-| Field | Value |
-|-------|-------|
-| **US Ref** | — |
-| **Estimate** | M (1d) |
-| **Dependencies** | INFRA-001, INFRA-002 |
+- **US Ref:** —
+- **Estimate:** M
+- **Dependencies:** INFRA-001, INFRA-002
+- **Spec References:** `phase-1/technical-design/backend-module-architecture.md`
 
 **Implementation Notes**
 
@@ -92,11 +89,10 @@ Shared Angular libraries used by all three portals: API client, Angular Material
 
 ## FE-SHARED-003 — Auth State Service (NgRx/Signal Store)
 
-| Field | Value |
-|-------|-------|
-| **US Ref** | US-B-01 |
-| **Estimate** | L (2d) |
-| **Dependencies** | FE-SHARED-002 |
+- **US Ref:** US-B-01
+- **Estimate:** L
+- **Dependencies:** FE-SHARED-002
+- **Spec References:** `phase-1/technical-design/backend-module-architecture.md`
 
 **Implementation Notes**
 
@@ -140,11 +136,10 @@ Shared Angular libraries used by all three portals: API client, Angular Material
 
 ## FE-SHARED-004 — HTTP Interceptors
 
-| Field | Value |
-|-------|-------|
-| **US Ref** | — |
-| **Estimate** | M (1d) |
-| **Dependencies** | FE-SHARED-003 |
+- **US Ref:** —
+- **Estimate:** M
+- **Dependencies:** FE-SHARED-003
+- **Spec References:** `phase-1/technical-design/backend-module-architecture.md`
 
 **Implementation Notes**
 
@@ -166,11 +161,10 @@ Shared Angular libraries used by all three portals: API client, Angular Material
 
 ## FE-SHARED-005 — Route Guards
 
-| Field | Value |
-|-------|-------|
-| **US Ref** | — |
-| **Estimate** | S (½d) |
-| **Dependencies** | FE-SHARED-003 |
+- **US Ref:** —
+- **Estimate:** S
+- **Dependencies:** FE-SHARED-003
+- **Spec References:** `phase-1/technical-design/backend-module-architecture.md`
 
 **Implementation Notes**
 
@@ -197,11 +191,10 @@ Shared Angular libraries used by all three portals: API client, Angular Material
 
 ## FE-SHARED-006 — Common UI Components
 
-| Field | Value |
-|-------|-------|
-| **US Ref** | — |
-| **Estimate** | L (2d) |
-| **Dependencies** | FE-SHARED-001 |
+- **US Ref:** —
+- **Estimate:** L
+- **Dependencies:** FE-SHARED-001
+- **Spec References:** `phase-1/technical-design/backend-module-architecture.md`
 
 **Implementation Notes**
 
@@ -226,11 +219,10 @@ Shared Angular libraries used by all three portals: API client, Angular Material
 
 ## FE-SHARED-007 — Error Handling & Notification Toast
 
-| Field | Value |
-|-------|-------|
-| **US Ref** | — |
-| **Estimate** | S (½d) |
-| **Dependencies** | FE-SHARED-004 |
+- **US Ref:** —
+- **Estimate:** S
+- **Dependencies:** FE-SHARED-004
+- **Spec References:** `phase-1/technical-design/backend-module-architecture.md`
 
 **Implementation Notes**
 

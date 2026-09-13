@@ -1,323 +1,253 @@
-# EPIC: NOTIFICATIONS — Email & In-App Notifications
+# EPIC: NOTIFICATIONS — Notifications Module
 
-**Sprint:** 8  
+**Sprint:** 4–5  
 **Total Tasks:** 8  
-**Status:** Planned  
 
-All email and in-app notification delivery. Driven exclusively by Kafka consumers — never triggered inline from API write paths. Uses SMTP for email (Nodemailer) and MongoDB for in-app notification persistence. 21 email templates (ET-01 through ET-21).
+In-app and email notifications driven entirely by Kafka consumers. No sync writes from API handlers. MongoDB stores in-app notifications. Nodemailer sends emails from an SMTP gateway. All notification state is eventually consistent.
 
 ---
 
-## NOTIFICATIONS-001 — Notifications Schema (MongoDB)
+## NOTIFICATIONS-001 — Notifications MongoDB Schema
 
-| Field | Value |
-|-------|-------|
-| **US Ref** | US-P-04 |
-| **Estimate** | S (½d) |
-| **Dependencies** | INFRA-005 |
+- **US Ref:** —
+- **Estimate:** M
+- **Dependencies:** INFRA-005
+- **Spec References:** `phase-1/technical-design/api-design/notifications.md`, `phase-1/technical-design/kafka-events.md`, `phase-1/technical-design/data-model-mongodb.md`
 
 **Implementation Notes**
 
-- Mongoose schemas in `libs/notifications/src/infrastructure/`
-- `InAppNotification` schema (`in_app_notification` collection):
+- File: `libs/notifications/src/infrastructure/mongoose/notification.schema.ts`
+- `InAppNotification` collection (`in_app_notifications` in `aliceut_logs` MongoDB):
   ```ts
   const InAppNotificationSchema = new Schema({
-    userId:       { type: String, required: true, index: true },
-    type:         { type: String, required: true },  // e.g. 'ORDER_PLACED', 'KYC_APPROVED'
-    title:        String,
-    body:         String,
-    metadata:     Schema.Types.Mixed,   // { orderId, fulfillmentId, etc. }
-    isRead:       { type: Boolean, default: false },
-    readAt:       Date,
-    createdAt:    { type: Date, default: Date.now, index: true },
-  }, { timestamps: false });
-  
-  InAppNotificationSchema.index({ userId: 1, createdAt: -1 });
-  InAppNotificationSchema.index({ userId: 1, isRead: 1 });
-  ```
-- `ActivityEvent` schema (`activity_events` collection) — audit log for notification delivery:
-  ```ts
-  const ActivityEventSchema = new Schema({
-    channel:      String,             // 'EMAIL' | 'IN_APP'
-    recipient:    String,             // email address or userId
-    eventType:    String,
-    templateId:   String,             // e.g. 'ET-01'
-    status:       String,             // 'SENT' | 'FAILED' | 'SKIPPED'
-    failReason:   String,
-    deliveredAt:  Date,
-    createdAt:    { type: Date, default: Date.now },
+    userId:     { type: String, required: true, index: true },
+    type:       { type: String, required: true },        // e.g. 'ORDER_SHIPPED', 'KYC_APPROVED'
+    title:      { type: String, required: true },
+    message:    { type: String, required: true },
+    isRead:     { type: Boolean, default: false, index: true },
+    link:       String,                                  // frontend route (e.g. '/orders/uuid')
+    metadata:   Schema.Types.Mixed,                      // event-specific data
+    createdAt:  { type: Date, default: Date.now, index: true },
+    readAt:     Date,
   });
+  InAppNotificationSchema.index({ userId: 1, isRead: 1, createdAt: -1 });
   ```
+- TTL index: 90 days auto-expiry for old notifications
+- `ActivityEvent` collection (for admin audit — see PLATFORM-004): separate collection, not managed here
 
 **Done Criteria**
 
-- Mongoose schemas registered in `NotificationsModule`
-- `in_app_notification` documents queryable by `userId` + `isRead`
-- TTL index on `activity_events`: 30 days (`expireAfterSeconds: 2592000`)
+- Schema created; TTL index applied
+- Insert document → appears in `in_app_notifications` collection
 
 ---
 
-## NOTIFICATIONS-002 — SMTP Email Service
+## NOTIFICATIONS-002 — SMTP Email Service (Nodemailer)
 
-| Field | Value |
-|-------|-------|
-| **US Ref** | — |
-| **Estimate** | M (1d) |
-| **Dependencies** | NOTIFICATIONS-001 |
+- **US Ref:** —
+- **Estimate:** M
+- **Dependencies:** INFRA-001
+- **Spec References:** `phase-1/technical-design/api-design/notifications.md`, `phase-1/technical-design/kafka-events.md`
 
 **Implementation Notes**
 
+- File: `libs/notifications/src/infrastructure/email/email.service.ts`
 - Package: `nodemailer`
-- `EmailService` in `libs/notifications/src/infrastructure/email.service.ts`
-- Config from env: `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`
-- Dev fallback: if `SMTP_HOST` absent, log email to console (dev-only mock transport)
-  ```ts
-  const transport = process.env.SMTP_HOST
-    ? nodemailer.createTransport({ host, port, auth: { user, pass } })
-    : { sendMail: async (opts) => { logger.log('EMAIL (mock):', JSON.stringify(opts)); return {}; } };
-  ```
-- `EmailService.send({ to, subject, htmlBody, textBody })`: sends email; on failure logs error + records `ActivityEvent { status: 'FAILED' }`; never throws to caller (fire-and-forget)
-- Email templates: inline HTML strings in V1 (no templating engine; Handlebars in Phase 2)
-- "From" address: `noreply@aliceut.local` (configurable via `EMAIL_FROM` env var)
+- Config from env: `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`
+- Dev default: `SMTP_HOST=localhost:1025` (MailHog/Mailpit for local testing)
+- `EmailService.send(to, subject, htmlBody): Promise<void>` — fire-and-forget; errors logged, not thrown
+- HTML templates: inline styles (email clients don't support external CSS)
+- `EmailService.renderTemplate(templateName, vars): string` — renders HTML from `libs/notifications/src/templates/*.html` via `handlebars` or simple string interpolation
+- Transport pool: `createTransport({ pool: true, maxConnections: 5 })`
 
 **Done Criteria**
 
-- With SMTP configured: email sent; `ActivityEvent` with `status: 'SENT'` inserted
-- With no SMTP config: email logged to console; no error thrown
-- SMTP failure (wrong credentials): error logged; `ActivityEvent { status: 'FAILED' }` inserted; caller not affected
-- `to` address validated before send
+- Send email to MailHog/Mailpit → appears in web UI
+- Transport failure: logged, no uncaught exception
+- HTML email renders inline styles correctly
 
 ---
 
 ## NOTIFICATIONS-003 — In-App Notification API
 
-| Field | Value |
-|-------|-------|
-| **US Ref** | US-B-12, US-S-11 |
-| **Estimate** | M (1d) |
-| **Dependencies** | NOTIFICATIONS-001, AUTH-002 |
+- **US Ref:** US-B-11
+- **Estimate:** M
+- **Dependencies:** NOTIFICATIONS-001
+- **Spec References:** `phase-1/technical-design/api-design/notifications.md`, `phase-1/technical-design/data-model-mongodb.md`
 
 **Implementation Notes**
 
-- `GET /notifications` (protected)
-  - Query: `?unreadOnly=boolean&limit=20&cursor=`
-  - Returns paginated in-app notifications for current user, newest first
-- `POST /notifications/:id/read` (protected)
-  - Sets `isRead = true`, `readAt = now()` for notification belonging to current user
-- `POST /notifications/read-all` (protected)
-  - Bulk-marks all unread notifications for current user as read
-- `GET /notifications/unread-count` (protected)
-  - Returns `{ count: number }` — used by frontend badge
-- Ownership check: all queries filter by `userId = currentUser.id`
+- `GET /notifications` — `@JwtAuthGuard`; returns paginated in-app notifications for authenticated user
+  - Query MongoDB by `userId = req.user.sub`, sorted by `createdAt DESC`, limit 20
+  - Includes `unreadCount` in response meta
+- `PATCH /notifications/:id/read` — mark single notification as read (`isRead = true`, `readAt = now()`)
+- `PATCH /notifications/read-all` — bulk mark all unread as read for user
+- `GET /notifications/unread-count` — lightweight endpoint for bell badge polling (returns `{ count: N }`)
+- Ownership check on PATCH: `notification.userId = authenticated user` → 404 if not
 
 **Done Criteria**
 
-- `GET /notifications` returns user's notifications, newest first
-- `POST /notifications/:id/read` marks one as read
-- `POST /notifications/read-all` marks all unread as read
-- `GET /notifications/unread-count` returns correct count
-- Accessing another user's notification: 404
+- GET /notifications returns only authenticated user's notifications
+- Mark read: `isRead = true` set in MongoDB
+- Unread count matches actual unread documents
 
 ---
 
-## NOTIFICATIONS-004 — Order & Fulfillment Notification Consumers
+## NOTIFICATIONS-004 — Order / Fulfillment Notification Consumers
 
-| Field | Value |
-|-------|-------|
-| **US Ref** | US-B-12, US-P-04 |
-| **Estimate** | L (2d) |
-| **Dependencies** | NOTIFICATIONS-002, PLATFORM-003 |
+- **US Ref:** US-B-11
+- **Estimate:** L
+- **Dependencies:** PLATFORM-003, NOTIFICATIONS-001, NOTIFICATIONS-002
+- **Spec References:** `phase-1/technical-design/kafka-events.md`, `phase-1/technical-design/api-design/notifications.md`, `phase-1/technical-design/data-model-mongodb.md`
 
 **Implementation Notes**
 
-- Consumer group: `notifications.order-events`
-- Topics consumed: `order.finalized`, `fulfillment.placed`, `fulfillment.shipped`, `fulfillment.delivered`, `fulfillment.cancelled`, `fulfillment.refunded`, `fulfillment.refund_suspended_seller`, `order.completed`
-- Per event → email template + in-app notification:
-
-| Event | Email Template | In-App Type |
-|-------|---------------|-------------|
-| `order.finalized` | ET-01 (buyer order confirmation) | `ORDER_CONFIRMED` |
-| `fulfillment.placed` | ET-02 (seller new order) | `NEW_ORDER` (seller) |
-| `fulfillment.shipped` | ET-03 (buyer shipping notification with tracking) | `ORDER_SHIPPED` |
-| `fulfillment.delivered` | ET-05 (buyer delivery confirmation) | `ORDER_DELIVERED` |
-| `fulfillment.cancelled` | ET-16 (buyer + seller cancellation) | `ORDER_CANCELLED` |
-| `fulfillment.refunded` | ET-13b (buyer refund confirmation) | `ORDER_REFUNDED` |
-| `fulfillment.refund_suspended_seller` | ET-13 (buyer refund due to seller suspension) | `REFUND_SUSPENDED_SELLER` |
-| `order.completed` | — (already sent per-fulfillment) | — |
-
-- Each consumer handler:
-  1. Load event payload (all needed data in event — no DB reads for core fields)
-  2. Call `EmailService.send(...)` with inline HTML template
-  3. Insert `InAppNotification` document
-  4. Insert `ActivityEvent` log
-- Extends `BaseKafkaConsumer` (idempotency + DLQ)
+- Consumer group per topic; all extend `BaseKafkaConsumer`
+- `fulfillment.placed` consumer (`notifications.fulfillment-placed`):
+  - In-app notification to seller: "New order received for [product]"
+  - Email to seller: Order notification template
+- `fulfillment.shipped` consumer:
+  - In-app + email to buyer: "Your order has been shipped! Tracking: [carrier] [number]"
+- `fulfillment.delivered` consumer:
+  - In-app + email to buyer: "Your order has been delivered"
+- `fulfillment.cancelled` consumer:
+  - In-app + email to buyer: "Your order has been cancelled. [Reason]"
+- `fulfillment.refund_suspended_seller` consumer:
+  - In-app + email to buyer: "Your order was cancelled due to seller suspension. Refund issued."
+- Each consumer: insert MongoDB `InAppNotification` + call `EmailService.send()`
 
 **Done Criteria**
 
-- `order.finalized` → buyer receives email notification (mock logged to console in dev)
-- `fulfillment.shipped` → in-app notification created for buyer
-- Duplicate event (same `event_id`): no duplicate notification (idempotency via `ProcessedEvent`)
-- `ActivityEvent` inserted for each notification attempt
+- Ship fulfillment → buyer in-app notification created + email sent (MailHog shows it)
+- All consumers idempotent (duplicate event → no duplicate notification — check by `event_id`)
 
 ---
 
 ## NOTIFICATIONS-005 — Auth Event Notification Consumers
 
-| Field | Value |
-|-------|-------|
-| **US Ref** | US-B-00 |
-| **Estimate** | M (1d) |
-| **Dependencies** | NOTIFICATIONS-002, PLATFORM-003 |
+- **US Ref:** —
+- **Estimate:** M
+- **Dependencies:** PLATFORM-003, NOTIFICATIONS-002
+- **Spec References:** `phase-1/technical-design/kafka-events.md`, `phase-1/technical-design/api-design/notifications.md`
 
 **Implementation Notes**
 
-- Consumer group: `notifications.auth-events`
-- Topics: `auth.email_verification_requested`, `auth.password_reset_requested`, `auth.password_changed`
-
-| Event | Email Template | Notes |
-|-------|---------------|-------|
-| `auth.email_verification_requested` | ET-18 (verification email with link) | URL from payload |
-| `auth.password_reset_requested` | ET-19 (password reset email with link) | URL from payload |
-| `auth.password_changed` | ET-20 (password changed security notice) | Security alert |
-
-- `auth.email_verification_requested` payload includes: `{ userId, email, verificationUrl }` — URL has the raw token (pre-constructed by AUTH module)
-- Email link format: `{FRONTEND_URL}/verify-email?token=<rawToken>`
-- `auth.password_changed`: email sent to current email address as security notification
-- No in-app notification for auth events (user may not be logged in during these flows)
+- `auth.email_verification_requested` consumer:
+  - Email to user: "Verify your email" with verification link
+  - Template: verification link = `${FRONTEND_URL}/auth/verify-email?token={token}` (token from event payload)
+- `auth.password_reset_requested` consumer:
+  - Email: "Reset your password" with reset link = `${FRONTEND_URL}/auth/reset-password?token={token}`
+- `auth.password_changed` consumer:
+  - Email: "Your password was changed" security notification (no link; advise contact support if not initiated by user)
+- No in-app notification for auth events (user may not be logged in)
 
 **Done Criteria**
 
-- `auth.email_verification_requested` event → verification email with correct link
-- `auth.password_reset_requested` event → reset email with correct link
-- `auth.password_changed` event → security notice email
-- No in-app notification created for auth events
+- Register → verification email delivered to MailHog
+- Password reset request → reset email delivered
+- Password changed → security notification email delivered
 
 ---
 
 ## NOTIFICATIONS-006 — Seller KYC & Admin Notification Consumers
 
-| Field | Value |
-|-------|-------|
-| **US Ref** | US-S-00, US-A-02 |
-| **Estimate** | M (1d) |
-| **Dependencies** | NOTIFICATIONS-002, PLATFORM-003 |
+- **US Ref:** US-S-02, US-A-01
+- **Estimate:** M
+- **Dependencies:** PLATFORM-003, NOTIFICATIONS-001, NOTIFICATIONS-002
+- **Spec References:** `phase-1/technical-design/kafka-events.md`, `phase-1/technical-design/api-design/notifications.md`
 
 **Implementation Notes**
 
-- Consumer group: `notifications.seller-events`
-- Topics: `seller.kyc.submitted`, `seller.kyc.decided`, `seller.suspended`, `seller.reinstated`, `seller.suspension_expired`, `moderation.listing.removed`, `inventory.low_stock`
-
-| Event | Recipient | Template | In-App Type |
-|-------|----------|---------|-------------|
-| `seller.kyc.submitted` | Admin | ET-14 (new KYC submission alert) | `KYC_PENDING` (admin) |
-| `seller.kyc.decided` (APPROVED) | Seller | ET-15a (approved) | `KYC_APPROVED` |
-| `seller.kyc.decided` (REJECTED) | Seller | ET-15b (rejected with reason) | `KYC_REJECTED` |
-| `seller.suspended` | Seller | ET-12 (suspension notice) | `SELLER_SUSPENDED` |
-| `seller.reinstated` | Seller | ET-13 (reinstatement notice) | `SELLER_REINSTATED` |
-| `seller.suspension_expired` | Seller | ET-11 (auto-reinstatement) | `SUSPENSION_EXPIRED` |
-| `moderation.listing.removed` | Seller (digest) | ET-09 (daily digest via scheduler) | `LISTING_REMOVED` |
-| `inventory.low_stock` | Seller | ET-06 (low stock alert) | `LOW_STOCK` |
-
-- Admin email address: from `ADMIN_EMAIL` env var (can be a shared inbox)
-- ET-09 (listing removal digest) emitted by scheduler (SELLER-013), not here directly — this consumer only creates in-app notification, not email
-- `inventory.low_stock` payload: `{ sellerId, offerId, productTitle, currentStock, threshold }`
+- `seller.kyc.submitted` consumer (admin notification):
+  - In-app notification to ALL admins: "New KYC application submitted by [seller name]"
+  - Email to admin: KYC review needed notification
+  - Query `auth.user WHERE role = 'ADMIN'` for recipient list
+- `seller.kyc.decided` consumer (after ADMIN-002 approves/rejects):
+  - In-app + email to seller: "Your KYC application was [approved/rejected]. [Review notes if rejected]"
+- `seller.suspended` consumer:
+  - In-app + email to seller: "Your account has been suspended. Reason: [reason]. Expires: [date or indefinite]"
+- `seller.reinstated` consumer:
+  - In-app + email to seller: "Your account has been reinstated. You can resume selling."
+- `inventory.low_stock` consumer:
+  - In-app notification to seller: "Low stock alert: [product] has only [N] units remaining"
 
 **Done Criteria**
 
-- `seller.kyc.decided (APPROVED)` → seller receives approval email + in-app notification
-- `seller.kyc.decided (REJECTED)` → rejection email with reason + in-app notification
-- `seller.suspended` → suspension email + in-app
-- `inventory.low_stock` → low stock email to seller + in-app
-- Idempotent: duplicate events don't send duplicate notifications
+- KYC submitted → admin receives notification
+- KYC approved/rejected → seller notified via in-app + email
+- Low stock event → seller in-app notification
 
 ---
 
-## NOTIFICATIONS-007 — Email Template Content (All 21 Templates)
+## NOTIFICATIONS-007 — Email Templates (all 21 event types)
 
-| Field | Value |
-|-------|-------|
-| **US Ref** | US-P-04 |
-| **Estimate** | M (1d) |
-| **Dependencies** | NOTIFICATIONS-002 |
+- **US Ref:** —
+- **Estimate:** L
+- **Dependencies:** NOTIFICATIONS-002
+- **Spec References:** `phase-1/technical-design/api-design/notifications.md`
 
 **Implementation Notes**
 
-- File: `libs/notifications/src/infrastructure/email/templates/`
-- One file per template category; inline HTML strings
-- Required templates (ET-01 through ET-21) mapped to events:
-
-| ID | Trigger | Subject Line |
-|----|---------|-------------|
-| ET-01 | `order.finalized` | "Order Confirmed – ORD-{id}" |
-| ET-02 | `fulfillment.placed` (seller) | "New Order – FUL-{id}" |
-| ET-03 | `fulfillment.shipped` | "Your Order Has Shipped" |
-| ET-04 | `fulfillment.delivered` | "Your Order Has Been Delivered" |
-| ET-05 | `order.completed` | "Thank You for Your Purchase" |
-| ET-06 | `inventory.low_stock` | "Low Stock Alert: {productTitle}" |
-| ET-07 | Admin digest | "Daily Listing Removal Report" |
-| ET-08 | `listing.flagged` (seller) | "Your Listing Has Been Flagged" |
-| ET-09 | `moderation.listing.removed` (digest) | "Listing Removal Summary" |
-| ET-10 | `seller.suspended` | "Account Suspended" |
-| ET-11 | `seller.suspension_expired` | "Account Reinstated (Auto)" |
-| ET-12 | `seller.suspended` | "Seller Account Suspended" |
-| ET-13 | `fulfillment.refund_suspended_seller` (buyer) | "Refund Processed" |
-| ET-13b | `fulfillment.refunded` | "Your Refund Has Been Processed" |
-| ET-14 | `seller.kyc.submitted` (admin) | "New KYC Submission – {businessName}" |
-| ET-15 | `seller.kyc.decided (APPROVED)` | "Your Seller Account is Approved!" |
-| ET-16 | `fulfillment.cancelled` | "Order Cancellation Confirmed" |
-| ET-17 | `seller.reinstated` | "Seller Account Reinstated" |
-| ET-18 | `auth.email_verification_requested` | "Verify Your Email – AliceUT" |
-| ET-19 | `auth.password_reset_requested` | "Reset Your Password – AliceUT" |
-| ET-20 | `auth.password_changed` | "Security Alert: Password Changed" |
-| ET-21 | `seller.kyc.decided` (seller) | "KYC Review Complete" |
-
-- All templates: minimal but correct HTML; responsive (basic 600px centered container)
-- All include unsubscribe footer: "Manage email preferences at {FRONTEND_URL}/account/notifications"
-- V1: no Handlebars/Mustache — simple string interpolation (`template.replace('{{name}}', value)`)
+- File: `libs/notifications/src/templates/`
+- 21 email templates (Handlebars HTML files):
+  1. `email-verification.html` — verify email
+  2. `password-reset.html` — reset password link
+  3. `password-changed.html` — security alert
+  4. `order-placed-seller.html` — seller: new order
+  5. `order-shipped-buyer.html` — buyer: order shipped
+  6. `order-delivered-buyer.html` — buyer: order delivered
+  7. `order-cancelled-buyer.html` — buyer: order cancelled
+  8. `order-refund-suspended-buyer.html` — buyer: refund due to seller suspension
+  9. `kyc-submitted-admin.html` — admin: new KYC to review
+  10. `kyc-approved-seller.html` — seller: KYC approved
+  11. `kyc-rejected-seller.html` — seller: KYC rejected + notes
+  12. `seller-suspended.html` — seller: suspension notice
+  13. `seller-reinstated.html` — seller: reinstatement notice
+  14. `low-stock-seller.html` — seller: low stock warning
+  15. `listing-flagged-seller.html` — seller: listing flagged for review
+  16. `listing-removed-seller.html` — seller: listing removed by admin
+  17. `moderation-cleared-seller.html` — seller: false positive cleared
+  18. `account-closed.html` — confirmation of account closure
+  19. `admin-new-flagged-listing.html` — admin: new listing to moderate
+  20. `admin-seller-suspension-expired.html` — admin: seller suspension expired (auto-reinstated)
+  21. `admin-moderation-case-assigned.html` — admin: case assigned (V1 all cases auto-assigned to pool)
+- All templates: AliceUT branding (logo placeholder), inline CSS, responsive layout
+- `handlebars.compile(template)(variables)` for rendering
 
 **Done Criteria**
 
-- All 21 templates produce valid HTML emails with required fields
-- Subject lines contain correct dynamic values
-- No broken template placeholder (missing variable = empty string, not `{{variable}}`)
-- Templates rendered in browser without broken layout
+- All 21 templates render without handlebars errors
+- HTML validates (no broken tags)
+- At least 3 templates visually reviewed in MailHog
 
 ---
 
 ## NOTIFICATIONS-008 — Notification Preferences
 
-| Field | Value |
-|-------|-------|
-| **US Ref** | US-B-12 |
-| **Estimate** | M (1d) |
-| **Dependencies** | NOTIFICATIONS-003, AUTH-002 |
+- **US Ref:** US-B-11
+- **Estimate:** M
+- **Dependencies:** NOTIFICATIONS-001
+- **Spec References:** `phase-1/technical-design/api-design/notifications.md`, `phase-1/technical-design/data-model-mongodb.md`
 
 **Implementation Notes**
 
-- `GET /notifications/preferences` (protected)
-- `PATCH /notifications/preferences` (protected)
-- Preferences stored in MongoDB `notification_preferences` collection (keyed by `userId`):
+- MongoDB collection `notification_preferences`:
   ```ts
-  {
-    userId: string,
-    email: {
-      orderUpdates: boolean,    // default true
-      promotions: boolean,      // default false
-      security: boolean,        // ALWAYS true (non-configurable)
-      lowStock: boolean,        // seller only
-    },
-    inApp: {
-      all: boolean,             // default true
-    }
-  }
+  const PreferenceSchema = new Schema({
+    userId: { type: String, required: true, unique: true },
+    emailEnabled: { type: Boolean, default: true },
+    inAppEnabled: { type: Boolean, default: true },
+    orderUpdates: { type: Boolean, default: true },
+    marketingEmails: { type: Boolean, default: false },
+    lowStockAlerts: { type: Boolean, default: true },
+  });
   ```
-- Security emails (`auth.*` events) always sent regardless of preference
-- Before sending email in consumers: check user's preferences (minor perf cost; acceptable for V1)
-- Default: all order/fulfillment emails ON; promotions OFF
+- `GET /notifications/preferences` — `@JwtAuthGuard`; returns user's preferences (default if not set)
+- `PATCH /notifications/preferences { emailEnabled?, inAppEnabled?, orderUpdates?, marketingEmails?, lowStockAlerts? }` — partial update
+- All consumers check preferences before sending: `if (!prefs.emailEnabled || !prefs.orderUpdates) skip`
+- V1: preferences checked best-effort (fire-and-forget); consumer queries preferences inline
 
 **Done Criteria**
 
-- `PATCH /notifications/preferences { email: { orderUpdates: false } }`: order update emails suppressed
-- Security emails (`auth.password_changed`) sent even when all preferences off
-- New user: default preferences created on first `GET` (if no row exists)
-- Preference check adds < 10ms to notification handler (MongoDB lookup by userId)
+- PATCH `emailEnabled: false` → subsequent order emails skipped
+- Default preferences returned for new user (no DB row needed before first PATCH)

@@ -1,197 +1,167 @@
-# EPIC: SEED — Seed Data
+# EPIC: SEED — Development Seed Data
 
-**Sprint:** 9  
+**Sprint:** 5  
 **Total Tasks:** 5  
-**Status:** Planned  
 
-Load the 100 curated products from the Kaggle Amazon dataset into the platform. Creates categories, seller profiles, products, offers, inventory records, and triggers search indexing. Architecture must support 10k+ products (NFR-03) even though seed is only 100.
+Kaggle "Amazon Product Data" — curated to 100 products across major categories. Seed script is idempotent (safe to re-run). Provides realistic dev/demo data for all modules.
 
 ---
 
-## SEED-001 — Kaggle Dataset Acquisition & Curation
+## SEED-001 — Seed Data Preparation (Kaggle Dataset Curation)
 
-| Field | Value |
-|-------|-------|
-| **US Ref** | US-P-19 |
-| **Estimate** | M (1d) |
-| **Dependencies** | none |
+- **US Ref:** —
+- **Estimate:** L
+- **Dependencies:** INFRA-001
+- **Spec References:** `phase-1/technical-design/data-model-erd.md`, `phase-1/technical-design/data-model-mongodb.md`
 
 **Implementation Notes**
 
-- Dataset: "Amazon Product Data" from Kaggle (or similar public e-commerce dataset)
-- Download manually; place raw CSV in `tools/seed/data/raw/amazon_products.csv`
-- Curation script: `tools/seed/scripts/curate-products.ts`
-  - Select 100 diverse products across 6–8 major categories: Electronics, Books, Clothing & Apparel, Home & Kitchen, Sports & Outdoors, Beauty & Personal Care, Toys & Games
-  - Exclude: weapons/drugs/adult content categories (prohibited categories per BRD)
-  - Normalize fields: title, description (truncate to 2000 chars), price (normalize to USD decimal), category, brand, image URL
-  - Output: `tools/seed/data/curated/products.json` — 100 products in internal format
-- Product internal format:
+- Source: Kaggle "Amazon Product Data" (public dataset)
+- Curation target: 100 products across these categories (≥5 products each):
+  - Electronics
+  - Books
+  - Home & Kitchen
+  - Sports & Outdoors
+  - Clothing & Accessories
+  - Beauty & Personal Care
+  - Toys & Games
+  - Office Products
+- File: `apps/workers/src/seed/data/products.json` — curated subset with fields:
   ```json
   {
+    "id": "...",
     "title": "...",
     "description": "...",
     "brand": "...",
-    "category": "Electronics > Laptops",
-    "images": ["https://images.example.com/..."],
-    "priceUsd": "299.99",
-    "attributes": { "color": "Silver", "weight": "1.5kg" }
+    "category": "Electronics > Headphones",
+    "imageUrl": "https://...",
+    "originalPrice": "39.99",
+    "currency": "USD",
+    "sku": "AMZN-001"
   }
   ```
-- Commit curated JSON to repo; raw CSV in `.gitignore`
+- Images: use Kaggle-provided URLs (external CDN). Do NOT download to MinIO for seed (dev convenience only)
+- Keep original ASIN or row ID as `sku` for traceability
 
 **Done Criteria**
 
-- `tools/seed/data/curated/products.json` exists with exactly 100 products
-- All products have: title, description, priceUsd (valid decimal string), at least 1 image URL, category path
-- No prohibited categories present
-- File committed to git; raw CSV excluded
+- 100 product records in `products.json`
+- At least 8 categories represented
+- No duplicate products
 
 ---
 
-## SEED-002 — Category Tree Seed
+## SEED-002 — Seed Users, Sellers, Categories
 
-| Field | Value |
-|-------|-------|
-| **US Ref** | US-P-19 |
-| **Estimate** | S (½d) |
-| **Dependencies** | SEED-001, CATALOG epic |
+- **US Ref:** —
+- **Estimate:** M
+- **Dependencies:** AUTH-001, SELLER-003, CATALOG-002
+- **Spec References:** `phase-1/technical-design/data-model-erd.md`
 
 **Implementation Notes**
 
-- Script: `tools/seed/scripts/seed-categories.ts`
-- Create category tree from product category paths in curated JSON
-- Category tree (max 2 levels in V1):
-  ```
-  Electronics
-    └── Laptops
-    └── Smartphones
-    └── Headphones
-  Books
-    └── Fiction
-    └── Non-Fiction
-  Clothing & Apparel
-    └── Men's Clothing
-    └── Women's Clothing
-  Home & Kitchen
-  Sports & Outdoors
-  Beauty & Personal Care
-  Toys & Games
-  ```
-- Use `CatalogService.createCategory()` or direct TypeORM insert
-- Idempotent: `INSERT ... ON CONFLICT (slug) DO NOTHING`
-- Store category `slug` as URL-safe lowercase kebab (e.g. `electronics`, `home-kitchen`)
-- Returns map: `{ "Electronics > Laptops": categoryId }` used by product seed script
+- File: `apps/workers/src/seed/seed-users.ts`
+- Create via service layer (not raw SQL) to trigger proper side effects:
+  - 2 ADMIN users: `admin1@aliceut.dev`, `admin2@aliceut.dev` (password: `Admin1234!`)
+  - 3 SELLER users, all KYC APPROVED, status ACTIVE: `seller1@aliceut.dev`, `seller2@aliceut.dev`, `seller3@aliceut.dev`
+  - 5 BUYER users: `buyer1@aliceut.dev` through `buyer5@aliceut.dev` (password: `Buyer1234!`)
+- All accounts: `isEmailVerified = true` (set directly in DB; skip token flow)
+- Seller profiles: `displayName = "Demo Seller N"`, `businessName = "Demo Business N"`
+- Seed categories (catalog.category):
+  - Electronics (+ 3 subcategories)
+  - Books, Home & Kitchen, Sports & Outdoors, Clothing & Accessories, Beauty & Personal Care, Toys & Games, Office Products (flat; no subcategories for simplicity)
+- Idempotent: check by email/slug before insert
 
 **Done Criteria**
 
-- All categories from curated products exist in DB after seed run
-- Running seed twice: no duplicate categories (idempotent)
-- Parent-child relationships correct (Electronics → Laptops)
-- Category slugs are URL-safe
+- All users created; can log in with seeded passwords
+- All seller profiles KYC APPROVED; sellers can create listings
+- 8+ categories exist in `catalog.category`
 
 ---
 
-## SEED-003 — Seller Profile Seed
+## SEED-003 — Seed Products, Offers, Prices
 
-| Field | Value |
-|-------|-------|
-| **US Ref** | US-P-19 |
-| **Estimate** | S (½d) |
-| **Dependencies** | SEED-001, SELLER-001, AUTH-001 |
+- **US Ref:** —
+- **Estimate:** M
+- **Dependencies:** SEED-001, SEED-002, CATALOG-008, PRICING-006
+- **Spec References:** `phase-1/technical-design/data-model-erd.md`
 
 **Implementation Notes**
 
-- Script: `tools/seed/scripts/seed-sellers.ts`
-- Create 3–5 demo seller accounts (different product categories each)
-- For each seller:
-  1. Create `user_account` with `role = 'seller'`, `account_status = 'ACTIVE'`, `is_email_verified = true`
-  2. Create `seller_profile` with `kyc_status = 'APPROVED'`, `seller_status = 'ACTIVE'`
-  3. Password: argon2id hash of `SEED_SELLER_PASSWORD` env var (default `Seller@12345`)
-- Demo sellers:
-  - `tech-seller@aliceut.local` — Electronics category products
-  - `book-seller@aliceut.local` — Books category products
-  - `lifestyle-seller@aliceut.local` — Clothing/Home/Sports products
-- Output: map of seller `{ email: sellerId }` for product seed script
+- File: `apps/workers/src/seed/seed-products.ts`
+- For each of the 100 products from `products.json`:
+  1. Create `catalog.product` row (use curated data)
+  2. Assign to one seller (round-robin across 3 seed sellers: product index % 3)
+  3. Create `catalog.offer` (status = `ACTIVE`)
+  4. Create `pricing.offer_price` (type = `LIST`, currency = `USD`, price from curated data)
+  5. Create `catalog.stock` (qty = random 5–100)
+- Distribute products across seed categories (by curated `category` field mapping)
+- `offer.status = ACTIVE` for all seed offers
+- No image upload to MinIO (use external URLs from curated data)
 
 **Done Criteria**
 
-- 3 seller accounts created; each can log in with seed password
-- `seller_status = 'ACTIVE'`, `kyc_status = 'APPROVED'` (bypasses KYC for demo data)
-- Running twice: no duplicate sellers (check email before insert)
-- Seller passwords not committed to git (use env var)
+- 100 products in DB; all indexed in ES via async `product.changed` event
+- Each product: 1 offer, 1 USD price, 1 stock record
+- `GET /search?q=headphones` returns matching products within 5s of seeding
 
 ---
 
-## SEED-004 — Product & Offer Seed
+## SEED-004 — Seed Orders (sample order history)
 
-| Field | Value |
-|-------|-------|
-| **US Ref** | US-P-19 |
-| **Estimate** | L (2d) |
-| **Dependencies** | SEED-002, SEED-003, CATALOG epic, PRICING epic, INVENTORY epic |
+- **US Ref:** —
+- **Estimate:** M
+- **Dependencies:** SEED-003, ORDERS-005
+- **Spec References:** `phase-1/technical-design/data-model-erd.md`, `phase-1/technical-design/data-model-mongodb.md`
 
 **Implementation Notes**
 
-- Script: `tools/seed/scripts/seed-products.ts`
-- For each product in curated JSON:
-  1. Assign to seller based on category (electronics → tech-seller, books → book-seller, etc.)
-  2. Create `catalog.product` row via `CatalogService` (triggers `product.changed` event via outbox)
-  3. Create `catalog.offer` row for the assigned seller
-  4. Create `pricing.price` rows:
-     - `LIST` price in USD: from product JSON
-     - `LIST` price in THB: `priceUsd * current_fx_rate` (rounded to 2 decimal places)
-     - For ~20% of products: add a `SALE` price (80% of LIST price; active for 30 days from seed date)
-  5. Create `inventory.inventory` row: `quantity_available = random(10, 100)`, `low_stock_threshold = 5`
-  6. Upload product images to MinIO `product-images` bucket: download from URL in JSON, re-upload
-- All operations via service layer (not direct SQL inserts) so events fire correctly
-- Products seeded → `product.changed` outbox events → relay → Kafka → Search module → ES indexed
-- Run sequence: categories → sellers → products (dependency order)
-- Total products: exactly 100
+- File: `apps/workers/src/seed/seed-orders.ts`
+- Create 20 sample orders (bypass checkout validation for seed; use `dataSource.transaction` directly):
+  - 5 orders status = `PROCESSING` (for buyers 1–3)
+  - 5 orders status = `SHIPPED` (buyers 4–5; set `shipped_at = now() - 1 day`)
+  - 5 orders status = `DELIVERED` (various buyers; set `delivered_at = now() - 3 days`)
+  - 5 orders status = `CANCELLED` (various buyers; reservations already released)
+- Each order: 1–3 fulfillment items from existing products; mock `payment_attempt` with `SUCCEEDED`
+- `display_id` format: `ORD-YYYYMMDD-XXXX` (use actual date of seeding)
+- Seed audit log entries in MongoDB for status transitions
 
 **Done Criteria**
 
-- 100 products in `catalog.product`; 100 offers in `catalog.offer`
-- Each product has LIST price in USD and THB
-- ~20 products have active SALE prices
-- All 100 products searchable via `GET /search?q=` within 30s of seed completion
-- Inventory records exist for all 100 offers
-- Product images uploaded to MinIO (or at minimum: URL references stored without upload on first pass)
+- 20 orders seeded across 4 statuses
+- GET /orders returns buyer's orders (buyer1 sees only their orders)
+- GET /seller/fulfillments: seller1 sees their fulfillments
 
 ---
 
-## SEED-005 — Seed Runner CLI
+## SEED-005 — Master Seed Runner + Idempotency Guard
 
-| Field | Value |
-|-------|-------|
-| **US Ref** | US-P-19 |
-| **Estimate** | S (½d) |
-| **Dependencies** | SEED-002, SEED-003, SEED-004 |
+- **US Ref:** —
+- **Estimate:** M
+- **Dependencies:** SEED-002, SEED-003, SEED-004
+- **Spec References:** `phase-1/technical-design/data-model-erd.md`
 
 **Implementation Notes**
 
-- File: `tools/seed/scripts/run-seed.ts`
-- npm script: `"seed": "ts-node tools/seed/scripts/run-seed.ts"`
-- Seed order enforced: categories → sellers → products
-- `--dry-run` flag: validates curated JSON + DB connectivity without inserting
-- `--reset` flag: truncates all seed data tables in reverse dependency order (DANGEROUS: only for dev reset)
-- Idempotent by default: each script checks for existing data before insert
-- Output: progress bar + summary table:
-  ```
-  ✓ Categories: 8 root, 22 leaf (30 total)
-  ✓ Sellers: 3 created
-  ✓ Products: 100 created
-  ✓ Offers: 100 created
-  ✓ Prices: 220 created (100 USD + 100 THB + 20 SALE)
-  ✓ Inventory: 100 records
-  ✓ Search: 100 products indexed
-  Seed completed in 45.2s
-  ```
-- `--reset` flag requires `NODE_ENV=development` (refuses to run in production)
+- File: `apps/workers/src/seed/seed.runner.ts`
+- Single entry point: `npm run seed` (or `ts-node seed.runner.ts`)
+- Execution order:
+  1. `seedCategories()` — categories first (products depend on them)
+  2. `seedUsers()` — users and seller profiles
+  3. `seedProducts()` — products, offers, prices, stock
+  4. `seedOrders()` — orders and fulfillments
+- Each step: `SeedRunner.isSeeded(stepName): boolean` — checks a `seed_log` table or config flag
+  - `seed_log` table: `(step_name TEXT PRIMARY KEY, seeded_at TIMESTAMP)`
+  - If already seeded: skip + log `[SKIP] Step already seeded`
+  - If not seeded: run + insert `seed_log` row on success
+- `--force` flag: drop all seed data and re-run (dev convenience; never in prod)
+- `--step=users` flag: run single step only
+- Exit 0 on success; exit 1 on any step failure; partial success logged clearly
 
 **Done Criteria**
 
-- `npm run seed` completes without error on fresh DB
-- Running `npm run seed` twice: no duplicates, no errors (idempotent)
-- `npm run seed -- --dry-run`: validates data, exits without DB writes
-- After seed: `GET /search?q=laptop` returns results
-- After seed: seller can log in and see their products
+- `npm run seed` completes idempotently (no error on second run)
+- `npm run seed --force` re-seeds from scratch
+- `npm run seed --step=users` runs only user seed
+- Final console output: summary table `[step] [status] [count]`

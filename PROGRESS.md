@@ -29,27 +29,28 @@ Daily log of work on this project. Newest entry on top. One entry per active day
 ---
 
 **Index**
-- [2026-09-13](#2026-09-13) — Phase 1 backlog decomposition complete: master backlog, sprint plan, all 20 epic breakdowns.
+- [2026-09-13](#2026-09-13) — Phase 1 backlog decomposition + GitHub Issues script (211 tasks, 20 epics).
 - [2026-09-12](#2026-09-12) — Phase 1 documentation complete: full developer-readiness audit, cross-doc alignment (multi-pass), Mermaid rendering fixes, interactive architecture diagrams.
 
 <a id="2026-09-13"></a>
 ## 2026-09-13
-**Focus:** Phase 1 backlog decomposition — implementation-ready backlog for solo developer.
+**Focus:** Phase 1 backlog decomposition + GitHub Issues automation.
 
 **Done:**
-- `phase-1/backlog/backlog.md`: master backlog with all 20 epics (~236 tasks), prioritized by implementation order, including iceberg, DoR, DoD
-- `phase-1/backlog/sprint-plan.md`: 11 detailed sprints + 7 directional (Sprints 12–18), solo dev 40h/sprint, goal + task table + done criteria per sprint, risk register
-- `phase-1/backlog/epic-breakdown/` — all 20 epic files: INFRA, SHARED, PLATFORM, AUTH, IDENTITY, CATALOG, PRICING, INVENTORY, SELLER, ADMIN, CART, SEARCH, ORDERS, NOTIFICATIONS, SEED, FE-SHARED, FE-AUTH, FE-BUYER, FE-SELLER, FE-ADMIN
-- Each task has: ID (EPIC-NNN), estimate (S/M/L/XL), user story ref, dependencies, implementation notes, done criteria
+- `phase-1/backlog/backlog.md`: master backlog, 20 epics, 211 tasks prioritized by implementation order
+- `phase-1/backlog/sprint-plan.md`: 11 detailed sprints + 7 directional, solo dev 40h/sprint, risk register
+- `phase-1/backlog/epic-breakdown/` — 20 epic files (INFRA → FE-ADMIN); each task has ID, estimate, US ref, dependencies, spec references, implementation notes, done criteria
+- Epic breakdown format: metadata as bullet list (renders correctly in GitHub), `**Spec References:**` per task pointing to `phase-1/technical-design/` docs, `**Status:**` removed (GitHub Issues is status source)
+- `scripts/create-github-issues.ps1`: creates 211 GitHub Issues from epic breakdown files — milestones (Sprint N), labels (epic:name), optional GitHub Project linking; `-DryRun` flag for preview
 
 **Decisions:**
-- Money invariants enforced in every task description: `decimal.js`, `NUMERIC(19,4)`, amounts as strings in API
-- Transactional outbox pattern referenced in every domain write task
-- Search always async via Kafka (never sync from API write path)
-- UUIDv7 via `uuidv7()` PostgreSQL function throughout
+- GitHub Issues + Milestones + Project board = live status; epic breakdown files = static specs only
+- Money invariants, outbox pattern, async search enforced in every relevant task description
+- Script verified: 211 issues dry-run clean across all 20 epics
 
 **Next:**
-- Implementation kickoff: start with INFRA → SHARED → PLATFORM (Sprint 1–2 per sprint plan)
+- Create GitHub Project manually, then run `.\scripts\create-github-issues.ps1 -ProjectNumber <N>`
+- Implementation kickoff: Sprint 1 — INFRA → SHARED → ORDERS → FE bootstrap
 
 ---
 

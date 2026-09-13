@@ -2,7 +2,6 @@
 
 **Sprint:** 2  
 **Total Tasks:** 8  
-**Status:** Now  
 
 Transactional outbox relay, Kafka consumer base (idempotency + DLQ routing), processed-event deduplication table, audit log writer, FX rate store + scheduler, and the `platform` schema migrations. These components are shared infrastructure that every other module's Kafka integration depends on.
 
@@ -10,11 +9,10 @@ Transactional outbox relay, Kafka consumer base (idempotency + DLQ routing), pro
 
 ## PLATFORM-001 — Platform Schema Migrations
 
-| Field | Value |
-|-------|-------|
-| **US Ref** | — |
-| **Estimate** | M (1d) |
-| **Dependencies** | INFRA-004, SHARED-005 |
+- **US Ref:** —
+- **Estimate:** M (1d)
+- **Dependencies:** INFRA-004, SHARED-005
+- **Spec References:** `phase-1/technical-design/data-model-erd.md`, `phase-1/technical-design/backend-module-architecture.md`
 
 **Implementation Notes**
 
@@ -71,11 +69,10 @@ CREATE TABLE platform.fx_rate (
 
 ## PLATFORM-002 — Outbox Relay (Workers App)
 
-| Field | Value |
-|-------|-------|
-| **US Ref** | FR-P-09 |
-| **Estimate** | L (2d) |
-| **Dependencies** | PLATFORM-001, INFRA-008, SHARED-005 |
+- **US Ref:** FR-P-09
+- **Estimate:** L (2d)
+- **Dependencies:** PLATFORM-001, INFRA-008, SHARED-005
+- **Spec References:** `phase-1/technical-design/data-model-erd.md`, `phase-1/technical-design/kafka-events.md`, `phase-1/technical-design/backend-module-architecture.md`
 
 **Implementation Notes**
 
@@ -123,11 +120,10 @@ CREATE TABLE platform.fx_rate (
 
 ## PLATFORM-003 — Kafka Consumer Base Class (Idempotency + DLQ)
 
-| Field | Value |
-|-------|-------|
-| **US Ref** | FR-P-12 |
-| **Estimate** | L (2d) |
-| **Dependencies** | PLATFORM-001, INFRA-008 |
+- **US Ref:** FR-P-12
+- **Estimate:** L (2d)
+- **Dependencies:** PLATFORM-001, INFRA-008
+- **Spec References:** `phase-1/technical-design/kafka-events.md`, `phase-1/technical-design/data-model-erd.md`, `phase-1/technical-design/backend-module-architecture.md`
 
 **Implementation Notes**
 
@@ -182,11 +178,10 @@ CREATE TABLE platform.fx_rate (
 
 ## PLATFORM-004 — Audit Log Writer (MongoDB)
 
-| Field | Value |
-|-------|-------|
-| **US Ref** | US-P-09, US-P-10 |
-| **Estimate** | M (1d) |
-| **Dependencies** | INFRA-005, INFRA-001 |
+- **US Ref:** US-P-09, US-P-10
+- **Estimate:** M (1d)
+- **Dependencies:** INFRA-005, INFRA-001
+- **Spec References:** `phase-1/technical-design/data-model-mongodb.md`, `phase-1/technical-design/backend-module-architecture.md`
 
 **Implementation Notes**
 
@@ -222,11 +217,10 @@ CREATE TABLE platform.fx_rate (
 
 ## PLATFORM-005 — FX Rate Service + Scheduler
 
-| Field | Value |
-|-------|-------|
-| **US Ref** | US-P-17 |
-| **Estimate** | M (1d) |
-| **Dependencies** | PLATFORM-001 |
+- **US Ref:** US-P-17
+- **Estimate:** M (1d)
+- **Dependencies:** PLATFORM-001
+- **Spec References:** `phase-1/technical-design/data-model-erd.md`, `phase-1/technical-design/kafka-events.md`, `phase-1/technical-design/backend-module-architecture.md`
 
 **Implementation Notes**
 
@@ -253,11 +247,10 @@ CREATE TABLE platform.fx_rate (
 
 ## PLATFORM-006 — Kafka Topic Provisioning (Workers Startup)
 
-| Field | Value |
-|-------|-------|
-| **US Ref** | — |
-| **Estimate** | M (1d) |
-| **Dependencies** | INFRA-008, PLATFORM-003 |
+- **US Ref:** —
+- **Estimate:** M (1d)
+- **Dependencies:** INFRA-008, PLATFORM-003
+- **Spec References:** `phase-1/technical-design/kafka-events.md`, `phase-1/technical-design/docker-compose-topology.md`
 
 **Implementation Notes**
 
@@ -298,11 +291,10 @@ CREATE TABLE platform.fx_rate (
 
 ## PLATFORM-007 — Global Exception Filter + Request Logger
 
-| Field | Value |
-|-------|-------|
-| **US Ref** | — |
-| **Estimate** | S (½d) |
-| **Dependencies** | SHARED-004, INFRA-001 |
+- **US Ref:** —
+- **Estimate:** S (½d)
+- **Dependencies:** SHARED-004, INFRA-001
+- **Spec References:** `phase-1/technical-design/backend-module-architecture.md`
 
 **Implementation Notes**
 
@@ -327,11 +319,10 @@ CREATE TABLE platform.fx_rate (
 
 ## PLATFORM-008 — Schema Registry Avro Schema Registration
 
-| Field | Value |
-|-------|-------|
-| **US Ref** | FR-P-09 |
-| **Estimate** | M (1d) |
-| **Dependencies** | INFRA-008, PLATFORM-002 |
+- **US Ref:** FR-P-09
+- **Estimate:** M (1d)
+- **Dependencies:** INFRA-008, PLATFORM-002
+- **Spec References:** `phase-1/technical-design/kafka-events.md`, `phase-1/technical-design/backend-module-architecture.md`
 
 **Implementation Notes**
 

@@ -2,7 +2,6 @@
 
 **Epic ID:** FE-BUYER  
 **Sprint(s):** 17  
-**Status:** Later  
 **Total Tasks:** 13  
 
 ## Epic Goal
@@ -15,9 +14,10 @@ Full buyer-facing storefront: home page, search + filters, product detail page (
 
 ### FE-BUYER-001 — Home page
 
-**Estimate:** M (4h)  
-**User Story:** US-B-01  
-**Dependencies:** FE-SHARED-001, FE-SHARED-002  
+- **US Ref:** US-B-01
+- **Estimate:** M
+- **Dependencies:** FE-SHARED-001, FE-SHARED-002
+- **Spec References:** `phase-1/technical-design/api-design/catalog.md`, `phase-1/technical-design/api-design/search.md`
 
 **Implementation Notes:**
 - Route: `/` (buyer-app root)
@@ -38,9 +38,10 @@ Full buyer-facing storefront: home page, search + filters, product detail page (
 
 ### FE-BUYER-002 — Search results page
 
-**Estimate:** L (8h)  
-**User Story:** US-B-03  
-**Dependencies:** FE-BUYER-001  
+- **US Ref:** US-B-03
+- **Estimate:** L
+- **Dependencies:** FE-BUYER-001
+- **Spec References:** `phase-1/technical-design/api-design/search.md`
 
 **Implementation Notes:**
 - Route: `/search?q=&category=&brand=&minPrice=&maxPrice=&inStockOnly=&sortBy=&cursor=`
@@ -62,9 +63,10 @@ Full buyer-facing storefront: home page, search + filters, product detail page (
 
 ### FE-BUYER-003 — Filter sidebar
 
-**Estimate:** M (4h)  
-**User Story:** US-B-03  
-**Dependencies:** FE-BUYER-002  
+- **US Ref:** US-B-03
+- **Estimate:** M
+- **Dependencies:** FE-BUYER-002
+- **Spec References:** `phase-1/technical-design/api-design/search.md`, `phase-1/technical-design/api-design/catalog.md`
 
 **Implementation Notes:**
 - Collapsible left sidebar on search results page (hidden on mobile → drawer/sheet)
@@ -86,9 +88,10 @@ Full buyer-facing storefront: home page, search + filters, product detail page (
 
 ### FE-BUYER-004 — Product detail page (PDP)
 
-**Estimate:** L (8h)  
-**User Story:** US-B-04  
-**Dependencies:** FE-BUYER-001  
+- **US Ref:** US-B-04
+- **Estimate:** L
+- **Dependencies:** FE-BUYER-001
+- **Spec References:** `phase-1/technical-design/api-design/catalog.md`, `phase-1/technical-design/api-design/cart.md`
 
 **Implementation Notes:**
 - Route: `/products/:offerId`
@@ -110,9 +113,10 @@ Full buyer-facing storefront: home page, search + filters, product detail page (
 
 ### FE-BUYER-005 — Other sellers section (PDP)
 
-**Estimate:** M (4h)  
-**User Story:** US-B-05  
-**Dependencies:** FE-BUYER-004  
+- **US Ref:** US-B-05
+- **Estimate:** M
+- **Dependencies:** FE-BUYER-004
+- **Spec References:** `phase-1/technical-design/api-design/catalog.md`
 
 **Implementation Notes:**
 - Section below main PDP content: "Other offers for this product"
@@ -132,9 +136,10 @@ Full buyer-facing storefront: home page, search + filters, product detail page (
 
 ### FE-BUYER-006 — Cart page
 
-**Estimate:** L (8h)  
-**User Story:** US-B-06  
-**Dependencies:** FE-BUYER-004  
+- **US Ref:** US-B-06
+- **Estimate:** L
+- **Dependencies:** FE-BUYER-004
+- **Spec References:** `phase-1/technical-design/api-design/cart.md`
 
 **Implementation Notes:**
 - Route: `/cart` (requires `authGuard`)
@@ -156,9 +161,10 @@ Full buyer-facing storefront: home page, search + filters, product detail page (
 
 ### FE-BUYER-007 — Checkout page
 
-**Estimate:** XL (12h)  
-**User Story:** US-B-07  
-**Dependencies:** FE-BUYER-006, FE-AUTH-001  
+- **US Ref:** US-B-07
+- **Estimate:** XL
+- **Dependencies:** FE-BUYER-006, FE-AUTH-001
+- **Spec References:** `phase-1/technical-design/api-design/orders.md`, `phase-1/technical-design/api-design/cart.md`
 
 **Implementation Notes:**
 - Route: `/checkout` (requires `authGuard`)
@@ -183,9 +189,10 @@ Full buyer-facing storefront: home page, search + filters, product detail page (
 
 ### FE-BUYER-008 — Order confirmation page
 
-**Estimate:** M (4h)  
-**User Story:** US-B-08  
-**Dependencies:** FE-BUYER-007  
+- **US Ref:** US-B-08
+- **Estimate:** M
+- **Dependencies:** FE-BUYER-007
+- **Spec References:** `phase-1/technical-design/api-design/orders.md`
 
 **Implementation Notes:**
 - Route: `/orders/:orderId/confirmation`
@@ -204,9 +211,10 @@ Full buyer-facing storefront: home page, search + filters, product detail page (
 
 ### FE-BUYER-009 — Order history page
 
-**Estimate:** M (4h)  
-**User Story:** US-B-09  
-**Dependencies:** FE-AUTH-001  
+- **US Ref:** US-B-09
+- **Estimate:** M
+- **Dependencies:** FE-AUTH-001
+- **Spec References:** `phase-1/technical-design/api-design/orders.md`
 
 **Implementation Notes:**
 - Route: `/orders` (requires `authGuard`)
@@ -226,9 +234,10 @@ Full buyer-facing storefront: home page, search + filters, product detail page (
 
 ### FE-BUYER-010 — Order detail page
 
-**Estimate:** M (4h)  
-**User Story:** US-B-10  
-**Dependencies:** FE-BUYER-009  
+- **US Ref:** US-B-10
+- **Estimate:** M
+- **Dependencies:** FE-BUYER-009
+- **Spec References:** `phase-1/technical-design/api-design/orders.md`
 
 **Implementation Notes:**
 - Route: `/orders/:orderId`
@@ -250,9 +259,10 @@ Full buyer-facing storefront: home page, search + filters, product detail page (
 
 ### FE-BUYER-011 — Profile page
 
-**Estimate:** M (4h)  
-**User Story:** US-B-11  
-**Dependencies:** FE-AUTH-001  
+- **US Ref:** US-B-11
+- **Estimate:** M
+- **Dependencies:** FE-AUTH-001
+- **Spec References:** `phase-1/technical-design/api-design/catalog.md`
 
 **Implementation Notes:**
 - Route: `/account/profile` (requires `authGuard`)
@@ -273,9 +283,10 @@ Full buyer-facing storefront: home page, search + filters, product detail page (
 
 ### FE-BUYER-012 — Address book page
 
-**Estimate:** M (4h)  
-**User Story:** US-B-12  
-**Dependencies:** FE-AUTH-001  
+- **US Ref:** US-B-12
+- **Estimate:** M
+- **Dependencies:** FE-AUTH-001
+- **Spec References:** `phase-1/technical-design/api-design/catalog.md`
 
 **Implementation Notes:**
 - Route: `/account/addresses` (requires `authGuard`)
@@ -296,9 +307,10 @@ Full buyer-facing storefront: home page, search + filters, product detail page (
 
 ### FE-BUYER-013 — Notification bell
 
-**Estimate:** M (4h)  
-**User Story:** US-B-13  
-**Dependencies:** FE-SHARED-010  
+- **US Ref:** US-B-13
+- **Estimate:** M
+- **Dependencies:** FE-SHARED-010
+- **Spec References:** `phase-1/technical-design/api-design/orders.md`
 
 **Implementation Notes:**
 - `<app-notification-badge>` in top nav (auth-required; hidden when logged out)

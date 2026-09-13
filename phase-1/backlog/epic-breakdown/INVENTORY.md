@@ -1,215 +1,260 @@
 # EPIC: INVENTORY — Inventory Module
 
-**Sprint:** 3–4
-**Lib:** `libs/inventory/`
-**Module:** `InventoryModule`
-**Controllers:** `InventoryController` (via Seller module)
-**Kafka producers:** `inventory.changed`, `inventory.low_stock`, `inventory.reservation_expired`
-**Kafka consumers:** `fulfillment.placed` (group: `inventory.fulfillment-placed`), `fulfillment.cancelled` (group: `inventory.fulfillment-cancelled`)
+**Sprint:** 3  
+**Lib:** `libs/inventory/`  
+**Module:** `InventoryModule`  
+**Controllers:** `InventoryController`  
+**Kafka producers:** `inventory.changed`, `inventory.low_stock`, `inventory.reservation_expired`  
+**Kafka consumers:** `fulfillment.placed`, `fulfillment.cancelled`  
 
-Overview: Manages per-offer stock levels, checkout reservations, and the reservation lifecycle. Critical path for checkout correctness. Optimistic locking (version column) prevents overselling. The zero-stock deactivation rule integrates with the search module via events.
+Overview: Manages per-offer stock levels, reservations during checkout, and low-stock edge-trigger alerts. Reservations are soft-held during the 15-min checkout window; confirmed on fulfillment.placed or released on timeout/cancellation.
 
 ---
 
 ### INVENTORY-001 — inventory Schema Migrations
-**US Ref:** —
-**Estimate:** M
-**Dependencies:** PLATFORM-001
+
+- **US Ref:** —
+- **Estimate:** M
+- **Dependencies:** PLATFORM-001
+- **Spec References:** `phase-1/technical-design/data-model-erd.md`, `phase-1/technical-design/api-design/catalog.md`, `phase-1/technical-design/kafka-events.md`
+
 **Implementation Notes:**
 - File: `libs/inventory/src/infrastructure/migrations/0001_inventory_schema.sql`
-- Tables: `inventory.stock`, `inventory.stock_reservation`
-- `inventory.stock` PK is `offer_id` (FK → catalog.offer(id)) — one row per offer; created when offer is created
-- `inventory.stock.version BIGINT DEFAULT 0` — optimistic lock; incremented on every update
-- `inventory.stock_reservation.status` uses `reservation_status` enum (from PLATFORM-001)
-- FK: `stock.offer_id → catalog.offer(id)`, `reservation.offer_id → inventory.stock(offer_id)`, `reservation.order_id → orders.order(id)` (cross-schema; applied after orders schema)
-- Index: `stock_reservation(offer_id, status)`, `stock_reservation(order_id)`, `stock_reservation(expires_at)` where status='ACTIVE'
+- Tables:
+  - `inventory.stock`: id, offer_id FK (unique — one stock row per offer), available_qty INT (≥0 check constraint), reserved_qty INT DEFAULT 0, reorder_threshold INT nullable, updated_at
+  - `inventory.stock_reservation`: id (UUIDv7 PK), offer_id FK, order_id nullable (set after checkout confirms), reserved_qty INT, status (`PENDING`|`CONFIRMED`|`RELEASED`|`EXPIRED`), expires_at TIMESTAMPTZ, created_at, released_at nullable
+- Unique: `stock(offer_id)` (one stock row per offer)
+- Check: `stock.available_qty >= 0` (prevent oversell at DB level)
+- Index: `stock(offer_id)`, `stock_reservation(offer_id, status)`, `stock_reservation(expires_at) WHERE status = 'PENDING'`
 
 **Done Criteria:**
-- Tables created; `SELECT on_hand_qty, reserved_qty, (on_hand_qty - reserved_qty) AS available FROM inventory.stock` works
+- `INSERT INTO inventory.stock (available_qty = -1)` → fails check constraint
+- Tables created; reservation FK to offer
 
 ---
 
-### INVENTORY-002 — Stock Entity + Repository Interface
-**US Ref:** US-S-08
-**Estimate:** M
-**Dependencies:** INVENTORY-001
+### INVENTORY-002 — Stock Entity + InventoryService (read)
+
+- **US Ref:** US-S-06
+- **Estimate:** M
+- **Dependencies:** INVENTORY-001
+- **Spec References:** `phase-1/technical-design/data-model-erd.md`, `phase-1/technical-design/api-design/catalog.md`
+
 **Implementation Notes:**
 - TypeORM entity for `inventory.stock`
-- `StockRepository` interface: `findByOffer(offerId)`, `findByOfferForUpdate(offerId)` (SELECT FOR UPDATE), `save(stock)`, `incrementVersion(offerId, expectedVersion)`
-- `Stock.availableQty(): number` — `on_hand_qty - reserved_qty`; always ≥ 0
-- Optimistic lock: `incrementVersion` does `UPDATE SET version = version+1 WHERE offer_id = ? AND version = ?`; returns 0 rows updated on version mismatch → throw `OptimisticLockException`
-- `StockService.adjustOnHand(offerId, qty, reason)`: update `on_hand_qty`; check low-stock threshold; publish `inventory.changed` + conditionally `inventory.low_stock` events
+- `InventoryService.getAvailableQty(offerId): Promise<number>`:
+  - Returns `available_qty - reserved_qty` (effective available)
+  - Used by CartService (CART-004, CART-005) for availability checks
+- `StockRepository`: `findByOfferId(offerId)`, `lockForUpdate(offerId, em)` (SELECT FOR UPDATE via TypeORM query runner)
+- `InventoryController` (`/seller/inventory`): `@JwtAuthGuard` + `@Roles('SELLER')` + `SellerKycGuard`
 
 **Done Criteria:**
-- Optimistic lock test: concurrent updates with same version → one succeeds, one throws
+- `getAvailableQty(offerId)` returns correct value (available - reserved)
+- Returns 0 if no stock row exists
 
 ---
 
-### INVENTORY-003 — StockReservation Entity + Repository Interface
-**US Ref:** US-B-09
-**Estimate:** M
-**Dependencies:** INVENTORY-001
+### INVENTORY-003 — StockReservation Entity + ReservationService
+
+- **US Ref:** FR-P-07
+- **Estimate:** L
+- **Dependencies:** INVENTORY-001, SHARED-002
+- **Spec References:** `phase-1/technical-design/data-model-erd.md`, `phase-1/technical-design/kafka-events.md`
+
 **Implementation Notes:**
 - TypeORM entity for `inventory.stock_reservation`
-- `StockReservationRepository`: `findActiveByOffer(offerId)`, `findByOrder(orderId)`, `save(reservation)`, `updateStatus(id, status)`
-- Reservation TTL: `expires_at = now() + RESERVATION_TTL_MINUTES` (default 15 min from env)
-- `reservation_status` enum: `ACTIVE`, `CONSUMED`, `RELEASED`, `EXPIRED`
+- `ReservationService.createReservation(offerId, qty, expiresIn: 900s): Promise<StockReservation>`:
+  - Within a transaction (SELECT FOR UPDATE on `inventory.stock`):
+    1. Check `available_qty - reserved_qty >= qty`; throw `InsufficientStockException` if not
+    2. Increment `stock.reserved_qty += qty`
+    3. Insert `stock_reservation` row (status=`PENDING`, expires_at=`now() + expiresIn`)
+  - Called by CheckoutService (ORDERS-004) — passes the outer transaction's EntityManager
+- `ReservationService.confirmReservation(reservationId, orderId, em)` — set status=`CONFIRMED`, link `order_id`; decrement `available_qty`
+- `ReservationService.releaseReservation(reservationId, em)` — set status=`RELEASED`; decrement `reserved_qty` back
 
 **Done Criteria:**
-- Can create reservation; `findActiveByOffer` excludes CONSUMED/RELEASED/EXPIRED rows
+- Reserve 5 items when only 3 available → throws InsufficientStockException
+- Confirm reservation: `available_qty` decremented, `reserved_qty` decremented
+- Release reservation: `reserved_qty` decremented only (available unchanged)
+- Concurrent reservations for same offer: SELECT FOR UPDATE prevents race (test with 2 simultaneous requests)
 
 ---
 
-### INVENTORY-004 — InventoryController (Seller)
-**US Ref:** US-S-08
-**Estimate:** M
-**Dependencies:** INVENTORY-002, SELLER-008
+### INVENTORY-004 — InventoryController (seller endpoints)
+
+- **US Ref:** US-S-06
+- **Estimate:** M
+- **Dependencies:** INVENTORY-002
+- **Spec References:** `phase-1/technical-design/api-design/catalog.md`, `phase-1/technical-design/data-model-erd.md`
+
 **Implementation Notes:**
-- `GET /seller/inventory` — returns table: `[{ offerId, productTitle, sku, onHandQty, reservedQty, availableQty, lowStockThreshold }]`; paginated
-- `PUT /seller/inventory/:offerId` — update `on_hand_qty` (manual adjust); DTO: `UpdateStockDto { onHandQty: number (≥0), adjustmentReason: string }`; reason logged to audit; fires `inventory.changed` event
-- `PUT /seller/inventory/:offerId/threshold` — update `low_stock_threshold`; DTO: `UpdateThresholdDto { threshold: number (≥1) }`
-- Ownership: seller can only view/update offers they own; 404 on not-owned
+- All endpoints: `@JwtAuthGuard` + `@Roles('SELLER')` + `SellerKycGuard`; offer ownership check
+- `GET /seller/inventory` — paginated list of `stock` rows for seller's offers (join with `catalog.offer`)
+- `GET /seller/inventory/:offerId` — single offer stock
+- `PUT /seller/inventory/:offerId { availableQty, reorderThreshold? }`:
+  - Set `available_qty = max(0, input)` (cannot set negative)
+  - Upsert stock row if not exists (first time seller sets stock)
+  - Publish `inventory.changed` outbox event after update
+- Response includes: `offerId`, `availableQty`, `reservedQty`, `effectiveAvailable`, `reorderThreshold`
 
 **Done Criteria:**
-- Seller can update on_hand_qty with reason; `inventory.changed` event appears in outbox
-- Non-owned offer → 404
+- PUT with qty=0 → available_qty=0, effective_available=0
+- After PUT → `inventory.changed` event in outbox
+- Access another seller's inventory → 404
 
 ---
 
 ### INVENTORY-005 — Low-Stock Edge-Trigger Detection
-**US Ref:** US-S-08
-**Estimate:** M
-**Dependencies:** INVENTORY-002
+
+- **US Ref:** US-S-07
+- **Estimate:** M
+- **Dependencies:** INVENTORY-003
+- **Spec References:** `phase-1/technical-design/data-model-erd.md`, `phase-1/technical-design/kafka-events.md`
+
 **Implementation Notes:**
-- Low-stock alert is edge-triggered: fires only when `available_qty` crosses from `≥ threshold` to `< threshold`
-- Implementation in `StockService.adjustOnHand()` and `StockService.consumeReservation()`:
-  1. Compute `old_available = old_on_hand - old_reserved`
-  2. Compute `new_available = new_on_hand - new_reserved`
-  3. If `old_available >= threshold AND new_available < threshold` → publish `inventory.low_stock` outbox event
-  4. If `new_available >= threshold` → low_stock re-armed (no event on re-arm; just reset state)
-- State tracking: implicit from DB values (no separate `alert_armed` flag needed)
-- `inventory.low_stock` payload: `{ offer_id, seller_id, product_title, available_qty, threshold, as_of }`
+- Low-stock trigger fires when: `available_qty - reserved_qty` transitions from `> reorder_threshold` to `<= reorder_threshold`
+- **Edge trigger**: fires only on the transition, not on every update when already below threshold
+- Detection in `InventoryEventService.detectAndPublishLowStock(offerId, prevAvailable, newAvailable)`:
+  - Load `reorder_threshold` (default 10 if null)
+  - If `prevAvailable > threshold && newAvailable <= threshold`: publish `inventory.low_stock` outbox event
+- Called after: reservation confirmed, seller reduces stock, admin adjusts
+- `inventory.low_stock` payload: `{ offer_id, current_available, threshold, seller_id, product_id }`
+- Notifications module consumer sends low-stock email to seller (NOTIFICATIONS-006)
 
 **Done Criteria:**
-- Decrement stock from 6→4 with threshold=5: `inventory.low_stock` event fires
-- Decrement from 4→3 (already below threshold): no second event fires
-- Increment from 4→6 then decrement to 4: event fires again (re-armed)
+- Stock drops from 11 to 9 (threshold=10): `inventory.low_stock` event published once
+- Stock drops from 9 to 8 (already below threshold): NO second event
+- Stock replenished to 15, then drops to 9: event fires again (second transition)
 
 ---
 
-### INVENTORY-006 — CSV Bulk Import
-**US Ref:** US-S-09
-**Estimate:** L
-**Dependencies:** INVENTORY-002
+### INVENTORY-006 — CSV Bulk Import (seller)
+
+- **US Ref:** US-S-08
+- **Estimate:** L
+- **Dependencies:** INVENTORY-004
+- **Spec References:** `phase-1/technical-design/api-design/catalog.md`, `phase-1/technical-design/data-model-erd.md`
+
 **Implementation Notes:**
-- `POST /seller/inventory/bulk-import/preview` — multipart CSV upload; parse, validate, compute diff; return `{ rows: [{ sku, offerId, currentQty, newQty, threshold, status: 'ok'|'error'|'warning', message }] }`
-- `POST /seller/inventory/bulk-import/confirm` — apply changes from a previously submitted preview session (session stored in Redis with TTL 10 min)
-- CSV format: `sku,on_hand,low_stock_threshold` (threshold optional)
-- Validation: CSV ≤5MB, ≤10,000 rows; malformed CSV → 400 with downloadable error report
-- Row validation:
-  - SKU not owned by seller → error "SKU not found or not yours"
-  - Deleted/inactive variant → warning (excluded)
-  - `new_on_hand - reserved_qty < 0` → warning (requires explicit confirmation)
-- Apply: wrap all updates in one transaction; fire `inventory.changed` per offer updated
+- `POST /seller/inventory/bulk-import` — multipart CSV upload
+- CSV format: `offer_id,available_qty,reorder_threshold`; header row required
+- Validation: max 500 rows per import; CSV max 1MB
+- Row-level validation: `offer_id` must exist and belong to seller; `available_qty` must be integer ≥ 0
+- Processing: for each valid row, upsert `inventory.stock`; publish `inventory.changed` per row
+- Response: `{ processed: N, failed: N, errors: [{ row, offerId, reason }] }` — partial success allowed
+- Async not needed for 500 rows (process synchronously with 5s timeout)
 
 **Done Criteria:**
-- CSV with invalid SKU shows error row; can still confirm remaining valid rows
-- Preview returns diff: before → after quantities
-- Confirmation applies all valid rows atomically
+- Valid CSV 100 rows → 100 stock rows updated
+- Row with invalid offer_id → included in errors, rest processed
+- CSV > 1MB → 400 before processing
 
 ---
 
-### INVENTORY-007 — Reservation Creation + Release Service
-**US Ref:** US-B-09
-**Estimate:** M
-**Dependencies:** INVENTORY-003
-**Implementation Notes:**
-- `ReservationService.reserve(offerId, orderId, qty, entityManager)`: atomic operation:
-  1. `SELECT ... FROM inventory.stock WHERE offer_id = ? FOR UPDATE` (pessimistic lock for checkout)
-  2. Check `available_qty >= qty`; if not throw `InsufficientStockException`
-  3. `UPDATE inventory.stock SET reserved_qty = reserved_qty + qty, version = version + 1`
-  4. `INSERT INTO inventory.stock_reservation(offer_id, order_id, qty, status='ACTIVE', expires_at)`
-  5. Publish `inventory.changed` outbox event (in same transaction)
-- `ReservationService.release(reservationId, reason: 'EXPIRED'|'REFUNDED'|'CANCELLED')`:
-  1. `UPDATE reservation SET status = RELEASED/EXPIRED`
-  2. `UPDATE stock SET reserved_qty = reserved_qty - qty`
-  3. Publish `inventory.changed` outbox event
-- Both operations require `EntityManager` passed from calling service (participate in caller's transaction)
+### INVENTORY-007 — Reservation Expiry Scheduler
 
-**Done Criteria:**
-- Concurrent reserve of last unit: one succeeds, one gets InsufficientStockException
-- Release restores reserved_qty correctly
+- **US Ref:** FR-P-07
+- **Estimate:** M
+- **Dependencies:** INVENTORY-003
+- **Spec References:** `phase-1/technical-design/data-model-erd.md`, `phase-1/technical-design/kafka-events.md`
 
----
-
-### INVENTORY-008 — Reservation Expiry Scheduler
-**US Ref:** US-P-17
-**Estimate:** M
-**Dependencies:** INVENTORY-007
 **Implementation Notes:**
 - File: `apps/workers/src/schedulers/reservation-expiry.scheduler.ts`
-- `@Interval(RESERVATION_EXPIRY_INTERVAL_MS)` (default 60s; configurable)
-- Query: `SELECT * FROM inventory.stock_reservation WHERE status = 'ACTIVE' AND expires_at < now() FOR UPDATE SKIP LOCKED`
-- For each expired reservation: call `ReservationService.release(id, 'EXPIRED')` in a transaction
-- Idempotent: re-running against already-RELEASED/EXPIRED reservations is a no-op
-- Publish `inventory.reservation_expired` outbox event per released reservation
-- Concurrency safety: `FOR UPDATE SKIP LOCKED` prevents double-release races
+- Cron: every 60s
+- Query: `SELECT * FROM inventory.stock_reservation WHERE status = 'PENDING' AND expires_at < now() LIMIT 100 FOR UPDATE SKIP LOCKED`
+- For each expired: call `ReservationService.releaseReservation(id)`; publish `inventory.reservation_expired` outbox event
+- `inventory.reservation_expired` payload: `{ offer_id, reservation_id, qty, expired_at }`
+- ORDERS module consumer (ORDERS-012) handles order cancellation on reservation expiry
 
 **Done Criteria:**
-- Expired ACTIVE reservation transitions to EXPIRED; `reserved_qty` on stock decremented
-- `inventory.reservation_expired` event in outbox
-- Re-running against already-EXPIRED reservation: no error, no duplicate event
+- PENDING reservation past `expires_at`: released within 60s of expiry
+- `inventory.reservation_expired` event in Kafka after scheduler runs
+- `FOR UPDATE SKIP LOCKED` prevents double-processing by concurrent scheduler instances
 
 ---
 
-### INVENTORY-009 — Zero-Stock Deactivation
-**US Ref:** US-S-03
-**Estimate:** M
-**Dependencies:** INVENTORY-002, CATALOG-012
+### INVENTORY-008 — Zero-Stock Offer Deactivation
+
+- **US Ref:** US-S-06
+- **Estimate:** S
+- **Dependencies:** INVENTORY-003, CATALOG-011
+- **Spec References:** `phase-1/technical-design/data-model-erd.md`, `phase-1/technical-design/kafka-events.md`
+
 **Implementation Notes:**
-- When `available_qty` transitions to 0: publish `inventory.changed` event with `is_available: false`
-- When `available_qty` rises above 0: publish `inventory.changed` event with `is_available: true`
-- The `inventory.changed` event is consumed by Search module (SEARCH-007) which updates the `is_available` field on the ES product document
-- No offer status change needed — visibility is purely based on ES index; the offer remains ACTIVE in the DB
-- Zero-stock rule applies: listing is "hidden" from search results but still accessible via direct URL (GET /products/:id still returns the product with OOS badge)
+- After any operation that decrements `available_qty` (confirm reservation, bulk import sets 0):
+  - If resulting `available_qty = 0`: set `catalog.offer.status = INACTIVE` (reason=`SELLER_DEACTIVATED`) via CatalogService
+  - Publish `offer.changed` event (via CATALOG-012 outbox writer)
+- After seller restores stock (`PUT /seller/inventory/:offerId` sets qty > 0):
+  - If offer was INACTIVE with reason `SELLER_DEACTIVATED`: auto-reactivate to `ACTIVE`
+  - Publish `offer.changed` event
+- Do not auto-reactivate if `SUSPENSION` or `ADMIN_REMOVAL` was the deactivation reason
 
 **Done Criteria:**
-- When all variants of a product reach zero available stock, `is_available: false` in `inventory.changed` event
-- Search results exclude the product when `is_available = false` (tested via Search integration)
+- Reserve last unit and confirm: offer status → INACTIVE
+- Seller restores stock: offer status → ACTIVE
+- SUSPENSION-deactivated offer: restoring stock does NOT reactivate
 
 ---
 
-### INVENTORY-010 — Outbox Events: inventory.*
-**US Ref:** US-P-10
-**Estimate:** M
-**Dependencies:** PLATFORM-004
+### INVENTORY-009 — Outbox Events: inventory.changed, inventory.low_stock, inventory.reservation_expired
+
+- **US Ref:** FR-P-09
+- **Estimate:** S
+- **Dependencies:** SHARED-005, INVENTORY-004
+- **Spec References:** `phase-1/technical-design/kafka-events.md`, `phase-1/technical-design/data-model-erd.md`
+
 **Implementation Notes:**
-- Register Avro schemas:
-  - `inventory.changed` (v1): `{ offer_id, seller_id, on_hand_qty, reserved_qty, available_qty, is_available, changed_at }`
-  - `inventory.low_stock` (v1): `{ offer_id, seller_id, product_title, available_qty, threshold, as_of }`
-  - `inventory.reservation_expired` (v1): `{ reservation_id, offer_id, order_id, released_qty, released_at }`
-- All events published inside domain transactions (same PG TX as inventory update)
-- Partition key for all: `offer_id` (ensures per-offer ordering)
+- Register Avro schemas for all 3 events:
+  - `inventory.changed` payload: `{ offer_id, seller_id, available_qty, reserved_qty, effective_available, changed_at }`
+  - `inventory.low_stock` payload: `{ offer_id, seller_id, product_id, current_available, threshold, triggered_at }`
+  - `inventory.reservation_expired` payload: `{ offer_id, reservation_id, qty, expired_at }`
+- All written via `OutboxEventWriter.write()` in same transaction as stock mutation
 
 **Done Criteria:**
-- All 3 schemas registered in Schema Registry
-- Events published transactionally (roll back TX → no event in outbox)
+- Schema Registry shows 3 new subjects
+- Each event type appears in Kafka UI after corresponding action
 
 ---
 
-### INVENTORY-011 — Kafka Consumers: fulfillment.placed + fulfillment.cancelled
-**US Ref:** US-B-09
-**Estimate:** M
-**Dependencies:** PLATFORM-007, INVENTORY-007
-**Implementation Notes:**
+### INVENTORY-010 — Kafka Consumer: fulfillment.placed
+
+- **US Ref:** FR-P-09
+- **Estimate:** M
+- **Dependencies:** PLATFORM-003, INVENTORY-003
+- **Spec References:** `phase-1/technical-design/kafka-events.md`, `phase-1/technical-design/data-model-erd.md`
+
+**Implementation Notes**
+
 - Consumer group: `inventory.fulfillment-placed`
-- Payload: `{ order_id, fulfillment_id, seller_id, items: [{ offer_id, quantity }] }`
-- Side effect: for each item, call `StockService.consumeReservation(orderId, offerId)` — transitions reservation from ACTIVE→CONSUMED, decrements `on_hand_qty` by quantity (goods officially committed to order)
-- Idempotent: `@IdempotentConsumer('inventory.fulfillment-placed')`
-- Note: the reservation was created during checkout (ORDERS-009); this consumer finalizes it
-- Consumer group `inventory.fulfillment-cancelled`: on `fulfillment.cancelled` — release reservation (restore stock)
+- Topic: `fulfillment.placed`
+- `handle(event)`:
+  - For each item in `event.payload.items`: call `ReservationService.confirmReservation(item.reservationId, event.payload.orderId, em)` (decrements available_qty)
+  - If reservation not found or already confirmed: log warning + skip (idempotent)
+- Extends `BaseKafkaConsumer` (PLATFORM-003) for idempotency + DLQ
 
 **Done Criteria:**
-- `fulfillment.placed` event → reservation ACTIVE→CONSUMED; `on_hand_qty` decremented
-- `fulfillment.cancelled` event → stock restored (reservation ACTIVE→RELEASED)
-- Replaying same event: idempotent; no double-decrement
+- `fulfillment.placed` event consumed: `available_qty` decremented, reservation status = `CONFIRMED`
+- Duplicate event: no double-decrement (idempotent via processed_event table)
+
+---
+
+### INVENTORY-011 — Kafka Consumer: fulfillment.cancelled
+
+- **US Ref:** FR-P-09
+- **Estimate:** M
+- **Dependencies:** PLATFORM-003, INVENTORY-003
+- **Spec References:** `phase-1/technical-design/kafka-events.md`, `phase-1/technical-design/data-model-erd.md`
+
+**Implementation Notes**
+
+- Consumer group: `inventory.fulfillment-cancelled`
+- Topic: `fulfillment.cancelled`
+- `handle(event)`:
+  - Load `stock_reservation` by `event.payload.reservationId`
+  - If status = `CONFIRMED`: call `releaseReservation()` (add back to available_qty); check and reactivate offer if needed
+  - If status = `RELEASED`|`EXPIRED`: skip (already released)
+- Also trigger zero-stock reactivation check if qty restored (INVENTORY-008)
+
+**Done Criteria:**
+- `fulfillment.cancelled` consumed: `available_qty` incremented; offer reactivated if previously zero-stock
+- Duplicate event: no double-increment (idempotent)

@@ -2,7 +2,6 @@
 
 **Epic ID:** INFRA  
 **Sprint(s):** 1  
-**Status:** Now  
 **Total Tasks:** 12  
 
 ## Epic Goal
@@ -15,9 +14,10 @@ Stand up the complete local development environment. All 16 Docker services runn
 
 ### INFRA-001 — Bootstrap Nx backend monorepo
 
-**Estimate:** M (4h)  
-**User Story:** —  
-**Dependencies:** —  
+- **US Ref:** —
+- **Estimate:** M (4h)
+- **Dependencies:** —
+- **Spec References:** `phase-1/technical-design/backend-module-architecture.md`, `phase-1/technical-design/docker-compose-topology.md`
 
 **Implementation Notes:**
 - `npx create-nx-workspace@latest aliceut-backend --preset=ts`
@@ -37,9 +37,10 @@ Stand up the complete local development environment. All 16 Docker services runn
 
 ### INFRA-002 — Bootstrap Nx frontend monorepo
 
-**Estimate:** M (4h)  
-**User Story:** —  
-**Dependencies:** —  
+- **US Ref:** —
+- **Estimate:** M (4h)
+- **Dependencies:** —
+- **Spec References:** `phase-1/technical-design/backend-module-architecture.md`, `phase-1/technical-design/docker-compose-topology.md`
 
 **Implementation Notes:**
 - `npx create-nx-workspace@latest aliceut-frontend --preset=angular`
@@ -59,9 +60,10 @@ Stand up the complete local development environment. All 16 Docker services runn
 
 ### INFRA-003 — Write docker-compose.yml (all 16 services per topology doc)
 
-**Estimate:** L (8h)  
-**User Story:** —  
-**Dependencies:** INFRA-001  
+- **US Ref:** —
+- **Estimate:** L (8h)
+- **Dependencies:** INFRA-001
+- **Spec References:** `phase-1/technical-design/docker-compose-topology.md`, `phase-1/technical-design/backend-module-architecture.md`
 
 **Implementation Notes:**
 - Services: `nginx-buyer`, `nginx-seller`, `nginx-admin` (3 nginx reverse proxies), `api` (port 3000), `workers` (port 3001), `postgres`, `mongodb`, `elasticsearch`, `kafka`, `schema-registry`, `kafka-ui`, `minio`, `minio-init`, `redis`
@@ -82,9 +84,10 @@ Stand up the complete local development environment. All 16 Docker services runn
 
 ### INFRA-004 — PostgreSQL 16 setup + uuidv7 extension SQL function
 
-**Estimate:** M (4h)  
-**User Story:** —  
-**Dependencies:** INFRA-003  
+- **US Ref:** —
+- **Estimate:** M (4h)
+- **Dependencies:** INFRA-003
+- **Spec References:** `phase-1/technical-design/docker-compose-topology.md`, `phase-1/technical-design/data-model-erd.md`
 
 **Implementation Notes:**
 - PostgreSQL 16 image; create database `aliceut`
@@ -118,9 +121,10 @@ Stand up the complete local development environment. All 16 Docker services runn
 
 ### INFRA-005 — MongoDB 7 setup + connection config (NestJS)
 
-**Estimate:** S (2h)  
-**User Story:** —  
-**Dependencies:** INFRA-003  
+- **US Ref:** —
+- **Estimate:** S (2h)
+- **Dependencies:** INFRA-003
+- **Spec References:** `phase-1/technical-design/docker-compose-topology.md`, `phase-1/technical-design/data-model-mongodb.md`
 
 **Implementation Notes:**
 - MongoDB 7 image; database `aliceut_logs`
@@ -137,9 +141,10 @@ Stand up the complete local development environment. All 16 Docker services runn
 
 ### INFRA-006 — Redis 7 setup + connection config (ioredis)
 
-**Estimate:** S (2h)  
-**User Story:** —  
-**Dependencies:** INFRA-003  
+- **US Ref:** —
+- **Estimate:** S (2h)
+- **Dependencies:** INFRA-003
+- **Spec References:** `phase-1/technical-design/docker-compose-topology.md`, `phase-1/technical-design/backend-module-architecture.md`
 
 **Implementation Notes:**
 - Redis 7 image with `--appendonly yes`
@@ -155,9 +160,10 @@ Stand up the complete local development environment. All 16 Docker services runn
 
 ### INFRA-007 — Elasticsearch 8 setup + index template placeholder
 
-**Estimate:** M (4h)  
-**User Story:** —  
-**Dependencies:** INFRA-003  
+- **US Ref:** —
+- **Estimate:** M (4h)
+- **Dependencies:** INFRA-003
+- **Spec References:** `phase-1/technical-design/docker-compose-topology.md`, `phase-1/technical-design/backend-module-architecture.md`
 
 **Implementation Notes:**
 - Elasticsearch 8 image; `discovery.type=single-node`; `xpack.security.enabled=false` (dev only)
@@ -174,9 +180,10 @@ Stand up the complete local development environment. All 16 Docker services runn
 
 ### INFRA-008 — Kafka (KRaft) + Confluent Schema Registry setup
 
-**Estimate:** L (8h)  
-**User Story:** —  
-**Dependencies:** INFRA-003  
+- **US Ref:** —
+- **Estimate:** L (8h)
+- **Dependencies:** INFRA-003
+- **Spec References:** `phase-1/technical-design/docker-compose-topology.md`, `phase-1/technical-design/kafka-events.md`
 
 **Implementation Notes:**
 - Kafka image: `confluentinc/cp-kafka:7.x` with KRaft (no ZooKeeper)
@@ -195,9 +202,10 @@ Stand up the complete local development environment. All 16 Docker services runn
 
 ### INFRA-009 — Kafka UI (provectus) setup + network config
 
-**Estimate:** S (2h)  
-**User Story:** —  
-**Dependencies:** INFRA-008  
+- **US Ref:** —
+- **Estimate:** S (2h)
+- **Dependencies:** INFRA-008
+- **Spec References:** `phase-1/technical-design/docker-compose-topology.md`, `phase-1/technical-design/kafka-events.md`
 
 **Implementation Notes:**
 - `provectus/kafka-ui` image
@@ -214,9 +222,10 @@ Stand up the complete local development environment. All 16 Docker services runn
 
 ### INFRA-010 — MinIO setup + minio-init container (3 buckets)
 
-**Estimate:** M (4h)  
-**User Story:** —  
-**Dependencies:** INFRA-003  
+- **US Ref:** —
+- **Estimate:** M (4h)
+- **Dependencies:** INFRA-003
+- **Spec References:** `phase-1/technical-design/docker-compose-topology.md`, `phase-1/technical-design/backend-module-architecture.md`
 
 **Implementation Notes:**
 - MinIO latest image; console port 9001, API port 9000
@@ -235,9 +244,10 @@ Stand up the complete local development environment. All 16 Docker services runn
 
 ### INFRA-011 — .env.example + Joi schema validation (fail-fast on missing vars)
 
-**Estimate:** M (4h)  
-**User Story:** US-P-08  
-**Dependencies:** INFRA-001  
+- **US Ref:** US-P-08
+- **Estimate:** M (4h)
+- **Dependencies:** INFRA-001
+- **Spec References:** `phase-1/technical-design/backend-module-architecture.md`, `phase-1/technical-design/docker-compose-topology.md`
 
 **Implementation Notes:**
 - `.env.example` lists every required variable with placeholder values and inline comments
@@ -255,9 +265,10 @@ Stand up the complete local development environment. All 16 Docker services runn
 
 ### INFRA-012 — Health check endpoints
 
-**Estimate:** S (2h)  
-**User Story:** —  
-**Dependencies:** INFRA-001  
+- **US Ref:** —
+- **Estimate:** S (2h)
+- **Dependencies:** INFRA-001
+- **Spec References:** `phase-1/technical-design/backend-module-architecture.md`, `phase-1/technical-design/docker-compose-topology.md`
 
 **Implementation Notes:**
 - `GET /health` on api (port 3000): check PostgreSQL, MongoDB, Redis, Elasticsearch, Kafka connectivity

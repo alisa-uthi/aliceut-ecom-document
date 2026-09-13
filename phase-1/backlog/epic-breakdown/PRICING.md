@@ -1,170 +1,236 @@
 # EPIC: PRICING — Pricing Module
 
-**Sprint:** 3
-**Lib:** `libs/pricing/`
-**Module:** `PricingModule`
-**Controllers:** `PricingController` (seller)
-**Kafka producers:** `fx_rate.updated` (via workers scheduler)
+**Sprint:** 3  
+**Lib:** `libs/pricing/`  
+**Module:** `PricingModule`  
+**Controllers:** `PricingController`  
+**Kafka producers:** `fx_rate.updated`  
 
-Overview: Manages multi-currency offer prices (LIST/SALE/B2B_TIER), FX rate cache, and effective price resolution. Price is NEVER stored on Product. The effective price resolution (B2B_TIER → SALE → LIST) is a core service used by the Cart and Checkout modules. All monetary values use NUMERIC(19,4) and decimal.js.
+Overview: Manages multi-currency offer prices, effective price resolution (LIST vs SALE vs B2B_TIER), FX display conversion, and FX rate refresh scheduling. Cart and checkout both call `EffectivePriceService` directly.
 
 ---
 
 ### PRICING-001 — pricing Schema Migrations
-**US Ref:** —
-**Estimate:** M
-**Dependencies:** PLATFORM-001
+
+- **US Ref:** —
+- **Estimate:** S
+- **Dependencies:** PLATFORM-001
+- **Spec References:** `phase-1/technical-design/api-design/pricing.md`, `phase-1/technical-design/data-model-erd.md`
+
 **Implementation Notes:**
 - File: `libs/pricing/src/infrastructure/migrations/0001_pricing_schema.sql`
-- Tables: `pricing.currency`, `pricing.offer_price`, `pricing.fx_rate`
-- All columns/constraints per data-model-erd.md pricing section
-- Unique constraint on `offer_price`: `(offer_id, currency_code, price_type, min_qty)` — prevents duplicate price rows
-- `price_type` uses `price_type` enum (defined in PLATFORM-001)
-- FK: `offer_price.offer_id → catalog.offer(id)` — cross-schema FK; applied after catalog schema exists
-- `fx_rate` PK: `(base_currency_code, quote_currency_code)` — one row per pair; upsert on refresh
+- Tables:
+  - `pricing.offer_price`: id, offer_id FK, currency (CHAR 3), price_type (enum: `LIST`|`SALE`|`B2B_TIER`), amount NUMERIC(19,4), sale_starts_at nullable, sale_ends_at nullable, min_qty INT nullable (B2B only), created_at, updated_at
+  - `pricing.currency`: code CHAR(3) PK, name, minor_unit_scale SMALLINT (USD=2, JPY=0, BHD=3), is_active bool
+- Unique constraint on `offer_price(offer_id, currency, price_type)` for LIST type; for SALE allow multiple (by time range); B2B allow multiple (by min_qty tiers)
+- Index: `offer_price(offer_id)`, `offer_price(offer_id, currency, price_type)`
 
 **Done Criteria:**
-- Pricing tables created; `INSERT INTO pricing.currency VALUES ('USD', 2, true)` succeeds
+- Tables created; unique constraint on `offer_id + currency + LIST` enforced
 
 ---
 
 ### PRICING-002 — Currency Seed
-**US Ref:** US-P-06a
-**Estimate:** S
-**Dependencies:** PRICING-001
+
+- **US Ref:** —
+- **Estimate:** S
+- **Dependencies:** PRICING-001
+- **Spec References:** `phase-1/technical-design/api-design/pricing.md`, `phase-1/technical-design/data-model-erd.md`
+
 **Implementation Notes:**
-- Seeded in `npm run seed` (see SEED-003); content defined here
-- Rows: `(USD, 2, true)`, `(THB, 2, true)`, `(JPY, 0, true)`, `(SGD, 2, true)`
-- Additional display-only currencies: `(EUR, 2, false)`, `(GBP, 2, false)`, `(AUD, 2, false)` — so FX table can store rates for buyer display (V1 restriction: only USD/THB/JPY/SGD for seller pricing; all currencies allowed for display)
-- `is_seller_price_allowed = false` for non-V1 currencies
+- Seed `pricing.currency` with V1 supported currencies:
+  ```sql
+  INSERT INTO pricing.currency (code, name, minor_unit_scale, is_active) VALUES
+    ('USD', 'US Dollar', 2, true),
+    ('THB', 'Thai Baht', 2, true),
+    ('JPY', 'Japanese Yen', 0, true),
+    ('SGD', 'Singapore Dollar', 2, true);
+  ```
+- `is_active = false` currencies are blocked at pricing input validation
 
 **Done Criteria:**
-- `SELECT * FROM pricing.currency` shows USD, THB, JPY, SGD with correct `minor_unit_scale` values
+- `GET /pricing/currencies` returns 4 active currencies
 
 ---
 
-### PRICING-003 — OfferPrice Entity + Repository Interface
-**US Ref:** US-P-01
-**Estimate:** M
-**Dependencies:** PRICING-001
+### PRICING-003 — OfferPrice Entity + PricingController (seller CRUD)
+
+- **US Ref:** US-S-05
+- **Estimate:** L
+- **Dependencies:** PRICING-001, CATALOG-008
+- **Spec References:** `phase-1/technical-design/api-design/pricing.md`, `phase-1/technical-design/data-model-erd.md`
+
 **Implementation Notes:**
 - TypeORM entity for `pricing.offer_price`
-- `amount NUMERIC(19,4)` mapped as `string` by TypeORM (use `transformer` to keep as string; never convert to JS number)
-- `OfferPriceRepository` interface: `findByOffer(offerId)`, `findEffectivePrice(offerId, priceType, currencyCode, qty, now)`, `save(price)`, `delete(id)`
-- Validation on `SALE` price: `starts_at < ends_at` enforced at domain level
-- Validation on `B2B_TIER`: `min_qty >= 2` enforced
-- At most one active `LIST` price per offer per currency (unique constraint in DB handles this; application returns clear 409)
+- `PricingController` (prefix `/seller/offers/:offerId/prices`); all endpoints guarded by `@JwtAuthGuard` + `@Roles('SELLER')` + `SellerKycGuard`; ownership check: offer must belong to authenticated seller
+- `GET /seller/offers/:offerId/prices` — list all prices for offer
+- `POST /seller/offers/:offerId/prices { currency, priceType, amount, saleStartsAt?, saleEndsAt?, minQty? }`:
+  - Validate currency in `pricing.currency WHERE is_active = true`
+  - Validate amount > 0; type is decimal string (e.g. `"29.99"`)
+  - SALE type: require `saleStartsAt < saleEndsAt`; check no overlapping SALE for same currency
+  - B2B_TIER: require `minQty >= 2`
+  - Upsert LIST price (one per currency per offer); insert SALE/B2B_TIER
+- `PUT /seller/offers/:offerId/prices/:priceId` — update single price
+- `DELETE /seller/offers/:offerId/prices/:priceId` — delete SALE/B2B_TIER only (LIST cannot be deleted alone; soft-delete offer instead)
 
 **Done Criteria:**
-- Unit test: creating duplicate LIST price for same offer+currency returns 409
-- `amount` field is always a string, never a JS number, in TypeScript code
+- Create LIST price for offer → price row created
+- Create SALE without dates → 400
+- Overlapping SALE for same currency → 409
+- Access another seller's offer prices → 404
 
 ---
 
-### PRICING-004 — Pricing CRUD Endpoints (Seller)
-**US Ref:** US-S-04b
-**Estimate:** L
-**Dependencies:** PRICING-003, SELLER-008
+### PRICING-004 — EffectivePriceService (price resolution)
+
+- **US Ref:** US-B-05, US-B-06, US-S-05
+- **Estimate:** L
+- **Dependencies:** PRICING-001, SHARED-001
+- **Spec References:** `phase-1/technical-design/api-design/pricing.md`, `phase-1/technical-design/data-model-erd.md`
+
 **Implementation Notes:**
-- Endpoints under `/seller/offers/:offerId/prices`
-- `GET /seller/offers/:offerId/prices` — list all price rows for the offer
-- `POST /seller/offers/:offerId/prices` — create new price row; DTO: `CreatePriceDto { currencyCode, amount (string), priceType, minQty?, startsAt?, endsAt? }`
-- `PUT /seller/offers/:offerId/prices/:priceId` — edit existing price; same validation
-- `DELETE /seller/offers/:offerId/prices/:priceId` — delete; cannot delete last LIST price
-- Ownership check: authenticated seller must own the offer; 404 if not
-- On any price change: publish `offer.changed` event via outbox (price changes affect ES display_prices)
-- Warning to seller: price change does not affect PENDING order snapshots (FR-P-03)
+- File: `libs/pricing/src/application/effective-price.service.ts`
+- `EffectivePriceService.resolve(offerId: string, context: PriceResolutionContext): Promise<MoneyVO>`:
+  - `PriceResolutionContext { accountType: 'BUYER'|'B2B'|'SELLER', qty: number, preferredCurrency: string, now?: Date }`
+  - Resolution order:
+    1. If `accountType = 'B2B'`: find highest `min_qty` B2B_TIER price where `min_qty <= qty` for preferred currency
+    2. If active SALE exists (now between `sale_starts_at` and `sale_ends_at`): use SALE price
+    3. Otherwise: use LIST price
+  - If no price for `preferredCurrency`: fall back to `USD` LIST price
+  - Return `MoneyVO` with amount and currency
+  - All arithmetic via `decimal.js`; no JS `number` operations on money
+- Used by: CartService (GET /cart), CheckoutService (ORDERS-004), ProductsController (CATALOG-007)
 
 **Done Criteria:**
-- Cannot delete last LIST price → 422 "At least one LIST price is required"
-- SALE with `starts_at >= ends_at` → 400
-- `offer.changed` event published after price create/update/delete
+- Active SALE price exists → returns SALE price (not LIST)
+- Expired SALE → returns LIST
+- B2B account with qty=5, tier at min_qty=5 → returns B2B_TIER price
+- No price for currency → falls back to USD LIST
+- Returns MoneyVO (decimal precision test: no floating point)
 
 ---
 
-### PRICING-005 — Effective Price Resolution Service
-**US Ref:** US-P-01, US-B-05
-**Estimate:** L
-**Dependencies:** PRICING-003
+### PRICING-005 — FxRate Entity + FX Display Conversion Helper
+
+- **US Ref:** US-B-05
+- **Estimate:** M
+- **Dependencies:** PLATFORM-005, SHARED-001
+- **Spec References:** `phase-1/technical-design/api-design/pricing.md`, `phase-1/technical-design/data-model-erd.md`
+
 **Implementation Notes:**
-- `EffectivePriceService.resolve(offerId, context: { accountType, qty, now, preferredCurrency }): ResolvedPrice`
-- Priority order:
-  1. `B2B_TIER` — if `accountType = B2B` AND `qty >= price.min_qty` AND currency = preferredCurrency (or any)
-  2. `SALE` — if `now >= starts_at AND now <= ends_at` AND currency match
-  3. `LIST` — always the fallback
-- If no price exists in `preferredCurrency`: apply FX conversion to cheapest available price; return with `isConverted: true, estimatedSymbol: '≈'`
-- Returns `{ amount: string, currencyCode: string, priceType, isConverted, originalAmount?, originalCurrencyCode?, fxRate? }`
-- Used by: PDP (US-B-05), Cart (US-B-06 re-resolve on load), Checkout (US-B-09 revalidation)
+- TypeORM entity for `platform.fx_rate` (already in PLATFORM-001; entity defined here for use in pricing module)
+- `FxDisplayService.convert(amount: MoneyVO, toCurrency: string): Promise<MoneyVO>`:
+  - Reads from `platform.fx_rate`; uses PLATFORM-005 service
+  - Convert via: `amount * rate(base=amount.currency, quote=toCurrency)`
+  - If `toCurrency = amount.currency`: return unchanged
+  - Rounds to `minor_unit_scale` digits for display (e.g. JPY rounds to 0 decimal places)
+  - Used only for *display* — never stored; checkout always uses seller's native price currency
+- `GET /pricing/fx-rates` (public) — returns current rates table; cached 5min in Redis
 
 **Done Criteria:**
-- Unit test: B2B buyer with qty=15 gets B2B_TIER price over active SALE price
-- Unit test: buyer with no price in preferred currency gets converted estimate with `isConverted: true`
+- `convert(new MoneyVO("100", "USD"), "THB")` returns MoneyVO with THB amount matching current rate
+- JPY result rounds to whole number
+- Rates endpoint responds 200 with current rates
 
 ---
 
-### PRICING-006 — FxRate Entity + Repository
-**US Ref:** US-P-02
-**Estimate:** M
-**Dependencies:** PRICING-001
+### PRICING-006 — FX Rate Refresh Scheduler (Workers)
+
+- **US Ref:** US-P-17
+- **Estimate:** M
+- **Dependencies:** PLATFORM-005
+- **Spec References:** `phase-1/technical-design/api-design/pricing.md`, `phase-1/technical-design/data-model-erd.md`
+
 **Implementation Notes:**
-- TypeORM entity for `pricing.fx_rate`; composite PK `(base_currency_code, quote_currency_code)`
-- `rate NUMERIC(19,8)` mapped as string; do NOT use JS float
-- `FxRateRepository`: `upsert(baseCurrency, quoteCurrency, rate, asOf)`, `findRate(base, quote)`, `findAllRates()`, `getLatestAsOf(base, quote)`
-- On upsert: `INSERT ... ON CONFLICT (base, quote) DO UPDATE SET rate = $3, as_of = $4, updated_at = now()`
-- Staleness check: `now() - as_of < STALENESS_THRESHOLD` (configurable; default 4h)
+- Delegates to `FxRateService.refresh()` from PLATFORM-005
+- Worker cron: `0 * * * *` (hourly); first run immediately on startup
+- On refresh: compare new rates to stored rates; if any rate changed by > 0.01%: publish `fx_rate.updated` outbox event
+- `fx_rate.updated` payload: `{ rates: [{ base, quote, rate, fetchedAt }], changedAt }`
+- SEARCH module consumer (SEARCH-007) re-indexes USD prices on this event
 
 **Done Criteria:**
-- Upsert rate: second upsert updates `as_of` and `rate`; only one row per currency pair
-- `rate` is always a string in TypeScript (decimal.js for arithmetic)
+- Hourly job runs; rate table updated
+- Changed rate → `fx_rate.updated` outbox event written
+- Unchanged rates → no outbox event (avoid noise)
 
 ---
 
-### PRICING-007 — FX Display Conversion Helper
-**US Ref:** US-P-02
-**Estimate:** M
-**Dependencies:** PRICING-006
+### PRICING-007 — Outbox Event: fx_rate.updated
+
+- **US Ref:** FR-P-09
+- **Estimate:** S
+- **Dependencies:** SHARED-005, PLATFORM-005
+- **Spec References:** `phase-1/technical-design/kafka-events.md`, `phase-1/technical-design/data-model-erd.md`
+
 **Implementation Notes:**
-- `FxConversionService.convert(amount: string, fromCurrency: string, toCurrency: string): ConversionResult`
-- Returns `{ convertedAmount: string, rate: string, isStale: boolean, isConverted: true }`
-- If `fromCurrency === toCurrency`: return `{ convertedAmount: amount, rate: '1', isConverted: false }`
-- If no rate found or stale: return `{ convertedAmount: null, isConverted: false }` (hide conversion)
-- All arithmetic with `decimal.js`: `new Decimal(amount).mul(new Decimal(rate)).toFixed(targetScale)`
-- `targetScale` = `Currency.minor_unit_scale` for target currency (JPY=0, USD/THB/SGD=2)
+- `fx_rate.updated` Avro schema registered with Schema Registry:
+  ```json
+  {
+    "type": "record",
+    "name": "FxRateUpdated",
+    "namespace": "com.aliceut.events",
+    "fields": [
+      { "name": "event_id", "type": "string" },
+      { "name": "occurred_at", "type": "long", "logicalType": "timestamp-millis" },
+      {
+        "name": "rates",
+        "type": { "type": "array", "items": {
+          "type": "record", "name": "FxRatePair",
+          "fields": [
+            { "name": "base_currency", "type": "string" },
+            { "name": "quote_currency", "type": "string" },
+            { "name": "rate", "type": "string" }
+          ]
+        }}
+      }
+    ]
+  }
+  ```
+- Written by FxRateService via `OutboxEventWriter.write()` in same transaction as `platform.fx_rate` update
 
 **Done Criteria:**
-- Unit test: convert `"100.00" USD → THB` with rate `"34.5000"` returns `"3450.00"` (not float 3449.9999...)
-- JPY: result is rounded to 0 decimal places
+- Schema registered in Schema Registry under `fx_rate.updated-value`
+- Kafka UI shows `fx_rate.updated` message after hourly refresh runs
 
 ---
 
-### PRICING-008 — FX Rate Refresh Scheduler
-**US Ref:** US-P-19
-**Estimate:** M
-**Dependencies:** PRICING-006, PLATFORM-005
+### PRICING-008 — Seller Pricing Sub-form Validation (Backend)
+
+- **US Ref:** US-S-05
+- **Estimate:** S
+- **Dependencies:** PRICING-003
+- **Spec References:** `phase-1/technical-design/api-design/pricing.md`
+
 **Implementation Notes:**
-- File: `apps/workers/src/schedulers/fx-rate.scheduler.ts`
-- `@Cron('0 * * * *')` — hourly; configurable via `FX_REFRESH_CRON` env var
-- Fetch from `exchangerate.host/latest?base=USD&symbols=THB,JPY,SGD` (and similar for other base currencies); or use a single base and compute cross-rates
-- On success: upsert all 4 base-currency × N quote-currency rate pairs via `FxRateRepository.upsert()`; publish `fx_rate.updated` outbox event
-- On API failure: log error + alert; retain last known rates (do NOT zero out on failure)
-- Env vars: `FX_API_URL` (default `https://api.exchangerate.host/latest`), `FX_API_KEY` (optional; free tier may not need key), `FX_STALENESS_THRESHOLD_HOURS` (default 4)
+- Validation rules enforced in `PricingController`:
+  - Amount: decimal string, > 0, max 9 digits before decimal, max 4 after
+  - Currency: must be in active currencies (USD/THB/JPY/SGD)
+  - SALE period: `saleStartsAt` must be future; `saleEndsAt > saleStartsAt`; period max 90 days
+  - B2B min_qty: integer ≥ 2; multiple tiers must have distinct min_qty values
+  - Cannot set LIST price to 0 (use offer deactivation instead)
+- All validation errors return structured `{ field, message }` array in 400 response
 
 **Done Criteria:**
-- Scheduler runs on startup (or after first interval); rates populated in DB; `fx_rate.updated` event in outbox
-- API failure does not clear existing rates
+- Amount "0.00" → 400
+- Sale end before start → 400
+- B2B min_qty = 1 → 400
+- Two B2B tiers with same min_qty → 409
 
 ---
 
-### PRICING-009 — Outbox Event: fx_rate.updated
-**US Ref:** US-P-19, US-P-11
-**Estimate:** S
-**Dependencies:** PLATFORM-004
+### PRICING-009 — GET /pricing/currencies (public)
+
+- **US Ref:** —
+- **Estimate:** S
+- **Dependencies:** PRICING-002
+- **Spec References:** `phase-1/technical-design/api-design/pricing.md`
+
 **Implementation Notes:**
-- Avro schema `fx_rate.updated` (v1): `{ base_currency, rates: [{ quote_currency, rate, as_of }], refreshed_at }`
-- Published by FX scheduler (PRICING-008) when rates are fetched
-- Consumer in Search module (SEARCH-012) uses this to refresh `display_prices` map in ES
-- Schema registered in Schema Registry on app startup
+- `GET /pricing/currencies` — public (`@Public()`); returns active currencies
+- Response: `[{ code, name, minorUnitScale }]` — only `is_active = true` rows
+- Cached in Redis 1h (rarely changes)
+- Used by frontend currency selector in pricing sub-form and price display
 
 **Done Criteria:**
-- `fx_rate.updated` event appears in Kafka UI after scheduler runs
-- Schema Registry shows the schema registered
+- Returns 4 active currencies
+- Response cached in Redis (second call hits cache, not DB)

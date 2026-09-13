@@ -1,7 +1,6 @@
 # Phase 1 — Master Backlog
 
 **Project:** AliceUT Global Multi-Vendor Marketplace  
-**Status:** Implementation-ready  
 **Last groomed:** 2026-09-13  
 **Solo developer:** quality over speed; no deadline  
 

@@ -1,19 +1,22 @@
 # EPIC: CATALOG — Catalog Module
 
-**Sprint:** 3
-**Lib:** `libs/catalog/`
-**Module:** `CatalogModule`
-**Controllers:** `CategoriesController`, `ProductsController`, `SellerCatalogController`
-**Kafka producers:** `product.changed`, `offer.changed`, `listing.soft_deleted`, `listing.flagged`
+**Sprint:** 3  
+**Lib:** `libs/catalog/`  
+**Module:** `CatalogModule`  
+**Controllers:** `CategoriesController`, `ProductsController`, `SellerCatalogController`  
+**Kafka producers:** `product.changed`, `offer.changed`, `listing.soft_deleted`, `listing.flagged`  
 
 Overview: Manages the product taxonomy, seller listings, and listing lifecycle state. Products and offers are separate concepts — a product is the canonical item; an offer is a seller's listing of that product at a specific price. Listing moderation state (FLAGGED/REMOVED) is managed here but decided by the admin module.
 
 ---
 
 ### CATALOG-001 — catalog Schema Migrations
-**US Ref:** —
-**Estimate:** L
-**Dependencies:** PLATFORM-001
+
+- **US Ref:** —
+- **Estimate:** L
+- **Dependencies:** PLATFORM-001
+- **Spec References:** `phase-1/technical-design/data-model-erd.md`, `phase-1/technical-design/api-design/catalog.md`
+
 **Implementation Notes:**
 - File: `libs/catalog/src/infrastructure/migrations/0001_catalog_schema.sql`
 - Create `catalog` schema; tables: `catalog.category`, `catalog.product`, `catalog.product_variant`, `catalog.product_image`, `catalog.offer`
@@ -29,9 +32,12 @@ Overview: Manages the product taxonomy, seller listings, and listing lifecycle s
 ---
 
 ### CATALOG-002 — Category Entity + GET /categories
-**US Ref:** US-B-02, US-B-03
-**Estimate:** M
-**Dependencies:** CATALOG-001
+
+- **US Ref:** US-B-02, US-B-03
+- **Estimate:** M
+- **Dependencies:** CATALOG-001
+- **Spec References:** `phase-1/technical-design/api-design/catalog.md`, `phase-1/technical-design/data-model-erd.md`
+
 **Implementation Notes:**
 - TypeORM entity for `catalog.category` (self-referential parent_id)
 - `GET /categories` — returns full tree (recursive CTE or app-layer tree builder); format: `[{ id, name, slug, isProhibited, children: [...] }]`
@@ -46,9 +52,12 @@ Overview: Manages the product taxonomy, seller listings, and listing lifecycle s
 ---
 
 ### CATALOG-003 — Category Taxonomy Seed
-**US Ref:** US-P-06
-**Estimate:** M
-**Dependencies:** CATALOG-001
+
+- **US Ref:** US-P-06
+- **Estimate:** M
+- **Dependencies:** CATALOG-001
+- **Spec References:** `phase-1/technical-design/api-design/catalog.md`, `phase-1/technical-design/data-model-erd.md`
+
 **Implementation Notes:**
 - Seeded in `npm run seed` (see SEED-005); taxonomy scaffold here
 - Root categories: Electronics, Books, Home & Kitchen, Apparel & Clothing, Sports & Outdoors, Toys & Games
@@ -63,9 +72,12 @@ Overview: Manages the product taxonomy, seller listings, and listing lifecycle s
 ---
 
 ### CATALOG-004 — Product Entity + Repository Interface
-**US Ref:** US-S-03, US-B-05
-**Estimate:** M
-**Dependencies:** CATALOG-001
+
+- **US Ref:** US-S-03, US-B-05
+- **Estimate:** M
+- **Dependencies:** CATALOG-001
+- **Spec References:** `phase-1/technical-design/data-model-erd.md`, `phase-1/technical-design/api-design/catalog.md`
+
 **Implementation Notes:**
 - TypeORM entity for `catalog.product`
 - `ProductRepository` interface: `findById(id)`, `findWithOffers(id)`, `save(product)`, `softDelete(id)`
@@ -79,9 +91,12 @@ Overview: Manages the product taxonomy, seller listings, and listing lifecycle s
 ---
 
 ### CATALOG-005 — ProductVariant Entity + Repository
-**US Ref:** US-S-03
-**Estimate:** S
-**Dependencies:** CATALOG-001
+
+- **US Ref:** US-S-03
+- **Estimate:** S
+- **Dependencies:** CATALOG-001
+- **Spec References:** `phase-1/technical-design/data-model-erd.md`, `phase-1/technical-design/api-design/catalog.md`
+
 **Implementation Notes:**
 - TypeORM entity for `catalog.product_variant`
 - `attributes JSONB`: normalized attributes like `{ "color": "Black", "size": "M" }`
@@ -94,9 +109,12 @@ Overview: Manages the product taxonomy, seller listings, and listing lifecycle s
 ---
 
 ### CATALOG-006 — ProductImage Entity + MinIO Upload
-**US Ref:** US-S-03
-**Estimate:** L
-**Dependencies:** CATALOG-001, INFRA-010
+
+- **US Ref:** US-S-03
+- **Estimate:** L
+- **Dependencies:** CATALOG-001, INFRA-010
+- **Spec References:** `phase-1/technical-design/data-model-erd.md`, `phase-1/technical-design/api-design/catalog.md`, `phase-1/technical-design/docker-compose-topology.md`
+
 **Implementation Notes:**
 - TypeORM entity for `catalog.product_image`; `position SMALLINT` unique per product for ordering
 - `POST /seller/products/:id/images` — multipart upload, 1–10 images, JPEG/PNG/WebP ≤5MB each
@@ -113,9 +131,12 @@ Overview: Manages the product taxonomy, seller listings, and listing lifecycle s
 ---
 
 ### CATALOG-007 — ProductsController (Buyer Read)
-**US Ref:** US-B-05
-**Estimate:** M
-**Dependencies:** CATALOG-004
+
+- **US Ref:** US-B-05
+- **Estimate:** M
+- **Dependencies:** CATALOG-004
+- **Spec References:** `phase-1/technical-design/api-design/catalog.md`, `phase-1/technical-design/data-model-erd.md`
+
 **Implementation Notes:**
 - `GET /products/:id` — returns product with all its active offers, variants, images, category breadcrumb, effective prices (via PricingService), availability badge
 - No authentication required (public endpoint); `@Public()`
@@ -131,9 +152,12 @@ Overview: Manages the product taxonomy, seller listings, and listing lifecycle s
 ---
 
 ### CATALOG-008 — Offer Entity + Repository Interface
-**US Ref:** US-P-01
-**Estimate:** M
-**Dependencies:** CATALOG-001
+
+- **US Ref:** US-P-01
+- **Estimate:** M
+- **Dependencies:** CATALOG-001
+- **Spec References:** `phase-1/technical-design/data-model-erd.md`, `phase-1/technical-design/api-design/catalog.md`
+
 **Implementation Notes:**
 - TypeORM entity for `catalog.offer`
 - `OfferRepository` interface: `findById(id)`, `findBySellerAndProduct(sellerId, productId)`, `findByProduct(productId)`, `save(offer)`, `updateStatus(id, status, reason?)`
@@ -146,9 +170,12 @@ Overview: Manages the product taxonomy, seller listings, and listing lifecycle s
 ---
 
 ### CATALOG-009 — SellerCatalogController (Create/Edit/Delete)
-**US Ref:** US-S-03, US-S-04
-**Estimate:** L
-**Dependencies:** CATALOG-008, SELLER-008
+
+- **US Ref:** US-S-03, US-S-04
+- **Estimate:** L
+- **Dependencies:** CATALOG-008, SELLER-008
+- **Spec References:** `phase-1/technical-design/api-design/catalog.md`, `phase-1/technical-design/data-model-erd.md`, `phase-1/technical-design/kafka-events.md`
+
 **Implementation Notes:**
 - All endpoints guarded by `@JwtAuthGuard` + `@Roles('SELLER')` + `SellerKycGuard` (approved + active seller only)
 - `POST /seller/products` — DTO: `CreateProductDto { title (10-200), description (Markdown ≤5000), categoryId, variants: [...], initialInventory: number }` — creates Product + Offer + Stock (initial) + publishes product.changed + offer.changed events in one transaction
@@ -166,9 +193,12 @@ Overview: Manages the product taxonomy, seller listings, and listing lifecycle s
 ---
 
 ### CATALOG-010 — Keyword Blocklist + Prohibited Category Guard
-**US Ref:** US-S-03, FR-P-06c
-**Estimate:** L
-**Dependencies:** CATALOG-008
+
+- **US Ref:** US-S-03, FR-P-06c
+- **Estimate:** L
+- **Dependencies:** CATALOG-008
+- **Spec References:** `phase-1/technical-design/api-design/catalog.md`, `phase-1/technical-design/data-model-erd.md`, `phase-1/technical-design/kafka-events.md`
+
 **Implementation Notes:**
 - `ModerationGuardService`:
   - `checkCategory(categoryId): boolean` — returns true if `category.is_prohibited = true` or any ancestor is prohibited
@@ -186,9 +216,12 @@ Overview: Manages the product taxonomy, seller listings, and listing lifecycle s
 ---
 
 ### CATALOG-011 — Offer Status State Machine
-**US Ref:** US-S-04, US-A-04, US-A-05
-**Estimate:** M
-**Dependencies:** CATALOG-008
+
+- **US Ref:** US-S-04, US-A-04, US-A-05
+- **Estimate:** M
+- **Dependencies:** CATALOG-008
+- **Spec References:** `phase-1/technical-design/api-design/catalog.md`, `phase-1/technical-design/data-model-erd.md`
+
 **Implementation Notes:**
 - Valid transitions (enforced in `OfferStatusService`):
   - `DRAFT → ACTIVE` (seller activates)
@@ -208,9 +241,12 @@ Overview: Manages the product taxonomy, seller listings, and listing lifecycle s
 ---
 
 ### CATALOG-012 — Outbox Events: product.changed, offer.changed, listing.soft_deleted, listing.flagged
-**US Ref:** US-P-10, US-P-11
-**Estimate:** M
-**Dependencies:** PLATFORM-004, CATALOG-008
+
+- **US Ref:** US-P-10, US-P-11
+- **Estimate:** M
+- **Dependencies:** PLATFORM-004, CATALOG-008
+- **Spec References:** `phase-1/technical-design/kafka-events.md`, `phase-1/technical-design/data-model-erd.md`, `phase-1/technical-design/api-design/catalog.md`
+
 **Implementation Notes:**
 - Register Avro schemas in Schema Registry for: `product.changed` (v1), `offer.changed` (v1), `listing.soft_deleted` (v1), `listing.flagged` (v1)
 - `product.changed` payload: `{ product_id, status, category_id, title, description, brand, attributes, changed_at }`

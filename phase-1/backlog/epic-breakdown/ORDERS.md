@@ -1,498 +1,481 @@
-# Epic: ORDERS — Orders / Checkout Module
+# Epic: ORDERS — Orders & Fulfillment
 
 **Epic ID:** ORDERS  
-**Sprint(s):** 13–14  
-**Status:** Later  
+**Sprint(s):** 4–5  
 **Total Tasks:** 22  
 
 ## Epic Goal
 
-Checkout atomically: group cart by seller/currency, reserve inventory, snapshot immutable prices, create fulfillments. Mock payment. Order + fulfillment lifecycle (PENDING→SHIPPED→DELIVERED; PENDING/SHIPPED→REFUNDED; PENDING→CANCELLED). Scheduled workers for mock delivery and auto-refund of suspended seller orders.
+Complete order lifecycle: checkout (cart validation → inventory reservation → price snapshot → mock payment → order creation), fulfillment management per seller, delivery simulation, and auto-refund for suspended sellers. Order data is immutable after capture.
 
 ---
 
 ## Tasks
 
-### ORDERS-001 — orders schema raw-SQL migrations
+### ORDERS-001 — orders Schema Migrations
 
-**Estimate:** L (8h)  
-**User Story:** —  
-**Dependencies:** PLATFORM-001  
+- **US Ref:** —
+- **Estimate:** L
+- **Dependencies:** PLATFORM-001, CATALOG-001, SELLER-001, INVENTORY-001
+- **Spec References:** `phase-1/technical-design/api-design/orders.md`, `phase-1/technical-design/data-model-erd.md`, `phase-1/technical-design/kafka-events.md`, `phase-1/technical-design/data-model-mongodb.md`
 
 **Implementation Notes:**
-- Create `orders` PostgreSQL schema
+- File: `libs/orders/src/infrastructure/migrations/0001_orders_schema.sql`
 - Tables:
-  ```sql
-  CREATE TABLE orders.order (
-    id UUID PRIMARY KEY DEFAULT uuidv7(),
-    display_id VARCHAR(20) NOT NULL UNIQUE,  -- e.g. ORD-a1b2c3d4
-    buyer_id UUID NOT NULL,
-    status VARCHAR(30) NOT NULL DEFAULT 'PENDING',
-    placement_outcome VARCHAR(20) NOT NULL DEFAULT 'SUCCESS',  -- SUCCESS|PARTIAL|FAILED
-    shipping_address JSONB NOT NULL,   -- snapshot at checkout
-    preferred_currency CHAR(3) NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-  );
-  CREATE INDEX idx_order_buyer ON orders.order (buyer_id, created_at DESC);
-
-  CREATE TABLE orders.fulfillment (
-    id UUID PRIMARY KEY DEFAULT uuidv7(),
-    display_id VARCHAR(20) NOT NULL UNIQUE,  -- e.g. FUL-a1b2c3d4
-    order_id UUID NOT NULL REFERENCES orders.order(id),
-    seller_id UUID NOT NULL,
-    status VARCHAR(30) NOT NULL DEFAULT 'PENDING',
-    currency CHAR(3) NOT NULL,
-    shipping_method VARCHAR(50),
-    tracking_number VARCHAR(100),
-    eta TIMESTAMPTZ,
-    placed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    shipped_at TIMESTAMPTZ,
-    delivered_at TIMESTAMPTZ,
-    refunded_at TIMESTAMPTZ,
-    cancelled_at TIMESTAMPTZ,
-    cancel_reason TEXT,
-    refund_reason TEXT
-  );
-  CREATE INDEX idx_fulfillment_order ON orders.fulfillment (order_id);
-  CREATE INDEX idx_fulfillment_seller ON orders.fulfillment (seller_id, status);
-
-  CREATE TABLE orders.fulfillment_item (
-    id UUID PRIMARY KEY DEFAULT uuidv7(),
-    fulfillment_id UUID NOT NULL REFERENCES orders.fulfillment(id),
-    offer_id UUID NOT NULL,
-    variant_id UUID,
-    product_title VARCHAR(500) NOT NULL,    -- snapshot
-    variant_attributes JSONB,               -- snapshot
-    quantity INTEGER NOT NULL,
-    unit_price NUMERIC(19,4) NOT NULL,      -- snapshot at checkout
-    currency CHAR(3) NOT NULL,              -- snapshot
-    tax_amount NUMERIC(19,4) NOT NULL DEFAULT 0,
-    fx_rate_used_at_capture NUMERIC(19,8),  -- snapshot if cross-currency
-    reservation_id UUID                     -- reference to consumed reservation
-    -- NO updated_at: this table is immutable after insert
-  );
-  CREATE INDEX idx_fulfillment_item_fulfillment ON orders.fulfillment_item (fulfillment_id);
-
-  CREATE TABLE orders.payment_attempt (
-    id UUID PRIMARY KEY DEFAULT uuidv7(),
-    order_id UUID NOT NULL REFERENCES orders.order(id),
-    amount NUMERIC(19,4) NOT NULL,
-    currency CHAR(3) NOT NULL,
-    status VARCHAR(30) NOT NULL DEFAULT 'SIMULATED_SUCCESS',
-    provider VARCHAR(50) NOT NULL DEFAULT 'MOCK',
-    provider_ref VARCHAR(100),
-    attempted_at TIMESTAMPTZ NOT NULL DEFAULT now()
-  );
-
-  CREATE TABLE orders.idempotency_key (
-    key VARCHAR(100) PRIMARY KEY,
-    order_id UUID REFERENCES orders.order(id),
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    expires_at TIMESTAMPTZ NOT NULL
-  );
-  ```
+  - `orders.order`: id (UUIDv7), display_id (varchar unique, human-readable format: `ORD-YYYYMMDD-XXXX`), buyer_id FK, status (enum: `PROCESSING`|`PARTIALLY_SHIPPED`|`SHIPPED`|`DELIVERED`|`CANCELLED`|`REFUNDED`), total_amount NUMERIC(19,4), currency CHAR(3), shipping_snapshot JSONB, created_at
+  - `orders.fulfillment`: id (UUIDv7), order_id FK, seller_id FK, status (enum: `PROCESSING`|`SHIPPED`|`DELIVERED`|`CANCELLED`|`REFUNDED`), shipping_carrier nullable, tracking_number nullable, shipped_at nullable, delivered_at nullable
+  - `orders.fulfillment_item`: id (UUIDv7), fulfillment_id FK, offer_id FK, variant_id FK nullable, product_snapshot JSONB, qty INT, unit_price NUMERIC(19,4), currency CHAR(3), tax NUMERIC(19,4), fx_rate_used_at_capture NUMERIC(19,8), subtotal NUMERIC(19,4), reservation_id FK → inventory.stock_reservation
+  - `orders.payment_attempt`: id (UUIDv7), order_id FK, status (`PENDING`|`SUCCEEDED`|`FAILED`), method (`MOCK`), amount NUMERIC(19,4), currency CHAR(3), gateway_ref varchar nullable, attempted_at
+  - `orders.idempotency_key`: key varchar PK, order_id FK, created_at (used to prevent duplicate checkout requests)
+- All amounts: NUMERIC(19,4); tax/FX rate: NUMERIC(19,8)
+- Indexes: `order(buyer_id)`, `order(status)`, `fulfillment(order_id)`, `fulfillment(seller_id)`, `fulfillment_item(fulfillment_id)`, `idempotency_key(key)`
 
 **Done Criteria:**
-- All 5 tables created
-- `fulfillment_item` has NO `updated_at` column (immutable after insert)
-- `unit_price` and `fx_rate_used_at_capture` are NUMERIC (not float)
+- All orders tables created; `order.display_id` unique constraint enforced
 
 ---
 
-### ORDERS-002 — Order entity + repository interface
+### ORDERS-002 — Order Entity + FulfillmentItem Entity
 
-**Estimate:** M (4h)  
-**User Story:** US-B-09  
-**Dependencies:** ORDERS-001  
+- **US Ref:** US-B-09
+- **Estimate:** M
+- **Dependencies:** ORDERS-001
+- **Spec References:** `phase-1/technical-design/api-design/orders.md`, `phase-1/technical-design/data-model-erd.md`
 
 **Implementation Notes:**
-- `Order` TypeORM entity; `display_id` generated as `ORD-${id.slice(0,8)}`
-- `IOrderRepository`: `findById`, `findByBuyer`, `create`, `updateStatus`
-- `status` derived from fulfillment states (ORDERS-013); not set directly on order table
-- `shipping_address` stored as JSONB snapshot (not FK to address table)
+- TypeORM entities for `orders.order`, `orders.fulfillment`, `orders.fulfillment_item`, `orders.payment_attempt`
+- `FulfillmentItem.product_snapshot JSONB`: captures at checkout time: `{ productId, title, sku, variantLabel, imageUrl }`
+- `FulfillmentItem.unit_price`, `currency`, `tax`, `fx_rate_used_at_capture`: immutable after creation (NFR: order immutability)
+- No `@BeforeUpdate` that can change financial fields
+- `Order.aggregateStatus()`: derived from fulfillments:
+  - All DELIVERED → DELIVERED
+  - All CANCELLED → CANCELLED
+  - Any SHIPPED (and rest not CANCELLED) → PARTIALLY_SHIPPED or SHIPPED
+  - Any PROCESSING → PROCESSING
 
 **Done Criteria:**
-- Order created with auto-generated `display_id`
-- `shipping_address` JSONB has complete address fields at time of checkout
+- Unit test: `Order.aggregateStatus()` returns PARTIALLY_SHIPPED when one fulfillment SHIPPED, one PROCESSING
 
 ---
 
-### ORDERS-003 — Fulfillment entity + repository + status state machine
+### ORDERS-003 — IdempotencyKey Entity + Checkout Idempotency
 
-**Estimate:** M (4h)  
-**User Story:** US-B-09  
-**Dependencies:** ORDERS-001  
+- **US Ref:** US-B-09
+- **Estimate:** M
+- **Dependencies:** ORDERS-001
+- **Spec References:** `phase-1/technical-design/api-design/orders.md`, `phase-1/technical-design/data-model-erd.md`
 
 **Implementation Notes:**
-- `Fulfillment` TypeORM entity
-- State machine: `PENDING→SHIPPED`, `PENDING→CANCELLED`, `PENDING/SHIPPED→REFUNDED`, `SHIPPED→DELIVERED`
-- `FulfillmentStatusService.transition(fulfillment, newStatus, em)` enforces valid transitions
-- `display_id`: `FUL-${id.slice(0,8)}`
+- `POST /orders/checkout` requires `Idempotency-Key` header (UUID, client-generated)
+- Before processing: check `orders.idempotency_key` table:
+  - If found → return existing `order_id` (200, not 201)
+  - If not found → process checkout, insert key in same transaction as order creation
+- Expiry: idempotency keys expire after 24h (scheduler cleans up or TTL-based)
+- Client must use same key for retries (network timeout scenario)
+- Error scenario: if checkout failed, idempotency_key row is NOT inserted (allow retry)
 
 **Done Criteria:**
-- Invalid transition (e.g., DELIVERED→PENDING) → throws ConflictException
-- All timestamps (shipped_at, delivered_at, etc.) set on transition
+- POST checkout with same key twice: second call returns same order (no duplicate)
+- Failed checkout: key not stored; retry with same key processes fresh
 
 ---
 
-### ORDERS-004 — FulfillmentItem entity + repository (immutable)
+### ORDERS-004 — CheckoutService: Cart Validation + Seller Grouping
 
-**Estimate:** M (4h)  
-**User Story:** US-P-03  
-**Dependencies:** ORDERS-001  
+- **US Ref:** US-B-09
+- **Estimate:** L
+- **Dependencies:** CART-003, CATALOG-008, PRICING-004, INVENTORY-002
+- **Spec References:** `phase-1/technical-design/api-design/orders.md`, `phase-1/technical-design/data-model-erd.md`
 
 **Implementation Notes:**
-- `FulfillmentItem` TypeORM entity; NO `@UpdateDateColumn`
-- `unit_price` and `tax_amount` stored as strings in TypeScript (NUMERIC in DB)
-- Fields snapshotted at checkout: `productTitle`, `variantAttributes`, `unitPrice`, `currency`, `taxAmount`, `fxRateUsedAtCapture`
-- No service should ever UPDATE a fulfillment_item row after insert
+- File: `libs/orders/src/application/checkout.service.ts`
+- `CheckoutService.validateAndGroup(cartId, buyerId)`:
+  1. Load all cart items with offers (join catalog.offer, catalog.product, pricing.offer_price)
+  2. For each item:
+     - `offer.status = ACTIVE` (skip stale; add to `skippedItems` list)
+     - `available_qty >= item.quantity` (throw `InsufficientStockException` if not)
+     - Resolve effective price via `EffectivePriceService.resolve()`
+  3. Group valid items by `offer.seller_id` → one `Fulfillment` per seller
+  4. Group fulfillments by currency (sellers can price in different currencies; V1 does not mix — each fulfillment is one currency)
+  5. Return: `{ fulfillmentGroups: [{ sellerId, items: [...], subtotal }], skippedItems, totalAmount }`
+- `skippedItems`: items with stale/inactive offers — excluded from checkout, returned in response for UI display
 
 **Done Criteria:**
-- TypeScript type has no update method on repository
-- `unit_price` returned as string from API (never as number)
-- ESLint: no-direct-update rule on fulfillment_item (enforced via code review)
+- Cart with stale item + 2 valid items → stale item in `skippedItems`; order created for 2 valid items only
+- Cart with insufficient stock → 422 `INSUFFICIENT_STOCK` with item details
+- Items from 2 sellers → 2 Fulfillment groups
 
 ---
 
-### ORDERS-005 — PaymentAttempt entity + repository (mock, append-only)
+### ORDERS-005 — CheckoutService: Atomic Reservation + Snapshot Transaction
 
-**Estimate:** M (4h)  
-**User Story:** US-B-09  
-**Dependencies:** ORDERS-001  
+- **US Ref:** US-B-09, FR-P-03
+- **Estimate:** XL
+- **Dependencies:** ORDERS-004, INVENTORY-003, SHARED-001, SHARED-005
+- **Spec References:** `phase-1/technical-design/api-design/orders.md`, `phase-1/technical-design/data-model-erd.md`, `phase-1/technical-design/kafka-events.md`
 
 **Implementation Notes:**
-- `PaymentAttempt` TypeORM entity; always `provider: 'MOCK'`, `status: 'SIMULATED_SUCCESS'`
-- V1 mock payment: always succeeds; real payment gateway out of scope
-- Append-only: no updates, no deletes
+- Single atomic `dataSource.transaction(async (em) => { ... })`:
+  1. For each valid cart item: `ReservationService.createReservation(offerId, qty, 900, em)` (15min window)
+  2. Capture price snapshot per FulfillmentItem: `unit_price`, `currency`, `tax` (0 for V1), `fx_rate_used_at_capture` (from `platform.fx_rate` at this moment)
+  3. Create `orders.order` row (status=`PROCESSING`)
+  4. Create `orders.fulfillment` rows per seller group
+  5. Create `orders.fulfillment_item` rows (immutable snapshot)
+  6. Create `orders.idempotency_key` row
+  7. Write `fulfillment.placed` outbox event per fulfillment group
+- On any failure: entire transaction rolls back (reservations, order, fulfillments all un-created)
+- `product_snapshot JSONB` captured here: `{ productId, title, imageUrl, variantLabel, sku }`
+- `FulfillmentItem.unit_price` = result of `EffectivePriceService.resolve()` at THIS moment (immutable)
 
 **Done Criteria:**
-- PaymentAttempt created with every order
-- Always `status: 'SIMULATED_SUCCESS'` in V1
+- Integration test: mock Kafka produce to fail → entire TX rolled back (no order, no reservations)
+- Two buyers checkout same last item simultaneously: one succeeds, one gets InsufficientStockException (SELECT FOR UPDATE prevents race)
+- `fulfillment_item.unit_price` is immutable: changing offer price does not affect historical items
 
 ---
 
-### ORDERS-006 — IdempotencyKey entity + CheckoutIdempotencyService
+### ORDERS-006 — Mock Payment (POST /orders/checkout internal flow)
 
-**Estimate:** M (4h)  
-**User Story:** US-B-09  
-**Dependencies:** ORDERS-001  
+- **US Ref:** US-B-09
+- **Estimate:** M
+- **Dependencies:** ORDERS-005
+- **Spec References:** `phase-1/technical-design/api-design/orders.md`, `phase-1/technical-design/data-model-erd.md`
 
 **Implementation Notes:**
-- `Idempotency-Key` header on `POST /orders/checkout`
-- Service checks if key exists → return existing order; otherwise create new
-- Key TTL: 24h
-- If existing key found for same request → return 200 with existing order (no duplicate processing)
+- V1: mock payment always succeeds (no real payment gateway)
+- `MockPaymentService.charge(orderId, amount, currency): Promise<PaymentAttempt>`:
+  - Create `orders.payment_attempt` row with `status = 'SUCCEEDED'`
+  - Returns `{ status: 'SUCCEEDED', gatewayRef: 'MOCK-{uuid}' }`
+- Called inside checkout transaction (step 8) after order creation but before commit
+- Response from `POST /orders/checkout`: `{ orderId, displayId, status: 'PROCESSING', fulfillments: [...], paymentStatus: 'SUCCEEDED', skippedItems }`
+- NOTE: When real payment gateway added in V2, this service swaps out — no other code changes
 
 **Done Criteria:**
-- Same idempotency key on two requests → second request returns first order (no duplicate)
-- Expired key → treated as new request
+- Checkout completes with `paymentStatus: 'SUCCEEDED'`
+- `orders.payment_attempt` row created with status SUCCEEDED
+- `skippedItems` array present in response (empty if all items valid)
 
 ---
 
-### ORDERS-007 — CheckoutService: cart validation
+### ORDERS-007 — display_id Generation (ORD-YYYYMMDD-XXXX)
 
-**Estimate:** L (8h)  
-**User Story:** US-B-09  
-**Dependencies:** CART-003  
+- **US Ref:** US-B-09
+- **Estimate:** M
+- **Dependencies:** ORDERS-001
+- **Spec References:** `phase-1/technical-design/api-design/orders.md`, `phase-1/technical-design/data-model-erd.md`
 
 **Implementation Notes:**
-- Re-resolve all offer prices from `PricingService` (NOT from cart)
-- Compare to "expected" prices (frontend may send expected prices for revalidation UX)
-- Collect unavailable items: `offer.status !== 'ACTIVE'` or `available_qty = 0`
-- Return: `{ availableItems, unavailableItems, priceChangedItems }`
-- Unavailable items excluded from checkout (not hard failure — partial checkout)
-- Zero available items → hard failure; 422
+- Format: `ORD-YYYYMMDD-XXXX` where XXXX is zero-padded sequential number per day
+- PostgreSQL sequence per day: `CREATE SEQUENCE orders.daily_seq_YYYYMMDD START 1` created lazily on first order of each day
+- Alternatively (simpler): use Redis `INCR orders:seq:{YYYY-MM-DD}` with expiry 48h
+- Redis approach preferred: `INCR orders:seq:2026-09-13` → pad to 4 digits → `ORD-20260913-0001`
+- Collision safety: Redis INCR is atomic; no duplicate display_ids
+- Insert generated `display_id` in same TX as order creation
 
 **Done Criteria:**
-- Cart with 1 unavailable item → checkout proceeds with remaining items; unavailable noted in response
-- All items unavailable → 422 with reason
-- Price change detected → `priceChangedItems` flagged (frontend shows modal)
+- First order of the day: `ORD-YYYYMMDD-0001`
+- Second order: `ORD-YYYYMMDD-0002`
+- No duplicates under concurrent checkout (Redis INCR atomicity test)
 
 ---
 
-### ORDERS-008 — CheckoutService: seller/currency grouping
+### ORDERS-008 — POST /orders/checkout (controller + route)
 
-**Estimate:** M (4h)  
-**User Story:** US-B-09  
-**Dependencies:** ORDERS-007  
+- **US Ref:** US-B-09
+- **Estimate:** M
+- **Dependencies:** ORDERS-005, ORDERS-006
+- **Spec References:** `phase-1/technical-design/api-design/orders.md`
 
 **Implementation Notes:**
-- Group available cart items by `(seller_id, currency)` → creates one fulfillment per group
-- Each fulfillment has exactly one currency (seller's pricing currency)
-- Single order contains multiple fulfillments
+- `POST /orders/checkout` — `@JwtAuthGuard`, `@Roles('BUYER'|'SELLER'|'ADMIN')` (any authenticated user can buy)
+- Headers: `Idempotency-Key: <uuid>` (required; 400 if missing)
+- DTO: `CheckoutDto { shippingAddressId: string }` — address must belong to authenticated user
+- Controller delegates to: `CheckoutService.validateAndGroup → CheckoutService.executeTransaction → MockPaymentService`
+- Clear cart after successful checkout (delete all `cart_item` rows for buyer's cart)
+- Response 201: `CheckoutResponseDto { orderId, displayId, fulfillments, paymentStatus, totalAmount, currency, skippedItems }`
 
 **Done Criteria:**
-- Items from 2 sellers → 2 fulfillments
-- Items from same seller but different currencies → 2 fulfillments
-- Group mapping: `Map<sellerCurrencyKey, CartItem[]>`
+- Missing Idempotency-Key header → 400
+- Invalid shipping address (not owned by buyer) → 404
+- Successful checkout: cart cleared; order in DB; response has displayId
 
 ---
 
-### ORDERS-009 — CheckoutService: atomic reservation + snapshot transaction
+### ORDERS-009 — Order Aggregate Status Derivation
 
-**Estimate:** XL (16h)  
-**User Story:** US-P-03  
-**Dependencies:** ORDERS-008  
+- **US Ref:** US-B-10
+- **Estimate:** M
+- **Dependencies:** ORDERS-002
+- **Spec References:** `phase-1/technical-design/api-design/orders.md`, `phase-1/technical-design/data-model-erd.md`
 
 **Implementation Notes:**
-- Critical path; single PostgreSQL transaction per fulfillment group
-- For each group (in sequence, not parallel):
-  1. Reserve inventory for each item: `InventoryService.reserve(offerId, qty, orderId, em)`
-  2. Snapshot prices: `PricingService.resolveEffectivePrice(offerId, currency, accountType, qty)`
-  3. Create `fulfillment` row
-  4. Create `fulfillment_item` rows (immutable snapshots)
-  5. Write outbox event `fulfillment.placed`
-  6. Remove cart items for successfully reserved offers
-- If reservation fails for a group: skip that group; include in `failedGroups` response
-- Outer transaction: create `order` row first; link all fulfillments to order
-- Snapshot `shipping_address` as JSONB from buyer's selected address
+- `OrderStatusService.deriveAndUpdate(orderId)`: loads all fulfillments for order; calls `Order.aggregateStatus()`; updates `orders.order.status` if changed
+- Called after: any fulfillment status change (ship, cancel, deliver, refund)
+- Status derivation rules (from ORDERS-002)
+- Also updates `order.status = 'REFUNDED'` when all fulfillments are `REFUNDED`
+- Publish `order.finalized` event when order reaches terminal state (DELIVERED or CANCELLED or REFUNDED)
 
 **Done Criteria:**
-- Unit price in `fulfillment_item` is immutable snapshot, not FK to live price
-- Concurrent checkouts for last item: exactly one succeeds; other gets `INSUFFICIENT_STOCK` in `failedGroups`
-- Cart items for successful fulfillments cleared; failed groups' items remain in cart
-- All operations in one DB transaction per group; partial group failure rolls back that group only
+- All fulfillments SHIPPED → order.status = SHIPPED
+- One fulfillment SHIPPED, one PROCESSING → order.status = PARTIALLY_SHIPPED
+- All DELIVERED → order.status = DELIVERED; `order.finalized` event published
 
 ---
 
-### ORDERS-010 — CheckoutService: mock payment simulation
+### ORDERS-010 — GET /orders (buyer order history)
 
-**Estimate:** M (4h)  
-**User Story:** US-B-09  
-**Dependencies:** ORDERS-009  
+- **US Ref:** US-B-10
+- **Estimate:** M
+- **Dependencies:** ORDERS-002
+- **Spec References:** `phase-1/technical-design/api-design/orders.md`, `phase-1/technical-design/data-model-erd.md`
 
 **Implementation Notes:**
-- After reservations and fulfillments created: create `payment_attempt` row (always SIMULATED_SUCCESS)
-- V1: no real payment; always succeeds; never fails
-- Payment amount: sum of all fulfillment subtotals in buyer's preferred currency (FX converted)
+- `GET /orders` — `@JwtAuthGuard`; returns buyer's orders (paginated, cursor-based)
+- Response: `PaginatedResponseDto<OrderSummaryDto>` where `OrderSummaryDto = { orderId, displayId, status, totalAmount, currency, createdAt, itemCount, firstItemTitle, firstItemImageUrl }`
+- Default sort: `created_at DESC`
+- Filter: `?status=PROCESSING|SHIPPED|DELIVERED|CANCELLED`
+- Page size: 20
 
 **Done Criteria:**
-- `payment_attempt` row created with `status: 'SIMULATED_SUCCESS'`
-- Mock payment never throws
+- Returns only authenticated buyer's orders (not other buyers')
+- Filter by status works
+- Cursor pagination returns next page correctly
 
 ---
 
-### ORDERS-011 — Order + Fulfillment display_id generation
+### ORDERS-011 — GET /orders/:id (buyer order detail)
 
-**Estimate:** S (2h)  
-**User Story:** US-B-09  
-**Dependencies:** ORDERS-002  
+- **US Ref:** US-B-10
+- **Estimate:** M
+- **Dependencies:** ORDERS-002
+- **Spec References:** `phase-1/technical-design/api-design/orders.md`, `phase-1/technical-design/data-model-erd.md`
 
 **Implementation Notes:**
-- `display_id` generated from first 8 hex chars of UUID: `ORD-${id.replace(/-/g,'').slice(0,8).toUpperCase()}`
-- Must be unique (UNIQUE constraint enforces)
-- Collision probability negligible with UUIDv7
+- `GET /orders/:id` — `@JwtAuthGuard`; ownership check: `order.buyer_id = authenticated user`
+- Returns: full order with all fulfillments, fulfillment items (from snapshot), payment attempt, shipping info
+- `FulfillmentItem.product_snapshot.imageUrl`: rendered from snapshot (not re-queried from product)
+- Response includes: `{ order, fulfillments: [{ ...fulfillment, items: [...], sellerName }], paymentAttempt, shippingSnapshot }`
 
 **Done Criteria:**
-- All orders have `ORD-XXXXXXXX` format
-- All fulfillments have `FUL-XXXXXXXX` format
-- Duplicate display_id rejected by DB constraint
+- Access another buyer's order → 404
+- Response contains product_snapshot data (not live product data)
 
 ---
 
-### ORDERS-012 — POST /orders/checkout
+### ORDERS-012 — Seller Fulfillment: GET /seller/fulfillments
 
-**Estimate:** L (8h)  
-**User Story:** US-B-09  
-**Dependencies:** ORDERS-009  
+- **US Ref:** US-S-10
+- **Estimate:** M
+- **Dependencies:** ORDERS-002
+- **Spec References:** `phase-1/technical-design/api-design/orders.md`, `phase-1/technical-design/data-model-erd.md`
 
 **Implementation Notes:**
-- `@UseGuards(JwtAuthGuard)`; email must be verified (`email_verified: true`) to checkout
-- `CheckoutDto`: `addressId`, `idempotencyKey`
-- Idempotency check first (ORDERS-006)
-- Response: `{ orderId, displayId, status, placementOutcome: 'SUCCESS'|'PARTIAL'|'FAILED', fulfillments: [], skippedItems: [], failedGroups: [] }`
-- `PARTIAL`: some groups succeeded, some failed
-- `FAILED`: all groups failed
+- `GET /seller/fulfillments` — `@JwtAuthGuard` + `@Roles('SELLER')`; returns seller's own fulfillments
+- Filters: `?status=PROCESSING|SHIPPED|DELIVERED|CANCELLED&cursor=&limit=20`
+- Response: paginated list of `FulfillmentSummaryDto { id, orderId, displayOrderId, buyerName, status, itemCount, subtotal, currency, createdAt }`
+- No KYC guard (seller needs to see orders even if suspended)
 
 **Done Criteria:**
-- Successful checkout → 201 with order + fulfillments
-- Email not verified → 403 `EMAIL_NOT_VERIFIED`
-- Partial: response clearly identifies succeeded and failed groups
+- Seller sees only their own fulfillments (not other sellers')
+- Filter by status returns correct subset
 
 ---
 
-### ORDERS-013 — Order aggregate status derivation
+### ORDERS-013 — Seller Fulfillment: GET /seller/fulfillments/:id
 
-**Estimate:** M (4h)  
-**User Story:** US-B-09  
-**Dependencies:** ORDERS-003  
+- **US Ref:** US-S-10
+- **Estimate:** S
+- **Dependencies:** ORDERS-012
+- **Spec References:** `phase-1/technical-design/api-design/orders.md`, `phase-1/technical-design/data-model-erd.md`
 
 **Implementation Notes:**
-- Order status is derived from fulfillment statuses (not stored directly)
-- Rules: ALL PENDING → PENDING; ANY SHIPPED (rest PENDING) → PARTIALLY_SHIPPED; ALL SHIPPED → SHIPPED; ALL DELIVERED → DELIVERED; ALL CANCELLED → CANCELLED; ALL REFUNDED → REFUNDED; mixed → PARTIALLY_FULFILLED
-- Exposed as computed property or materialized on read
+- `GET /seller/fulfillments/:id` — ownership check: `fulfillment.seller_id = authenticated seller`
+- Returns: `{ ...fulfillment, items: [{ product_snapshot, qty, unit_price, currency }], buyerShippingAddress }`
+- `buyerShippingAddress` from order's `shipping_snapshot` (captured at checkout)
 
 **Done Criteria:**
-- Order with 2 fulfillments: one SHIPPED, one PENDING → order status PARTIALLY_SHIPPED
-- All fulfillments DELIVERED → order status DELIVERED
+- Access another seller's fulfillment → 404
 
 ---
 
-### ORDERS-014 — GET /orders (buyer order history)
+### ORDERS-014 — POST /seller/fulfillments/:id/ship
 
-**Estimate:** M (4h)  
-**User Story:** US-B-11  
-**Dependencies:** ORDERS-002  
+- **US Ref:** US-S-10
+- **Estimate:** M
+- **Dependencies:** ORDERS-013, ORDERS-009
+- **Spec References:** `phase-1/technical-design/api-design/orders.md`, `phase-1/technical-design/kafka-events.md`
 
 **Implementation Notes:**
-- `@UseGuards(JwtAuthGuard)`
-- Paginated; newest first; `limit` max 20
-- Each item: `{ orderId, displayId, status, createdAt, fulfillmentCount, itemCount, hasPartialFailure }`
-- `hasPartialFailure`: true if `placement_outcome == 'PARTIAL'` (show warning in UI)
+- `POST /seller/fulfillments/:id/ship { carrier, trackingNumber }` — ownership check
+- Allowed only when fulfillment `status = 'PROCESSING'`
+- Update: `status = 'SHIPPED'`, set `shipping_carrier`, `tracking_number`, `shipped_at = now()`
+- Call `OrderStatusService.deriveAndUpdate(orderId)`
+- Publish `fulfillment.shipped` outbox event: `{ fulfillmentId, orderId, buyerId, carrier, trackingNumber, shippedAt }`
 
 **Done Criteria:**
-- Returns only buyer's own orders
-- Correct pagination with cursor
-- `hasPartialFailure` flag present on partial orders
+- Ship PROCESSING fulfillment → status = SHIPPED; `fulfillment.shipped` event in Kafka
+- Ship already SHIPPED → 422 invalid transition
 
 ---
 
-### ORDERS-015 — GET /orders/:id (order detail)
+### ORDERS-015 — POST /seller/fulfillments/:id/cancel
 
-**Estimate:** M (4h)  
-**User Story:** US-B-11  
-**Dependencies:** ORDERS-002  
+- **US Ref:** US-S-10
+- **Estimate:** M
+- **Dependencies:** ORDERS-013, ORDERS-009, INVENTORY-003
+- **Spec References:** `phase-1/technical-design/api-design/orders.md`, `phase-1/technical-design/kafka-events.md`
 
 **Implementation Notes:**
-- Full order detail: order + all fulfillments + all fulfillment_items (with snapshots)
-- Include payment status
-- Fulfillment items show snapshotted prices (not current live prices)
-- Ownership check: buyer can only view own orders
+- `POST /seller/fulfillments/:id/cancel { reason: string }` — ownership check
+- Allowed only when `status = 'PROCESSING'`
+- Update: `status = 'CANCELLED'`
+- Release inventory reservations: `ReservationService.releaseReservation()` for each item's `reservation_id`
+- Call `OrderStatusService.deriveAndUpdate(orderId)`
+- Publish `fulfillment.cancelled` outbox event
 
 **Done Criteria:**
-- `unit_price` in response is the snapshot value, not current live price
-- Other buyer attempting to view → 404 (not leak order existence)
+- Cancel PROCESSING fulfillment: status = CANCELLED; inventory released; order status updated
 
 ---
 
-### ORDERS-016 — GET /seller/fulfillments
+### ORDERS-016 — POST /seller/fulfillments/:id/refund (mock)
 
-**Estimate:** M (4h)  
-**User Story:** US-S-05  
-**Dependencies:** ORDERS-003  
+- **US Ref:** US-S-10, US-A-07
+- **Estimate:** M
+- **Dependencies:** ORDERS-013, ORDERS-009
+- **Spec References:** `phase-1/technical-design/api-design/orders.md`, `phase-1/technical-design/kafka-events.md`
 
 **Implementation Notes:**
-- Paginated, filterable by `status` tab
-- Each row: `{ fulfillmentId, displayId, status, buyerName, orderDate, itemCount, totalAmount, currency }`
-- Only seller's own fulfillments
-- Default sort: newest `placed_at` first
+- `POST /seller/fulfillments/:id/refund { reason: string }` — ownership check
+- Allowed when `status = 'SHIPPED'` (after ship, before delivery) or `status = 'DELIVERED'`
+- V1: mock refund always succeeds (create payment_attempt row with `status = 'SUCCEEDED'`, `method = 'MOCK_REFUND'`)
+- Update fulfillment `status = 'REFUNDED'`
+- Call `OrderStatusService.deriveAndUpdate(orderId)`
+- Publish `fulfillment.cancelled` event (same topic; consumers handle refund case)
 
 **Done Criteria:**
-- Seller sees only their fulfillments
-- Filter by `?status=PENDING` works
-- `totalAmount` computed from fulfillment_item snapshots
+- Refund SHIPPED fulfillment: status = REFUNDED; mock refund payment attempt created
+- Refund PROCESSING fulfillment: 422 (use cancel instead)
 
 ---
 
-### ORDERS-017 — GET /seller/fulfillments/:id
+### ORDERS-017 — Mock Delivery Scheduler (auto-deliver after 3 days)
 
-**Estimate:** M (4h)  
-**User Story:** US-S-05b  
-**Dependencies:** ORDERS-003  
+- **US Ref:** US-B-10
+- **Estimate:** M
+- **Dependencies:** ORDERS-014
+- **Spec References:** `phase-1/technical-design/api-design/orders.md`, `phase-1/technical-design/kafka-events.md`
 
 **Implementation Notes:**
-- Full fulfillment detail with items
-- Includes buyer's shipping address (PII — access logged per NFR-09)
-- Access log to MongoDB: `{ sellerId, fulfillmentId, buyerAddressAccessed: true, accessedAt }`
+- File: `apps/workers/src/schedulers/mock-delivery.scheduler.ts`
+- Cron: every 10 minutes
+- Query: `SELECT * FROM orders.fulfillment WHERE status = 'SHIPPED' AND shipped_at < now() - interval '3 days' LIMIT 50 FOR UPDATE SKIP LOCKED`
+- For each: set `status = 'DELIVERED'`, `delivered_at = now()`
+- Call `OrderStatusService.deriveAndUpdate(orderId)`
+- Publish `fulfillment.delivered` outbox event
 
 **Done Criteria:**
-- Buyer's address visible to seller
-- Access logged to MongoDB audit collection on every GET
+- Fulfillment shipped 3+ days ago: auto-delivered within 10min of cron run
+- `fulfillment.delivered` event published; order.status updated
 
 ---
 
-### ORDERS-018 — POST /seller/fulfillments/:id/ship
+### ORDERS-018 — Auto-Refund on Seller Suspension
 
-**Estimate:** M (4h)  
-**User Story:** US-S-06  
-**Dependencies:** ORDERS-003  
+- **US Ref:** US-A-07
+- **Estimate:** M
+- **Dependencies:** ORDERS-016, PLATFORM-003
+- **Spec References:** `phase-1/technical-design/api-design/orders.md`, `phase-1/technical-design/kafka-events.md`
 
 **Implementation Notes:**
-- `ShipDto`: `trackingNumber?`, `estimatedDeliveryDays?` (default from seller profile `fulfillment_window_days`)
-- Transition `PENDING → SHIPPED`
-- Set `shipped_at`, `tracking_number`, `eta = now() + estimatedDeliveryDays`
-- Write outbox event `fulfillment.shipped`
-- Idempotent: already SHIPPED → return 200 (no error)
+- Consumer group: `orders.seller-suspended-refund`
+- Topic: `seller.suspended`
+- `handle(event)`:
+  - Find all PROCESSING fulfillments for `event.payload.sellerId`
+  - For each: auto-refund (same logic as ORDERS-016) + release reservations
+  - Publish `fulfillment.refund_suspended_seller` event (special event type for notification)
+- V1: mock refund always succeeds
+- Does NOT auto-refund SHIPPED fulfillments (goods already en route)
 
 **Done Criteria:**
-- PENDING → SHIPPED transition succeeds; `shipped_at` set
-- Already SHIPPED → 200 (idempotent)
-- `fulfillment.shipped` outbox event written
+- Seller suspended: all their PROCESSING fulfillments cancelled + refunded
+- SHIPPED fulfillments: unaffected (buyer keeps tracking info)
 
 ---
 
-### ORDERS-019 — POST /seller/fulfillments/:id/refund
+### ORDERS-019 — Fulfillment Events Outbox
 
-**Estimate:** L (8h)  
-**User Story:** US-S-07  
-**Dependencies:** ORDERS-003  
+- **US Ref:** FR-P-09
+- **Estimate:** M
+- **Dependencies:** SHARED-005, ORDERS-014
+- **Spec References:** `phase-1/technical-design/kafka-events.md`, `phase-1/technical-design/data-model-erd.md`
 
 **Implementation Notes:**
-- `RefundDto`: `reason` (required)
-- Allowed statuses: PENDING, SHIPPED
-- If PENDING: also restore inventory (`stock.on_hand_qty += qty`; reservation CANCELLED)
-- `refunded_at = now()`, `refund_reason`
-- Write outbox event `fulfillment.refunded`
+- Register Avro schemas for: `fulfillment.placed`, `fulfillment.shipped`, `fulfillment.delivered`, `fulfillment.cancelled`, `fulfillment.refund_suspended_seller`, `order.finalized`
+- `fulfillment.placed` payload: `{ fulfillmentId, orderId, sellerId, buyerId, items: [{ offerId, reservationId, qty, unitPrice, currency }] }`
+- `fulfillment.shipped` payload: `{ fulfillmentId, orderId, buyerId, carrier, trackingNumber, shippedAt }`
+- `fulfillment.cancelled` payload: `{ fulfillmentId, orderId, buyerId, sellerId, reason, cancelledAt }`
+- `fulfillment.delivered` payload: `{ fulfillmentId, orderId, buyerId, deliveredAt }`
+- `order.finalized` payload: `{ orderId, buyerId, status, totalAmount, currency, finalizedAt }`
 
 **Done Criteria:**
-- Refunding PENDING → inventory restored; outbox event written
-- Refunding SHIPPED → no inventory restore (already shipped)
-- Refunding DELIVERED → 422 (cannot refund delivered in V1)
+- All 6 schemas registered in Schema Registry
+- Each event appears in Kafka UI within 2s of action
 
 ---
 
-### ORDERS-020 — POST /seller/fulfillments/:id/cancel
+### ORDERS-020 — Activity Log (MongoDB)
 
-**Estimate:** L (8h)  
-**User Story:** US-S-11  
-**Dependencies:** ORDERS-003  
+- **US Ref:** US-B-10, US-S-10
+- **Estimate:** M
+- **Dependencies:** PLATFORM-004, ORDERS-014
+- **Spec References:** `phase-1/technical-design/data-model-mongodb.md`, `phase-1/technical-design/api-design/orders.md`
 
 **Implementation Notes:**
-- Only PENDING can be cancelled by seller
-- Restore inventory: `on_hand_qty += qty`; reservation CANCELLED
-- `cancelled_at`, `cancel_reason`
-- Write outbox event `fulfillment.cancelled`
-- Mock refund: create `payment_attempt` with negative amount (SIMULATED_REFUND)
+- On each order state transition: call `AuditLogService.log()` (PLATFORM-004)
+- Events logged: checkout created, fulfillment shipped, fulfillment delivered, fulfillment cancelled, refund issued
+- `targetType: 'Order'`, `targetId: orderId`, `actorId: userId` (seller or system for auto-events)
+- `GET /orders/:id/activity` — returns audit log for a single order (BUYER ownership check); queries MongoDB `audit_logs` by `targetType=Order, targetId=orderId`
 
 **Done Criteria:**
-- PENDING → CANCELLED; inventory restored; mock refund created
-- SHIPPED cancellation → 422 (seller cannot cancel after shipping)
+- Ship fulfillment → audit log entry in MongoDB
+- GET /orders/:id/activity returns timeline of status changes
 
 ---
 
-### ORDERS-021 — Mock delivery scheduler
+### ORDERS-021 — GET /seller/fulfillments/:id/activity
 
-**Estimate:** M (4h)  
-**User Story:** US-P-15  
-**Dependencies:** ORDERS-003  
+- **US Ref:** US-S-10
+- **Estimate:** S
+- **Dependencies:** ORDERS-020
+- **Spec References:** `phase-1/technical-design/api-design/orders.md`, `phase-1/technical-design/data-model-mongodb.md`
 
 **Implementation Notes:**
-- File: `apps/workers/src/schedulers/delivery-mock.scheduler.ts`
-- `@Interval(DELIVERY_MOCK_INTERVAL_MS)` — default 60s
-- Query SHIPPED fulfillments where `eta <= now()`
-- Transition SHIPPED → DELIVERED; write outbox `fulfillment.delivered`
-- After each transition: check if all fulfillments for order are DELIVERED → write outbox `order.completed`
+- `GET /seller/fulfillments/:id/activity` — seller view of audit log for a fulfillment
+- Ownership check: fulfillment.seller_id = seller
+- Queries MongoDB by `targetId = fulfillmentId`
+- Returns same structure as buyer activity log but scoped to fulfillment
 
 **Done Criteria:**
-- SHIPPED fulfillment with `eta` in past → auto-delivered within 60s
-- All fulfillments delivered → `order.completed` event written
+- Seller sees only their fulfillment activity
+- Access another seller's fulfillment → 404
 
 ---
 
-### ORDERS-022 — Auto-refund monitor scheduler
+### ORDERS-022 — Kafka Consumer: order events for notifications
 
-**Estimate:** M (4h)  
-**User Story:** US-P-16  
-**Dependencies:** ORDERS-003  
+- **US Ref:** FR-P-09
+- **Estimate:** M
+- **Dependencies:** PLATFORM-003, ORDERS-019
+- **Spec References:** `phase-1/technical-design/kafka-events.md`, `phase-1/technical-design/api-design/orders.md`
 
 **Implementation Notes:**
-- File: `apps/workers/src/schedulers/auto-refund.scheduler.ts`
-- `@Interval(AUTO_REFUND_INTERVAL_MS)` — default 3600s
-- Query PENDING fulfillments where `seller.suspension_status = 'SUSPENDED'` AND `placed_at + fulfillment_window_days < now()`
-- For each: restore inventory + PENDING→REFUNDED + write outbox `fulfillment.refund_suspended_seller`
-- Notifications module sends buyer email (ET-13) and seller email (ET-13b)
+- This task covers the ORDERS side of the notification chain — publishing events correctly
+- Notifications module (NOTIFICATIONS-006) handles the consumer side
+- Verify: after `fulfillment.placed` published → INVENTORY-010 consumer confirms reservation
+- Verify: after `fulfillment.shipped` published → buyer notification sent (NOTIFICATIONS-006)
+- Integration test: end-to-end checkout → fulfillment placed event → inventory confirmed → notification sent
 
 **Done Criteria:**
-- PENDING fulfillment past window for suspended seller → auto-refunded
-- Inventory restored on auto-refund
-- `fulfillment.refund_suspended_seller` event (distinct from manual refund event)
+- E2E: checkout → `fulfillment.placed` in Kafka → inventory confirmed within 2s
+- `fulfillment.shipped` event → buyer email notification sent (verify NOTIFICATIONS consumer)

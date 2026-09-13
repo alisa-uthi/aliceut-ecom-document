@@ -1,9 +1,9 @@
 # EPIC: CART — Cart Module
 
-**Sprint:** 4
-**Lib:** `libs/cart/`
-**Module:** `CartModule`
-**Controllers:** `CartController`
+**Sprint:** 4  
+**Lib:** `libs/cart/`  
+**Module:** `CartModule`  
+**Controllers:** `CartController`  
 **No Kafka events produced** (cart state changes are not domain events)
 
 Overview: Manages the server-side authenticated cart. Guest carts live in browser localStorage (no server component). Cart merges at login. Each GET /cart call re-resolves effective prices to reflect seller changes. Stale items (inactive offer) are labelled but not auto-removed. Cart is NOT a price-locking mechanism — price is locked only at checkout.
@@ -11,9 +11,12 @@ Overview: Manages the server-side authenticated cart. Guest carts live in browse
 ---
 
 ### CART-001 — cart Schema Migrations
-**US Ref:** —
-**Estimate:** S
-**Dependencies:** PLATFORM-001
+
+- **US Ref:** —
+- **Estimate:** S
+- **Dependencies:** PLATFORM-001
+- **Spec References:** `phase-1/technical-design/api-design/cart.md`, `phase-1/technical-design/data-model-erd.md`
+
 **Implementation Notes:**
 - File: `libs/cart/src/infrastructure/migrations/0001_cart_schema.sql`
 - Tables: `cart.cart`, `cart.cart_item`
@@ -28,9 +31,12 @@ Overview: Manages the server-side authenticated cart. Guest carts live in browse
 ---
 
 ### CART-002 — Cart Entity + Repository Interface
-**US Ref:** US-B-06
-**Estimate:** M
-**Dependencies:** CART-001
+
+- **US Ref:** US-B-06
+- **Estimate:** M
+- **Dependencies:** CART-001
+- **Spec References:** `phase-1/technical-design/api-design/cart.md`, `phase-1/technical-design/data-model-erd.md`
+
 **Implementation Notes:**
 - TypeORM entity for `cart.cart`
 - `CartRepository`: `findByUserId(userId)`, `findOrCreate(userId)`, `save(cart)`
@@ -42,9 +48,12 @@ Overview: Manages the server-side authenticated cart. Guest carts live in browse
 ---
 
 ### CART-003 — CartItem Entity + Repository Interface
-**US Ref:** US-B-06
-**Estimate:** M
-**Dependencies:** CART-001
+
+- **US Ref:** US-B-06
+- **Estimate:** M
+- **Dependencies:** CART-001
+- **Spec References:** `phase-1/technical-design/api-design/cart.md`, `phase-1/technical-design/data-model-erd.md`
+
 **Implementation Notes:**
 - TypeORM entity for `cart.cart_item`
 - `CartItemRepository`: `findByCart(cartId)`, `findByCartAndOffer(cartId, offerId)`, `countByCart(cartId)`, `save(item)`, `delete(id)`
@@ -56,9 +65,12 @@ Overview: Manages the server-side authenticated cart. Guest carts live in browse
 ---
 
 ### CART-004 — GET /cart
-**US Ref:** US-B-06
-**Estimate:** L
-**Dependencies:** CART-003, PRICING-005
+
+- **US Ref:** US-B-06
+- **Estimate:** L
+- **Dependencies:** CART-003, PRICING-004
+- **Spec References:** `phase-1/technical-design/api-design/cart.md`, `phase-1/technical-design/data-model-erd.md`, `phase-1/technical-design/api-design/pricing.md`
+
 **Implementation Notes:**
 - `@JwtAuthGuard`; returns enriched cart with live price resolution
 - For each cart item:
@@ -78,9 +90,12 @@ Overview: Manages the server-side authenticated cart. Guest carts live in browse
 ---
 
 ### CART-005 — POST /cart/items
-**US Ref:** US-B-06
-**Estimate:** M
-**Dependencies:** CART-002, INVENTORY-002
+
+- **US Ref:** US-B-06
+- **Estimate:** M
+- **Dependencies:** CART-002, INVENTORY-002
+- **Spec References:** `phase-1/technical-design/api-design/cart.md`, `phase-1/technical-design/data-model-erd.md`
+
 **Implementation Notes:**
 - DTO: `AddToCartDto { offerId, quantity (≥1) }`
 - Checks:
@@ -99,9 +114,12 @@ Overview: Manages the server-side authenticated cart. Guest carts live in browse
 ---
 
 ### CART-006 — PUT /cart/items/:id
-**US Ref:** US-B-06
-**Estimate:** M
-**Dependencies:** CART-003, INVENTORY-002
+
+- **US Ref:** US-B-06
+- **Estimate:** M
+- **Dependencies:** CART-003, INVENTORY-002
+- **Spec References:** `phase-1/technical-design/api-design/cart.md`, `phase-1/technical-design/data-model-erd.md`
+
 **Implementation Notes:**
 - DTO: `UpdateCartItemDto { quantity: number (≥1) }`
 - Ownership check: cart item must belong to authenticated user's cart → 404 if not
@@ -115,9 +133,12 @@ Overview: Manages the server-side authenticated cart. Guest carts live in browse
 ---
 
 ### CART-007 — DELETE /cart/items/:id
-**US Ref:** US-B-06
-**Estimate:** S
-**Dependencies:** CART-003
+
+- **US Ref:** US-B-06
+- **Estimate:** S
+- **Dependencies:** CART-003
+- **Spec References:** `phase-1/technical-design/api-design/cart.md`, `phase-1/technical-design/data-model-erd.md`
+
 **Implementation Notes:**
 - Ownership check: cart item must belong to authenticated user's cart
 - Hard delete (not soft delete)
@@ -130,9 +151,12 @@ Overview: Manages the server-side authenticated cart. Guest carts live in browse
 ---
 
 ### CART-008 — Guest Cart Merge on Login
-**US Ref:** US-B-07
-**Estimate:** L
-**Dependencies:** CART-002, INVENTORY-002
+
+- **US Ref:** US-B-07
+- **Estimate:** L
+- **Dependencies:** CART-002, INVENTORY-002
+- **Spec References:** `phase-1/technical-design/api-design/cart.md`, `phase-1/technical-design/data-model-erd.md`
+
 **Implementation Notes:**
 - Triggered in `AuthService.login()` after successful authentication, if client sends `guestCart` in request body
 - `guestCart` format: `[{ offerId, quantity }]` (same as localStorage format in frontend)
@@ -154,9 +178,12 @@ Overview: Manages the server-side authenticated cart. Guest carts live in browse
 ---
 
 ### CART-009 — Stale Item Detection
-**US Ref:** US-B-06
-**Estimate:** M
-**Dependencies:** CART-003, CATALOG-008
+
+- **US Ref:** US-B-06
+- **Estimate:** M
+- **Dependencies:** CART-003, CATALOG-008
+- **Spec References:** `phase-1/technical-design/api-design/cart.md`, `phase-1/technical-design/data-model-erd.md`
+
 **Implementation Notes:**
 - Part of GET /cart response enrichment (CART-004)
 - Stale = `offer.status != ACTIVE` (REMOVED, FLAGGED, INACTIVE)
@@ -172,9 +199,12 @@ Overview: Manages the server-side authenticated cart. Guest carts live in browse
 ---
 
 ### CART-010 — Cart 50-Item Limit
-**US Ref:** US-B-06
-**Estimate:** S
-**Dependencies:** CART-002
+
+- **US Ref:** US-B-06
+- **Estimate:** S
+- **Dependencies:** CART-002
+- **Spec References:** `phase-1/technical-design/api-design/cart.md`, `phase-1/technical-design/data-model-erd.md`
+
 **Implementation Notes:**
 - Enforced in `CartService.addItem()` before inserting new item
 - Count distinct `(cart_id, offer_id)` combinations in `cart_item`

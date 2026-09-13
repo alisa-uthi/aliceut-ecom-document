@@ -2,7 +2,6 @@
 
 **Sprint:** 10  
 **Total Tasks:** 6  
-**Status:** Planned  
 
 Authentication UI across all three portals: login, registration, email verification, password reset, and OAuth buttons. Angular reactive forms with inline validation. Shared auth components in `libs/shared/`; portal-specific routing in each app.
 
@@ -10,11 +9,10 @@ Authentication UI across all three portals: login, registration, email verificat
 
 ## FE-AUTH-001 — Login Page
 
-| Field | Value |
-|-------|-------|
-| **US Ref** | US-B-01, US-S-01, US-A-00 |
-| **Estimate** | M (1d) |
-| **Dependencies** | FE-SHARED-003, FE-SHARED-004 |
+- **US Ref:** US-B-01, US-S-01, US-A-00
+- **Estimate:** M
+- **Dependencies:** FE-SHARED-003, FE-SHARED-004
+- **Spec References:** `phase-1/technical-design/api-design/auth.md`
 
 **Implementation Notes**
 
@@ -51,11 +49,10 @@ Authentication UI across all three portals: login, registration, email verificat
 
 ## FE-AUTH-002 — Registration Page (Buyer Portal)
 
-| Field | Value |
-|-------|-------|
-| **US Ref** | US-B-00 |
-| **Estimate** | M (1d) |
-| **Dependencies** | FE-SHARED-003, FE-AUTH-001 |
+- **US Ref:** US-B-00
+- **Estimate:** M
+- **Dependencies:** FE-SHARED-003, FE-AUTH-001
+- **Spec References:** `phase-1/technical-design/api-design/auth.md`
 
 **Implementation Notes**
 
@@ -92,11 +89,10 @@ Authentication UI across all three portals: login, registration, email verificat
 
 ## FE-AUTH-003 — Email Verification & Password Reset Pages
 
-| Field | Value |
-|-------|-------|
-| **US Ref** | US-B-00 |
-| **Estimate** | M (1d) |
-| **Dependencies** | FE-AUTH-002 |
+- **US Ref:** US-B-00
+- **Estimate:** M
+- **Dependencies:** FE-AUTH-002
+- **Spec References:** `phase-1/technical-design/api-design/auth.md`
 
 **Implementation Notes**
 
@@ -124,11 +120,10 @@ Authentication UI across all three portals: login, registration, email verificat
 
 ## FE-AUTH-004 — Auth Layout & Navigation Integration
 
-| Field | Value |
-|-------|-------|
-| **US Ref** | — |
-| **Estimate** | S (½d) |
-| **Dependencies** | FE-AUTH-001, FE-SHARED-005 |
+- **US Ref:** —
+- **Estimate:** S
+- **Dependencies:** FE-AUTH-001, FE-SHARED-005
+- **Spec References:** `phase-1/technical-design/api-design/auth.md`
 
 **Implementation Notes**
 
@@ -158,11 +153,10 @@ Authentication UI across all three portals: login, registration, email verificat
 
 ## FE-AUTH-005 — Profile Page
 
-| Field | Value |
-|-------|-------|
-| **US Ref** | US-B-02 |
-| **Estimate** | M (1d) |
-| **Dependencies** | FE-SHARED-002, FE-AUTH-004 |
+- **US Ref:** US-B-02
+- **Estimate:** M
+- **Dependencies:** FE-SHARED-002, FE-AUTH-004
+- **Spec References:** `phase-1/technical-design/api-design/auth.md`
 
 **Implementation Notes**
 
@@ -187,11 +181,10 @@ Authentication UI across all three portals: login, registration, email verificat
 
 ## FE-AUTH-006 — OAuth Callback Handler
 
-| Field | Value |
-|-------|-------|
-| **US Ref** | US-B-00 |
-| **Estimate** | S (½d) |
-| **Dependencies** | FE-AUTH-001, FE-SHARED-003 |
+- **US Ref:** US-B-00
+- **Estimate:** S
+- **Dependencies:** FE-AUTH-001, FE-SHARED-003
+- **Spec References:** `phase-1/technical-design/api-design/auth.md`
 
 **Implementation Notes**
 

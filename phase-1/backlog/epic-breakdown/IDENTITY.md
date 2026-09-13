@@ -1,255 +1,158 @@
-# EPIC: IDENTITY — User Identity & Profiles
+# EPIC: IDENTITY — User Identity & Profile
 
-**Sprint:** 3  
+**Sprint:** 2  
 **Total Tasks:** 6  
-**Status:** Now  
 
-User profile management, address book, business profile (B2B badge), profile image upload, and buyer-facing account settings. Depends on AUTH epic for the `user_account` table and JWT authentication.
-
----
-
-## IDENTITY-001 — Identity Schema Migration (profile tables)
-
-| Field | Value |
-|-------|-------|
-| **US Ref** | US-B-02 |
-| **Estimate** | M (1d) |
-| **Dependencies** | AUTH-001 |
-
-**Implementation Notes**
-
-- File: `libs/identity/src/infrastructure/migrations/004_identity_profiles.sql`
-- Extends `identity` schema with profile and address tables:
-
-```sql
-CREATE TABLE identity.user_profile (
-  user_id         UUID PRIMARY KEY REFERENCES identity.user_account(id) ON DELETE CASCADE,
-  avatar_url      TEXT,
-  phone_number    VARCHAR(30),
-  date_of_birth   DATE,
-  -- B2B fields (populated when account_type = 'B2B')
-  company_name    VARCHAR(200),
-  tax_id          VARCHAR(100),
-  business_address TEXT,
-  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-CREATE TABLE identity.address (
-  id              UUID PRIMARY KEY DEFAULT uuidv7(),
-  user_id         UUID NOT NULL REFERENCES identity.user_account(id) ON DELETE CASCADE,
-  label           VARCHAR(50),           -- e.g. 'Home', 'Office', custom
-  recipient_name  VARCHAR(100) NOT NULL,
-  line1           VARCHAR(200) NOT NULL,
-  line2           VARCHAR(200),
-  city            VARCHAR(100) NOT NULL,
-  state           VARCHAR(100),
-  postal_code     VARCHAR(20),
-  country_code    CHAR(2) NOT NULL,      -- ISO 3166-1 alpha-2
-  phone           VARCHAR(30),
-  is_default      BOOLEAN NOT NULL DEFAULT FALSE,
-  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-CREATE INDEX idx_address_user ON identity.address (user_id);
-
--- Partial index: enforce at most one default address per user
-CREATE UNIQUE INDEX idx_address_default ON identity.address (user_id)
-  WHERE is_default = TRUE;
-```
-
-**Done Criteria**
-
-- Migration runs clean; both tables exist in `identity` schema
-- `idx_address_default` partial unique index prevents two `is_default=true` rows for same user
-- Foreign keys cascade delete: deleting `user_account` removes all addresses and profile
+User profile management: editable display name/avatar, address book CRUD, and soft-delete account closure. Identity data lives in the `identity` schema, separate from auth credentials.
 
 ---
 
-## IDENTITY-002 — Get Profile Endpoint
+## IDENTITY-001 — identity Schema Migrations
 
-| Field | Value |
-|-------|-------|
-| **US Ref** | US-B-02 |
-| **Estimate** | S (½d) |
-| **Dependencies** | IDENTITY-001, AUTH-002 |
+- **US Ref:** —
+- **Estimate:** M
+- **Dependencies:** AUTH-001
+- **Spec References:** `phase-1/technical-design/api-design/profile.md`, `phase-1/technical-design/data-model-erd.md`
 
 **Implementation Notes**
 
-- `GET /profile` (protected)
-- Returns combined `user_account` + `user_profile` (left join — profile row may not exist yet)
-- Response DTO:
-  ```ts
-  class ProfileResponseDto {
-    id: string;
-    email: string;
-    displayName: string;
-    role: string;
-    accountType: 'B2C' | 'B2B';
-    accountStatus: string;
-    isEmailVerified: boolean;
-    avatarUrl: string | null;
-    phoneNumber: string | null;
-    dateOfBirth: string | null;  // ISO date string
-    companyName: string | null;
-    taxId: string | null;
-    createdAt: string;
-  }
-  ```
-- Exclude: `password_hash`, `failed_login_count`, `locked_until` (via `@Exclude()`)
-- Cache: no caching (user expects real-time profile)
+- File: `libs/identity/src/infrastructure/migrations/0001_identity_schema.sql`
+- Tables:
+  - `identity.user_profile`: id (same PK as `auth.user.id`), name, avatar_url nullable, bio nullable, preferred_currency (default `USD`), created_at, updated_at
+  - `identity.user_address`: id (UUIDv7 PK), user_id FK → `auth.user(id)`, label (Home/Work/Other), full_name, phone, line1, line2 nullable, city, state nullable, postal_code, country_code (ISO 3166-1 alpha-2), is_default boolean, created_at
+- FK: `identity.user_profile.id → auth.user.id` (1:1; created together at registration)
+- Index: `user_address(user_id)`, `user_address(user_id, is_default)`
+- Max 5 addresses per user (enforced in service layer, not DB)
 
 **Done Criteria**
 
-- `GET /profile` returns current user's data
-- `passwordHash` (and variants) never present in response body
-- User with no `user_profile` row: returns null for profile fields (not 500)
-- `@ApiResponse()` Swagger documentation present
+- All identity tables created
+- `user_profile.id` FK references `auth.user(id)`; deleting user cascades to profile
 
 ---
 
-## IDENTITY-003 — Update Profile Endpoint
+## IDENTITY-002 — GET /profile + PATCH /profile
 
-| Field | Value |
-|-------|-------|
-| **US Ref** | US-B-02 |
-| **Estimate** | M (1d) |
-| **Dependencies** | IDENTITY-002 |
+- **US Ref:** US-B-08, US-S-02
+- **Estimate:** M
+- **Dependencies:** IDENTITY-001
+- **Spec References:** `phase-1/technical-design/api-design/profile.md`, `phase-1/technical-design/data-model-erd.md`
 
 **Implementation Notes**
 
-- `PATCH /profile` (protected)
-- `UpdateProfileDto`:
-  ```ts
-  class UpdateProfileDto {
-    @IsOptional() @IsString() @MaxLength(100) displayName?: string;
-    @IsOptional() @IsString() @MaxLength(30) phoneNumber?: string;
-    @IsOptional() @IsDateString() dateOfBirth?: string;
-    // B2B only (ignored if account_type = 'B2C')
-    @IsOptional() @IsString() @MaxLength(200) companyName?: string;
-    @IsOptional() @IsString() @MaxLength(100) taxId?: string;
-  }
-  ```
-- Upsert `user_profile` row (INSERT ... ON CONFLICT DO UPDATE)
-- Update `user_account.display_name` if provided
-- `updated_at = now()` on both rows
-- B2B fields only saved when `account_type = 'B2B'`; silently ignored for B2C
-- Return updated profile (same shape as `GET /profile`)
+- Both endpoints: `@JwtAuthGuard` (any role)
+- `GET /profile` — returns `{ id, email, role, name, avatarUrl, bio, preferredCurrency, emailVerified }`; joins `auth.user` + `identity.user_profile`
+- `PATCH /profile { name?, bio?, preferredCurrency? }` — partial update; `preferredCurrency` must be in allowed set (`USD`|`THB`|`JPY`|`SGD`)
+- `name`: 2–100 chars; `bio`: max 500 chars
+- Response: updated profile object
+- File: `libs/identity/src/api/profile.controller.ts`
 
 **Done Criteria**
 
-- `PATCH /profile { "displayName": "Alice" }` updates display name; returns updated profile
-- `PATCH /profile {}` is a no-op; returns current profile (200)
-- B2B field `companyName` ignored for B2C account type (no error; not persisted)
-- Input with XSS payload (`<script>alert(1)</script>`) stored as-is (not HTML-rendered; `whitelist: true` strips unknown fields; actual sanitization is frontend responsibility per Angular's XSS protection)
+- GET /profile returns merged auth + identity fields
+- PATCH with invalid preferredCurrency → 400
+- PATCH with no fields → 200 (idempotent)
 
 ---
 
-## IDENTITY-004 — Profile Image Upload Endpoint
+## IDENTITY-003 — POST /profile/avatar (avatar upload)
 
-| Field | Value |
-|-------|-------|
-| **US Ref** | US-B-02 |
-| **Estimate** | M (1d) |
-| **Dependencies** | IDENTITY-003, SHARED-006 |
+- **US Ref:** US-B-08
+- **Estimate:** M
+- **Dependencies:** IDENTITY-001, SHARED-006
+- **Spec References:** `phase-1/technical-design/api-design/profile.md`, `phase-1/technical-design/data-model-erd.md`, `phase-1/technical-design/docker-compose-topology.md`
 
 **Implementation Notes**
 
-- `POST /profile/avatar` (protected, multipart form)
-- Accept: `image/jpeg`, `image/png`, `image/webp` only
-- Max file size: 2MB (validated in NestJS `FileInterceptor` with `limits: { fileSize: 2 * 1024 * 1024 }`)
-- Flow:
-  1. Validate file type via magic bytes (not just extension): `file-type` npm package
-  2. Resize to max 400×400px using `sharp` npm package; convert to webp
-  3. Upload to `user-assets` bucket: key = `avatars/{userId}/{timestamp}.webp`
-  4. Generate presigned URL (1h TTL) for response (private bucket)
-  5. Update `user_profile.avatar_url` with the storage key (not the presigned URL)
-  6. Return `{ avatarUrl: "<presigned-url>" }` (200)
-- Old avatar: not deleted (clean-up job out of scope V1)
-- `StorageService.getPresignedDownloadUrl` called fresh on each `GET /profile` to generate current presigned URL
+- `POST /profile/avatar` — multipart, single image file
+- Constraints: JPEG/PNG/WebP only; max 2MB
+- Upload to MinIO `user-assets` bucket; key: `avatars/{userId}/{uuid}.{ext}`
+- Update `identity.user_profile.avatar_url` with presigned URL or storage key
+- Delete old avatar from MinIO on overwrite (if previous `avatar_url` exists)
+- Response: `{ avatarUrl: string }` — presigned URL (900s TTL for private bucket)
 
 **Done Criteria**
 
-- Valid JPEG/PNG/WebP under 2MB: uploaded, resized, URL returned
-- File over 2MB: 413 response
-- Non-image file (e.g. PDF with `.jpg` extension): 400 `INVALID_FILE_TYPE` (magic byte check)
-- `user_profile.avatar_url` stores storage key; not the full presigned URL
+- Upload PNG → avatar_url updated; presigned URL returns image
+- File > 2MB → 400
+- Non-image MIME → 400
+- Uploading new avatar removes old file from MinIO
 
 ---
 
-## IDENTITY-005 — Address Book CRUD
+## IDENTITY-004 — Address Book CRUD
 
-| Field | Value |
-|-------|-------|
-| **US Ref** | US-B-02 |
-| **Estimate** | M (1d) |
-| **Dependencies** | IDENTITY-001, AUTH-002 |
+- **US Ref:** US-B-08
+- **Estimate:** M
+- **Dependencies:** IDENTITY-001
+- **Spec References:** `phase-1/technical-design/api-design/profile.md`, `phase-1/technical-design/data-model-erd.md`
 
 **Implementation Notes**
 
-- `GET /profile/addresses` → list all addresses for current user (no pagination; max ~20 addresses)
-- `POST /profile/addresses` → create address
-- `PATCH /profile/addresses/:id` → update specific address
-- `DELETE /profile/addresses/:id` → delete address (not allowed if it is the only address and user has pending orders — V1: allow delete always)
-- `POST /profile/addresses/:id/set-default` → set as default (unsets previous default atomically)
-- `AddressDto`:
-  ```ts
-  class AddressDto {
-    @IsString() @MaxLength(50) @IsOptional() label?: string;
-    @IsString() @MaxLength(100) recipientName: string;
-    @IsString() @MaxLength(200) line1: string;
-    @IsString() @MaxLength(200) @IsOptional() line2?: string;
-    @IsString() @MaxLength(100) city: string;
-    @IsString() @MaxLength(100) @IsOptional() state?: string;
-    @IsString() @MaxLength(20) @IsOptional() postalCode?: string;
-    @IsString() @Length(2, 2) countryCode: string;
-    @IsString() @MaxLength(30) @IsOptional() phone?: string;
-  }
-  ```
-- Setting a new default: use single UPDATE query with `CASE`:
-  ```sql
-  UPDATE identity.address
-  SET is_default = (id = $1)
-  WHERE user_id = $2
-  ```
-  (bypasses partial unique index issue with two-step update)
-- Access control: all address operations scoped to `currentUser.id`; never query by address ID alone
+- `GET /profile/addresses` — list all addresses for authenticated user (max 5)
+- `POST /profile/addresses { label, fullName, phone, line1, line2?, city, state?, postalCode, countryCode, isDefault }`:
+  - Max 5 addresses → 422 `ADDRESS_LIMIT_REACHED` if at limit
+  - If `isDefault: true`: unset `is_default` on all other addresses for user
+  - Returns created address (201)
+- `PUT /profile/addresses/:id { ...fields }` — full replacement; ownership check
+- `DELETE /profile/addresses/:id` — hard delete; if was default and others exist, set first remaining as default
+- Ownership check: address must belong to authenticated user (404 if not found or not owned)
+- File: `libs/identity/src/api/address.controller.ts`
 
 **Done Criteria**
 
-- `POST /profile/addresses` creates address; returns 201 with created address
-- `POST /profile/addresses/:id/set-default` sets new default; previous default becomes false
-- User A cannot read/modify User B's addresses (403)
-- Deleting an address: 204; address gone from list
-- Country code must be exactly 2 chars; invalid code returns 400
+- 5 addresses already: POST → 422
+- `isDefault: true` on new address → all others `is_default = false`
+- Delete default address → first remaining set as default
+- Access another user's address → 404
 
 ---
 
-## IDENTITY-006 — Account Closure (Soft Delete) Endpoint
+## IDENTITY-005 — Account Closure (POST /profile/close-account)
 
-| Field | Value |
-|-------|-------|
-| **US Ref** | US-B-02 |
-| **Estimate** | S (½d) |
-| **Dependencies** | IDENTITY-002, AUTH-009 |
+- **US Ref:** US-B-08
+- **Estimate:** M
+- **Dependencies:** IDENTITY-001, AUTH-008
+- **Spec References:** `phase-1/technical-design/api-design/profile.md`, `phase-1/technical-design/data-model-erd.md`
 
 **Implementation Notes**
 
-- `POST /profile/close-account` (protected)
-- Body: `{ password: string, reason?: string }` — password confirmation required
-- Flow:
-  1. Verify password matches current hash (argon2.verify)
-  2. Check no active/pending orders (query `orders.fulfillment` where `user_id = ? AND status NOT IN ('DELIVERED', 'CANCELLED', 'REFUNDED')`)
-  3. If active orders exist: return 409 `ACTIVE_ORDERS_EXIST` with count
-  4. Set `user_account.account_status = 'CLOSED'`
-  5. Revoke all refresh tokens + Redis revocation
-  6. Return 200 `{ message: "Account closed" }`
-- Closed accounts: all data retained for audit/legal; no physical delete in V1
-- Admin can reopen accounts (ADMIN epic)
+- `POST /profile/close-account { password: string }` — requires `@JwtAuthGuard` (any authenticated user)
+- Verify password (same as LOCAL auth — must call local strategy validate)
+- Precondition checks:
+  - If role = `SELLER`: reject if seller has any PENDING orders → 422 `PENDING_ORDERS_EXIST`
+  - If role = `ADMIN`: reject → 422 `ADMIN_CANNOT_CLOSE` (must be removed by another admin)
+- Soft-close: set `auth.user.status = 'CLOSED'`; anonymize `identity.user_profile { name: 'Deleted User', avatarUrl: null, bio: null }`
+- Force-logout: revoke all refresh tokens + Redis blacklist
+- Data retained for legal hold (order history etc.)
+- Response: 200 `{ message: "Account closed." }`
 
 **Done Criteria**
 
-- No active orders: account status set to `CLOSED`; all sessions invalidated
-- Active orders exist: 409 with message
-- Wrong password: 401
-- Subsequent login attempt with closed account: 401 `ACCOUNT_CLOSED`
+- Wrong password → 401
+- SELLER with pending orders → 422
+- ADMIN → 422
+- Valid closure: user status = CLOSED; profile anonymized; can no longer login
+
+---
+
+## IDENTITY-006 — GET /profile/:id (public profile view)
+
+- **US Ref:** US-B-05
+- **Estimate:** S
+- **Dependencies:** IDENTITY-001
+- **Spec References:** `phase-1/technical-design/api-design/profile.md`, `phase-1/technical-design/data-model-erd.md`
+
+**Implementation Notes**
+
+- `GET /profile/:id` — public endpoint (`@Public()`); returns limited public view
+- Response: `{ id, name, avatarUrl, memberSince }` — no email, no addresses, no private fields
+- CLOSED accounts → 404 (not found)
+- Used on product detail page "Sold by [seller name]" link + seller profile view
+- File: `libs/identity/src/api/profile.controller.ts`
+
+**Done Criteria**
+
+- Public call returns name + avatar only; no email
+- Closed account → 404
+- Requires no auth token
