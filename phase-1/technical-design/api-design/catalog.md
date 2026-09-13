@@ -281,7 +281,7 @@ Auth: PUBLIC
 ```
 **Field semantics:**
 - `effectivePrice.amount` / `effectivePrice.currency` — seller's native pricing currency (resolved from `pricing.offer_price`)
-- `effectivePrice.displayAmount` / `effectivePrice.displayCurrency` / `effectivePrice.fxRate` — buyer's requested display currency (FX-converted from seller's native price using `pricing.fx_rate`). Omitted when `?currency` matches the offer's native currency.
+- `effectivePrice.displayAmount` / `effectivePrice.displayCurrency` / `effectivePrice.fxRate` — buyer's requested display currency (FX-converted from seller's native price using `pricing.fx_rate`). **Always present.** When `?currency` matches the offer's native currency: `displayAmount` = `amount`, `displayCurrency` = `currency`, `fxRate` = `null`.
 
 #### Sequence
 
@@ -305,8 +305,10 @@ sequenceDiagram
     alt display currency != seller's native currency for any offer
         CatalogService->>Postgres: SELECT base_currency_code, quote_currency_code, rate<br/>FROM pricing.fx_rate<br/>WHERE (base_currency_code, quote_currency_code) IN (:pairs)
         Postgres-->>CatalogService: FX rate rows
-        Note over CatalogService: Compute displayAmount = amount x rate (decimal.js). Populate displayCurrency, fxRate. Omit display fields when seller's native == requested display currency.
+        Note over CatalogService: Compute displayAmount = amount x rate (decimal.js). Populate displayCurrency, fxRate.
+    else display currency == seller's native currency
+        Note over CatalogService: displayAmount = amount, displayCurrency = currency, fxRate = null (no FX fetch needed)
     end
-    CatalogService-->>API: offers with effectivePrice (native + optional display fields) + availableQty
+    CatalogService-->>API: offers with effectivePrice (native + always-present display fields) + availableQty
     API-->>Client: 200 { data: [{ id, sellerId, sellerName, variantId, effectivePrice, availableQty }] }
 ```

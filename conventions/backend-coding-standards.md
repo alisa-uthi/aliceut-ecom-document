@@ -11,7 +11,7 @@
 |---------|-------------|
 | [1. TypeScript configuration](#1-typescript-configuration) | `tsconfig.json` key settings, path aliases, strictness flags |
 | [2. ESLint rules](#2-eslint-rules) | Required rules, money lint, import ordering |
-| [3. Money handling code patterns](#3-money-handling-code-patterns) | `Money` value object, `decimal.js`, currency scale table |
+| [3. Money handling code patterns](#3-money-handling-code-patterns) | `Money` value object, `decimal.js`, currency scale cache (DB-sourced) |
 | [4. DTO validation patterns](#4-dto-validation-patterns) | `class-validator`, monetary field decorators, whitelist pipe |
 | [5. Error handling](#5-error-handling) | `AppError` hierarchy, `GlobalExceptionFilter`, never-throw rules |
 | [6. Environment config](#6-environment-config) | `@nestjs/config`, Joi schema, required env var checklist |
@@ -189,8 +189,8 @@ export class Money {
     return new Money(this.amount.mul(factor), this.currency);
   }
 
-  toJSON(): string {
-    return this.amount.toFixed(CURRENCY_SCALE[this.currency] ?? 2);
+  toJSON(scale = 2): string {
+    return this.amount.toFixed(scale);
   }
 
   private assertSameCurrency(other: Money): void {
@@ -201,30 +201,61 @@ export class Money {
 }
 ```
 
-### 3.2 Currency scale table
+### 3.2 Currency scale cache (DB-sourced)
 
-Drives display rounding and `toFixed()` precision. Storage is always `NUMERIC(19,4)` regardless of scale.
-
-| ISO 4217 | `minor_unit_scale` | Notes |
-|----------|--------------------|-------|
-| `USD` | 2 | Cents |
-| `THB` | 2 | Satang |
-| `SGD` | 2 | Cents |
-| `JPY` | 0 | No fractional unit |
-| `BHD` | 3 | Fils (not a V1 seller currency, included for completeness) |
+`minor_unit_scale` drives display rounding and `toFixed()` precision. The authoritative source is `pricing.currency.minor_unit_scale` — **do not hardcode a `CURRENCY_SCALE` constant**. Scale values are ISO 4217 standard and never change between restarts, so a startup-loaded in-memory cache is correct: no per-request DB hit, and admin can add new currencies without a code deploy.
 
 ```typescript
-// libs/shared/src/money/currency-scale.ts
-export const CURRENCY_SCALE: Record<string, number> = {
-  USD: 2,
-  THB: 2,
-  SGD: 2,
-  JPY: 0,
-  BHD: 3,
-};
+// libs/shared/src/money/currency-scale.cache.ts
+import { Injectable, OnApplicationBootstrap, OnApplicationShutdown } from '@nestjs/common';
+import { DataSource } from 'typeorm';
+
+const TTL_MS = 24 * 60 * 60 * 1000; // 1 day
+
+@Injectable()
+export class CurrencyScaleCache implements OnApplicationBootstrap, OnApplicationShutdown {
+  private readonly scales = new Map<string, number>();
+  private refreshTimer: NodeJS.Timeout | undefined;
+
+  constructor(private readonly dataSource: DataSource) {}
+
+  async onApplicationBootstrap(): Promise<void> {
+    await this.refresh();
+    this.refreshTimer = setInterval(() => void this.refresh(), TTL_MS);
+  }
+
+  onApplicationShutdown(): void {
+    clearInterval(this.refreshTimer);
+  }
+
+  get(code: string): number {
+    return this.scales.get(code) ?? 2;
+  }
+
+  private async refresh(): Promise<void> {
+    const rows = await this.dataSource.query<Array<{ code: string; minor_unit_scale: number }>>(
+      'SELECT code, minor_unit_scale FROM pricing.currency',
+    );
+    for (const row of rows) {
+      this.scales.set(row.code, row.minor_unit_scale);
+    }
+  }
+}
 ```
 
-V1 seller-pricing currencies are `USD`, `THB`, `JPY`, `SGD` only (BRD §12). The scale table may be extended in V2 without changing storage.
+Register `CurrencyScaleCache` in the `SharedModule` and export it. Any service that formats money for JSON output injects it. The cache loads on startup and refreshes every 24 hours — adding a new `pricing.currency` row takes effect within one day without a restart.
+
+**Seed data** — the `pricing.currency` migration must insert all supported currencies (and any reference currencies) before the app starts:
+
+| ISO 4217 | `minor_unit_scale` | `is_seller_price_allowed` |
+|----------|--------------------|---------------------------|
+| `USD` | 2 | `true` |
+| `THB` | 2 | `true` |
+| `SGD` | 2 | `true` |
+| `JPY` | 0 | `true` |
+| `BHD` | 3 | `false` |
+
+V1 seller-pricing currencies are `USD`, `THB`, `JPY`, `SGD` only (BRD §12). The cache reloads at each restart; adding a new row to `pricing.currency` takes effect after the next deploy with no code change.
 
 ### 3.3 DB ↔ application ↔ JSON mapping
 
@@ -241,8 +272,9 @@ const total = money.multiply(new Decimal(quantity));
 // back to DB string (always 4dp for storage)
 const storageValue: string = total.amount.toFixed(4);
 
-// JSON response — scale-aware
-const jsonValue: string = total.toJSON(); // '1000' for JPY, '9.99' for USD
+// JSON response — scale-aware (inject CurrencyScaleCache; see §3.2)
+const scale = this.currencyScaleCache.get(total.currency);
+const jsonValue: string = total.toJSON(scale); // '1000' for JPY, '9.99' for USD
 ```
 
 **Never:**
@@ -699,6 +731,7 @@ Gate these before approving any backend PR:
 - [ ] All monetary arithmetic uses `decimal.js` / `Money.multiply()` / `Money.add()` — no JS `+`, `*`, `/` operators on monetary values
 - [ ] TypeORM monetary columns declared as `string` with `numericStringTransformer`
 - [ ] JSON response monetary fields are strings, not numbers
+- [ ] Currency scale resolved via injected `CurrencyScaleCache`, not a hardcoded `CURRENCY_SCALE` constant
 
 ### Event-driven integrity
 - [ ] Outbox event written in the same `DataSource.transaction()` as the domain state change

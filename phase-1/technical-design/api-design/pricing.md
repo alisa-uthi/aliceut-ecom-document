@@ -68,7 +68,7 @@ Auth: PUBLIC (buyer account type from JWT if authenticated)
 ```
 **Field semantics:**
 - `amount` / `currency` — seller's native pricing currency (the price row stored in `pricing.offer_price`)
-- `displayCurrency` / `displayAmount` / `fxRate` / `fxRateStaleAt` — buyer's requested display currency (FX-converted, display-only). Omitted when `currency` param matches the offer's native currency (no conversion needed). `fxRateStaleAt` is set (and `displayAmount` omitted) when the FX rate is missing or stale.
+- `displayCurrency` / `displayAmount` / `fxRate` / `fxRateStaleAt` — buyer's requested display currency (FX-converted, display-only). **Always present.** When `currency` param matches the offer's native currency: `displayAmount` = `amount`, `displayCurrency` = `currency`, `fxRate` = `null`, `fxRateStaleAt` = `null`. When FX rate is missing or stale: `displayAmount` = `null`, `fxRate` = `null`, `fxRateStaleAt` = ISO8601 timestamp of last known rate (or `null` if never fetched).
 **Errors:** 404 offer not found, 422 currency not supported, 422 no active price available for this offer
 
 #### Sequence
@@ -106,7 +106,7 @@ sequenceDiagram
     end
 
     Note over PricingService: Price resolution (decimal.js): B2B_TIER if accountType=B2B+qty≥min_qty → SALE if NOW() BETWEEN starts_at AND ends_at → LIST fallback
-    Note over PricingService: FX display: if requestedCurrency != offer native currency — fetch pricing.fx_rate&#59; if fresh: displayAmount = amount × rate (decimal.js)&#59; if stale/missing: fxRateStaleAt set, displayAmount omitted
+    Note over PricingService: FX display: if requestedCurrency == offer native currency — displayAmount = amount, displayCurrency = currency, fxRate = null, fxRateStaleAt = null. If different — fetch pricing.fx_rate&#59; if fresh: displayAmount = amount × rate (decimal.js), fxRateStaleAt = null&#59; if stale/missing: displayAmount = null, fxRate = null, fxRateStaleAt set.
     alt requestedCurrency differs from offer native currency
         PricingService->>Postgres: SELECT rate, as_of, updated_at FROM pricing.fx_rate<br/>WHERE base_currency_code = :offerCurrency AND quote_currency_code = :displayCurrency
         Postgres-->>PricingService: FX rate row (or empty)

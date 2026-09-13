@@ -68,7 +68,8 @@ Auth: BUYER
         "amount": "99.99",
         "currency": "USD",
         "displayAmount": "3440.00",
-        "displayCurrency": "THB"
+        "displayCurrency": "THB",
+        "fxRate": "34.40000000"
       },
       "availableQty": 10,
       "offerStatus": "ACTIVE | INACTIVE | REMOVED"
@@ -81,7 +82,7 @@ Effective price is resolved live on GET (not cached from add-to-cart time).
 
 **Field semantics:**
 - `effectivePrice.amount` / `effectivePrice.currency` — seller's native pricing currency
-- `effectivePrice.displayAmount` / `effectivePrice.displayCurrency` — buyer's display currency, sourced from `buyer.profile.preferred_currency` (from the JWT claims). Omitted when the buyer's preferred currency matches the seller's native currency, or when the FX rate is unavailable.
+- `effectivePrice.displayAmount` / `effectivePrice.displayCurrency` / `effectivePrice.fxRate` — buyer's display currency, sourced from `buyer.profile.preferred_currency` (from the JWT claims). **Always present.** When the buyer's preferred currency matches the seller's native currency: `displayAmount` = `amount`, `displayCurrency` = `currency`, `fxRate` = `null`. When the FX rate is unavailable: `displayAmount` = `null`, `fxRate` = `null`.
 
 #### Sequence
 
@@ -111,8 +112,8 @@ sequenceDiagram
     S->>P: SELECT cart.cart WHERE user_id = :buyer_id
     P-->>S: cart row (lazily created if absent)
     S->>P: SELECT cart.cart_item<br/>JOIN catalog.offer<br/>JOIN pricing.offer_price (all price rows — seller's native currency)<br/>JOIN pricing.fx_rate (base=seller native, quote=buyer's preferred_currency from JWT)<br/>JOIN inventory.stock<br/>WHERE cart_id = :cart_id
-    Note over S,P: Effective price resolved live — never cached from add-to-cart time. Resolution: account_type x current time x qty (LIST / SALE time-bounded / B2B_TIER min_qty). effectivePrice.currency = seller's native. displayAmount/displayCurrency populated when buyer preferred_currency != seller native and FX rate available.
-    P-->>S: items with live effectivePrice (native + optional display fields), availableQty, offerStatus
+    Note over S,P: Effective price resolved live — never cached from add-to-cart time. Resolution: account_type x current time x qty (LIST / SALE time-bounded / B2B_TIER min_qty). effectivePrice.currency = seller's native. displayAmount/displayCurrency/fxRate always present: echo native when same currency (fxRate=null), apply FX conversion when different, set displayAmount=null when FX rate unavailable.
+    P-->>S: items with live effectivePrice (native + always-present display fields), availableQty, offerStatus
     S-->>A: cart DTO (monetary amounts as strings)
     deactivate S
     A-->>C: 200 { data: { id, items[], updatedAt } }
@@ -383,7 +384,7 @@ sequenceDiagram
         else offerId not in server cart AND currentCount < 50
             S->>P: SELECT inventory.stock WHERE offer_id = :offerId
             P-->>S: available_qty (checked live at merge time)
-            Note over S: cappedQty = MIN(guestItem.quantity, available_qty)<br/>if cappedQty > 0: INSERT INTO cart.cart_item(cart_id, offer_id, cappedQty); currentCount++
+            Note over S: cappedQty = MIN(guestItem.quantity, available_qty)<br/>if cappedQty > 0: INSERT INTO cart.cart_item(cart_id, offer_id, cappedQty)&#59; currentCount++
         else offerId not in server cart AND currentCount >= 50
             Note over S: Cart full (50-item limit). Skip remaining new offers silently.
         end

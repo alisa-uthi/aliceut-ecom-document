@@ -91,8 +91,20 @@ Pagination: cursor (Elasticsearch search_after)
 ```
 
 **Notes:**
-- `lowestOffer.amount` / `lowestOffer.currency` = seller's native price. `displayAmount` / `displayCurrency` / `fxRate` = buyer's requested currency, sourced from the pre-computed `display_prices[currency]` map in ES (kept fresh by `fx_rate.updated` consumer). Omitted when `currency` == offer's native currency (no conversion).
-- `facets.priceRange` `displayMin` / `displayMax` / `displayCurrency` follow the same rule — omitted when no conversion applies.
+- `lowestOffer.amount` / `lowestOffer.currency` = seller's native price. `displayAmount` / `displayCurrency` are **always present** — FE always reads these fields for rendering, no conditional branch needed. When `currency` param equals the offer's native currency, `displayAmount` echoes `amount` and `displayCurrency` echoes `currency`. `fxRate` is `null` when no conversion was applied (not `"1.00000000"` — that would imply a stored rate exists); present and non-null only when actual FX conversion occurred.
+- `facets.priceRange` `displayMin` / `displayMax` / `displayCurrency` are also **always present** — same rule: echo `min`/`max`/`currency` when no conversion applies.
+- Same-currency shape example (`currency=USD`, offer priced in USD):
+  ```json
+  "lowestOffer": {
+    "offerId": "uuid",
+    "amount": "99.99",
+    "currency": "USD",
+    "priceType": "LIST",
+    "displayAmount": "99.99",
+    "displayCurrency": "USD",
+    "fxRate": null
+  }
+  ```
 - Display prices are for presentation only. Order capture uses `fulfillment_item.fx_rate_used_at_capture` snapshotted at checkout.
 - Offers from sellers with `suspension_status = SUSPENDED` or `kyc_status != APPROVED` are excluded from search results. Only offers from KYC-approved, non-suspended sellers appear.
 
