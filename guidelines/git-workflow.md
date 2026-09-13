@@ -634,7 +634,7 @@ Thumbs.db
 - CI workflows (`.github/workflows/`)
 - Documentation and diagrams (`*.md`, `*.drawio`)
 - Docker Compose files (`docker-compose.yml`)
-- Database migration scripts (`src/database/migrations/`)
+- Database migration scripts (`migrations/phase-1/`, `migrations/phase-2/`)
 
 ### 8.3 Secrets Management
 

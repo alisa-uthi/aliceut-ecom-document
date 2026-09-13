@@ -35,7 +35,7 @@ AliceUT is a three-repo system:
 | `aliceut-ecom-document` | Design docs, architecture, conventions, guidelines, phase requirements |
 | `aliceut-ecom-backend` | NestJS backend ─ Nx monorepo: API server, Kafka workers, domain libs |
 | `aliceut-ecom-frontend` | Angular frontend ─ Nx monorepo: buyer/seller/admin portals, shared libs |
-| `aliceut-ecom-utility-pipeline` | Database migrations (`database/phase-N/`), CI workflows for schema changes, other GitHub actions utility workflow |
+| `aliceut-ecom-utility-pipeline` | CI utility workflows (non-migration); seed data scripts, infra automation |
 
 ### Local workspace layout
 
@@ -46,10 +46,8 @@ aliceut-ecom/
 ├── aliceut-ecom-document/          # this repo ─ design docs and conventions
 ├── aliceut-ecom-backend/           # NestJS backend
 ├── aliceut-ecom-frontend/          # Angular frontend
-├── aliceut-ecom-utility-pipeline/  # DB Migration, Utility Pipelines
+├── aliceut-ecom-utility-pipeline/  # Utility Pipelines (non-migration)
 ```
-
-Migrations are kept separate so they can be run by a dedicated operator workflow without touching application code.
 
 ### Monorepo layout (backend)
 
@@ -110,6 +108,10 @@ git clone git@github.com:alisa-uthi/aliceut-ecom-utility-pipeline.git
 # Install dependencies in each app repo
 cd aliceut-ecom-backend && pnpm install && cd ..
 cd aliceut-ecom-frontend && pnpm install && cd ..
+
+# Copy CLAUDE.md templates so Claude Code loads project conventions automatically
+cp aliceut-ecom-document/guidelines/templates/backend-CLAUDE.md  aliceut-ecom-backend/CLAUDE.md
+cp aliceut-ecom-document/guidelines/templates/frontend-CLAUDE.md aliceut-ecom-frontend/CLAUDE.md
 ```
 
 ### Step 2 ─ Environment files
@@ -149,11 +151,11 @@ Compose services:
 
 ### Step 4 ─ Run migrations
 
-Migrations live in `aliceut-ecom-utility-pipeline/database/phase-1/`. The repo is a sibling of `aliceut-ecom-backend/` in the local workspace. Run from the `aliceut-ecom/` parent:
+Migrations live in `aliceut-ecom-backend/migrations/phase-1/`. Run from inside the backend repo:
 
 ```bash
 migrate \
-  -path aliceut-ecom-utility-pipeline/database/phase-1 \
+  -path migrations/phase-1 \
   -database "postgres://aliceut:aliceut@localhost:5432/aliceut?sslmode=disable" \
   -table schema_migrations_phase1 \
   up
@@ -242,6 +244,7 @@ One logical change per commit. Compile and pass tests at each commit. No `WIP` c
 | NestJS TypeScript config, ESLint, money patterns, DTOs, errors | [backend-coding-standards.md](../conventions/backend-coding-standards.md) |
 | Angular project structure, state, forms, routing, performance | [frontend-coding-standards.md](../conventions/frontend-coding-standards.md) |
 | Test pyramid, coverage thresholds, Jest/Playwright patterns | [testing-guidelines.md](testing-guidelines.md) |
+| Claude Code subagent routing (which agent for which task) | [claude-code-subagents.md](claude-code-subagents.md) |
 
 ---
 
@@ -304,7 +307,7 @@ A CI step runs the generator and diffs the output against the committed `api-cli
 
 ### Authoring a migration
 
-1. Add a new `{seq}_{description}.up.sql` + `.down.sql` pair in `aliceut-ecom-utility-pipeline/database/phase-1/`.
+1. Add a new `{seq}_{description}.up.sql` + `.down.sql` pair in `aliceut-ecom-backend/migrations/phase-1/`.
 2. Sequence number is 4-digit zero-padded, next in sequence.
 3. Test locally: run `migrate up`, verify, then run `migrate down 1` to confirm rollback works.
 4. Open a PR in the utility pipeline repo.
@@ -452,7 +455,7 @@ See [git-workflow.md §7.3](git-workflow.md#73-ci-pipeline) for the `claude-desi
 - [ ] All feature routes are lazily loaded
 
 **Docs and migrations:**
-- [ ] If a new DB column or table is added, a migration pair exists in `aliceut-ecom-utility-pipeline`
+- [ ] If a new DB column or table is added, a migration pair exists in `aliceut-ecom-backend/migrations/phase-N/`
 - [ ] If a new MongoDB collection is introduced, schema is documented in the module README
 - [ ] If a new env var is required, it is added to the `.env.example` file and [backend-coding-standards.md §6.2](../conventions/backend-coding-standards.md#6-environment-config)
 

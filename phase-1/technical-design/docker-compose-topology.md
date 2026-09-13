@@ -333,7 +333,7 @@ services:
       POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ../aliceut-ecom-utility-pipeline/database/init:/docker-entrypoint-initdb.d:ro
+      - ../aliceut-ecom-backend/migrations/init:/docker-entrypoint-initdb.d:ro
     networks:
       - aliceut_backend
     healthcheck:

@@ -29,7 +29,24 @@ Daily log of work on this project. Newest entry on top. One entry per active day
 ---
 
 **Index**
+- [2026-09-13](#2026-09-13) — Added Claude Code subagents guideline; updated development-flow conventions map.
 - [2026-09-12](#2026-09-12) — Phase 1 documentation complete: full developer-readiness audit, cross-doc alignment (multi-pass), Mermaid rendering fixes, interactive architecture diagrams.
+
+<a id="2026-09-13"></a>
+## 2026-09-13
+**Focus:** Developer tooling — Claude Code subagent routing guideline.
+
+**Done:**
+- Created `guidelines/claude-code-subagents.md`: install instructions for `voltagent/awesome-claude-code-subagents`, routing map (backend/frontend/docker/CI-CD/review/tests), usage examples with project-specific context, pre-push hook reminder pattern
+- Added subagents entry to `development-flow.md §4` conventions map
+- Created `guidelines/templates/backend-CLAUDE.md` and `frontend-CLAUDE.md`: embed locked stack, module tiers, layer rules, money/events/auth non-negotiables, subagent routing, full conventions reference, compact pre-merge checklist
+- Added `cp` commands to `development-flow.md §2 Step 1` so new developers copy CLAUDE.md templates on first clone
+
+**Decisions:**
+- Pre-push hook is advisory (echo only), not blocking — keeps the policy in process rather than brittle shell enforcement
+
+**Next:**
+- Implementation kickoff: technical design phase or backlog decomposition (per BRD §12)
 
 <a id="2026-09-12"></a>
 ## 2026-09-12

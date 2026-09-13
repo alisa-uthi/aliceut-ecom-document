@@ -252,6 +252,8 @@ afterAll(async () => {
 
 Use `testcontainers-node` to spin up a real Postgres instance per test suite. Run migrations with `golang-migrate` before the suite starts.
 
+Migrations live in the backend repo under `migrations/phase-1/`. Override `MIGRATIONS_PATH` when running from a non-standard working directory.
+
 ```typescript
 import { PostgreSqlContainer, StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import { execSync } from 'child_process';
@@ -261,9 +263,9 @@ let pg: StartedPostgreSqlContainer;
 beforeAll(async () => {
   pg = await new PostgreSqlContainer('postgres:16-alpine').start();
 
-  // Apply all migrations before tests run
+  const migrationsPath = process.env.MIGRATIONS_PATH ?? './migrations/phase-1';
   execSync(
-    `migrate -path ./migrations -database "${pg.getConnectionUri()}" up`,
+    `migrate -path ${migrationsPath} -table schema_migrations_phase1 -database "${pg.getConnectionUri()}" up`,
     { stdio: 'inherit' },
   );
 });

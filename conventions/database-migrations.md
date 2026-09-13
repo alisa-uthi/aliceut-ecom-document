@@ -3,28 +3,28 @@
 **Status:** Complete  
 **Source of truth:** [BRD v1.2](../phase-1/requirements/BRD.md), [module-architecture](backend-module-architecture.md)
 
-Migration scripts live in a separate utility pipeline repository — **`alice-ut-utility-pipeline`** — not in the application source tree. The application repo (`alice-ut`) never runs migrations automatically; all migrations are intentional, operator-triggered actions.
+Migration scripts live in the backend repository — **`aliceut-ecom-backend`** — under `migrations/`. The backend never runs migrations automatically; all migrations are intentional, operator-triggered actions.
 
 ---
 
 ## Summary
 
-- [1. Utility pipeline repo layout](#utility-pipeline-repo-layout)
+- [1. Backend repo layout](#backend-repo-layout)
 - [2. Execution engine](#execution-engine)
 - [3. GitHub Actions workflows](#github-actions-workflows)
 - [4. GitHub Environments and secrets](#github-environments-and-secrets)
 - [5. Migration file conventions](#migration-file-conventions)
 
-<a id="utility-pipeline-repo-layout"></a>
-## 1. Utility pipeline repo layout
+<a id="backend-repo-layout"></a>
+## 1. Backend repo layout
 
 ```
-alice-ut-utility-pipeline/
+aliceut-ecom-backend/
 ├── .github/
 │   └── workflows/
 │       ├── db-migrate.yml          # apply / rollback / goto a version
 │       └── db-status.yml           # show current migration state per environment
-├── database/
+├── migrations/
 │   ├── phase-1/
 │   │   ├── 0001_create_extensions.up.sql
 │   │   ├── 0001_create_extensions.down.sql
@@ -35,10 +35,10 @@ alice-ut-utility-pipeline/
 │       ├── 0001_add_k8s_config.up.sql
 │       ├── 0001_add_k8s_config.down.sql
 │       └── ...
-└── README.md
+└── ...
 ```
 
-Each phase directory is an independent migration sequence starting at `0001`. Other utility workflows (e.g. seed data, infra scripts) live in sibling directories under the repo root — `database/` is specifically for schema migrations.
+Each phase directory is an independent migration sequence starting at `0001`. Keeping migrations in the backend repo means integration tests, local setup, and production deployments all reference the same source.
 
 ---
 
@@ -56,22 +56,22 @@ State table per phase (prevents cross-phase interference):
 
 ```bash
 # Apply all pending migrations in phase-1
-migrate -path database/phase-1 \
+migrate -path migrations/phase-1 \
         -database "$DATABASE_URL" \
         -table schema_migrations_phase1 up
 
 # Roll back 1 migration
-migrate -path database/phase-1 \
+migrate -path migrations/phase-1 \
         -database "$DATABASE_URL" \
         -table schema_migrations_phase1 down 1
 
 # Jump to a specific version
-migrate -path database/phase-1 \
+migrate -path migrations/phase-1 \
         -database "$DATABASE_URL" \
         -table schema_migrations_phase1 goto 5
 
 # Show current version
-migrate -path database/phase-1 \
+migrate -path migrations/phase-1 \
         -database "$DATABASE_URL" \
         -table schema_migrations_phase1 version
 ```
@@ -131,13 +131,13 @@ jobs:
           TABLE="schema_migrations_$(echo '${{ inputs.phase }}' | tr '-' '_')"
           case "${{ inputs.direction }}" in
             up)
-              migrate -path "database/${{ inputs.phase }}" -database "$DATABASE_URL" -table "$TABLE" up
+              migrate -path "migrations/${{ inputs.phase }}" -database "$DATABASE_URL" -table "$TABLE" up
               ;;
             down)
-              migrate -path "database/${{ inputs.phase }}" -database "$DATABASE_URL" -table "$TABLE" down ${{ inputs.version }}
+              migrate -path "migrations/${{ inputs.phase }}" -database "$DATABASE_URL" -table "$TABLE" down ${{ inputs.version }}
               ;;
             goto)
-              migrate -path "database/${{ inputs.phase }}" -database "$DATABASE_URL" -table "$TABLE" goto ${{ inputs.version }}
+              migrate -path "migrations/${{ inputs.phase }}" -database "$DATABASE_URL" -table "$TABLE" goto ${{ inputs.version }}
               ;;
           esac
 
@@ -176,11 +176,11 @@ jobs:
       - name: phase-1 version
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        run: migrate -path database/phase-1 -database "$DATABASE_URL" -table schema_migrations_phase1 version
+        run: migrate -path migrations/phase-1 -database "$DATABASE_URL" -table schema_migrations_phase1 version
       - name: phase-2 version
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        run: migrate -path database/phase-2 -database "$DATABASE_URL" -table schema_migrations_phase2 version
+        run: migrate -path migrations/phase-2 -database "$DATABASE_URL" -table schema_migrations_phase2 version
 ```
 
 ---
