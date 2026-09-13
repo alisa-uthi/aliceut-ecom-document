@@ -1406,7 +1406,8 @@ Fires when an admin lifts a seller's suspension (sets `suspension_status = ACTIV
         "fields": [
           { "name": "user_id",    "type": "string" },
           { "name": "email",      "type": "string" },
-          { "name": "changed_at", "type": "string", "doc": "ISO 8601" }
+          { "name": "changed_at", "type": "string", "doc": "ISO 8601" },
+          { "name": "changed_method",    "type": { "type": "enum", "name": "PasswordChangedMethod", "symbols": ["PASSWORD_RESET_LINK","ACCOUNT_SETTING"] } },
         ]
       }
     }

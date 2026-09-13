@@ -612,7 +612,7 @@ sequenceDiagram
     IS->>PG: UPDATE identity.password_reset_token SET used_at=NOW() WHERE id=$1
     IS->>PG: UPDATE identity.user SET password_hash=newHash WHERE id=token.user_id
     IS->>PG: UPDATE identity.refresh_session SET revoked_at=NOW() WHERE user_id=$1 AND revoked_at IS NULL
-    IS->>PG: INSERT platform.outbox_event (topic='auth.password_changed', payload={user_id, email, changed_at})
+    IS->>PG: INSERT platform.outbox_event (topic='auth.password_changed', payload={user_id, email, changed_at, changed_method='PASSWORD_RESET_LINK'})
     IS->>PG: COMMIT
 
     IS-->>A: success
@@ -685,7 +685,7 @@ sequenceDiagram
     IS->>PG: UPDATE identity.user SET password_hash=newHash WHERE id=JWT.sub
     IS->>PG: UPDATE identity.refresh_session SET revoked_at=NOW() WHERE user_id=JWT.sub AND token_hash != current_token_hash AND revoked_at IS NULL
     Note right of PG: revokes all sessions except the caller's current session
-    IS->>PG: INSERT platform.outbox_event (topic='auth.password_changed', payload={user_id, email, changed_at})
+    IS->>PG: INSERT platform.outbox_event (topic='auth.password_changed', payload={user_id, email, changed_at, changed_method='ACCOUNT_SETTING'})
     IS->>PG: COMMIT
 
     IS-->>A: success

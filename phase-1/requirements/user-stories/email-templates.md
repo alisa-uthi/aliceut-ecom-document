@@ -660,7 +660,8 @@ AliceUT
 
 ## ET-08 — Listing Flagged (listing.flagged)
 
-**Trigger:** `listing.flagged` event — consumer: `notification.listing-flagged`. Two sources: (1) seller edit save triggers keyword/category guard → listing flagged, ET-08 fires (US-S-04); (2) admin manually creates a moderation case via `POST /admin/moderation` (US-A-03). Note: keyword/category check at listing **creation** time returns 422 and rejects the create — no flag is created and ET-08 does not fire in that case.  
+**Trigger:** `listing.flagged` event — consumer: `notification.listing-flagged`. Two sources: (1) seller edit save triggers keyword/category guard → listing flagged, ET-08 fires (US-S-04); (2) admin manually creates a moderation case via `POST /admin/moderation` (US-A-03).  
+Note: keyword/category check at listing **creation** time returns 422 and rejects the create — no flag is created and ET-08 does not fire in that case.  
 **To:** seller  
 **CC:** admin  
 **Subject:** `Your listing is under review — {{product_title}}`

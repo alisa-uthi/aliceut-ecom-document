@@ -99,7 +99,7 @@ All application enums are defined as PostgreSQL custom types before any schema m
 | `seller_kyc_status` | `seller` | `PENDING_KYC`, `APPROVED`, `REJECTED` |
 | `seller_suspension_status` | `seller` | `ACTIVE`, `SUSPENDED` |
 | `kyc_status` | `seller` | `PENDING`, `UNDER_REVIEW`, `APPROVED`, `REJECTED` |
-| `moderation_status` | `admin` | `OPEN`, `RESOLVED` |
+| `moderation_status` | `admin` | `OPEN`, `RESOLVED`, `DISMISSED` |
 | `moderation_decision` | `admin` | `REMOVE`, `DISMISS` |
 | `outbox_publication_status` | `platform` | `PENDING`, `PUBLISHED`, `FAILED` |
 
@@ -420,7 +420,7 @@ One fulfillment per seller/currency group within a checkout. Carries the per-sel
 | `shipping_cost` | `NUMERIC(19,4)` | Required snapshot in `currency_code` (seller's native); `CHECK (shipping_cost >= 0)` |
 | `tax_total` | `NUMERIC(19,4)` | Required snapshot in `currency_code` (seller's native); `CHECK (tax_total >= 0)` |
 | `total_amount` | `NUMERIC(19,4)` | Required snapshot in `currency_code` (seller's native); `CHECK (total_amount >= 0)` |
-| `tracking_number` | `TEXT` | Required mock tracking number; format `TRK-<uuid8>`; generated at `PENDING`, immutable |
+| `tracking_number` | `TEXT` | Required mock tracking number; format `TRK-<first 8 uppercase hex chars of id>`; generated at `PENDING`, immutable |
 | `estimated_delivery_at` | `TIMESTAMPTZ` | Required mock ETA (today + 3–7 days, deterministic) |
 | `placed_at` | `TIMESTAMPTZ` | Required fulfillment creation time |
 | `shipped_at`, `delivered_at`, `refunded_at` | `TIMESTAMPTZ` | Nullable state-transition timestamps |

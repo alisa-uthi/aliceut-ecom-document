@@ -268,7 +268,7 @@ Priority: Must — trace: FR-B-10
 
 **Acceptance criteria**
 - Confirmation page shown after checkout completes. Shows Order ID (Order `ORD-<uuid8>`). Order total covers placed fulfillments only — skipped and failed items excluded. Up to three sections:
-  - **Placed items:** each fulfillment with currency total, per-item snapshot pricing, mock tracking `TRK-<uuid8>`, and ETA; grouped by seller.
+  - **Placed items:** each fulfillment with currency total, per-item snapshot pricing, mock tracking `TRK-<first 8 uppercase hex chars of id>`, and ETA; grouped by seller.
   - **Skipped items** (if any `skipped_items`): items whose offer was inactive at submit time; shown with product name and reason "No longer available"; remain in cart.
   - **Failed items** (if `PARTIALLY_PLACED`): items that could not be reserved; shown with product name and reason (e.g. "Out of stock"); remain in cart.
 - Tracking number assigned at `PENDING` placement, retained at shipment, never regenerated.
@@ -305,7 +305,7 @@ Priority: Must — trace: FR-B-10, FR-B-11
 | Trigger event | To | Template | Key content |
 |---|---|---|---|
 | Order placement finalized | Buyer | [ET-01](email-templates.md#et-01----order-summary-orderfinalized) | Order ID and placement outcome; placed fulfillments with snapshot pricing, mock tracking numbers, and ETAs; skipped items section (if any) with reason "No longer available"; failed groups section (if partially placed). One email per order regardless of fulfillment count. |
-| Fulfillment shipped | Buyer | [ET-02](email-templates.md#et-02----fulfillment-shipped-fulfillmentshipped) | Order `ORD-<uuid8>`, seller name, tracking number TRK-<uuid8>, ETA, items in shipment. |
+| Fulfillment shipped | Buyer | [ET-02](email-templates.md#et-02----fulfillment-shipped-fulfillmentshipped) | Order `ORD-<uuid8>`, seller name, tracking number TRK-<first 8 uppercase hex chars of id>, ETA, items in shipment. |
 | Fulfillment delivered | Buyer | [ET-03](email-templates.md#et-03----fulfillment-delivered-fulfillmentdelivered) | Order `ORD-<uuid8>`, seller name, items delivered. |
 | Fulfillment refunded | Buyer | [ET-04](email-templates.md#et-04----fulfillment-refunded-fulfillmentrefunded) | Order `ORD-<uuid8>`, seller name, refunded items with snapshot pricing, refund amount. |
 | Order fully completed | Buyer | [ET-05](email-templates.md#et-05----order-completed-ordercompleted) | Order `ORD-<uuid8>` complete — all items delivered. Only sent when order had ≥ 2 fulfillments; single-fulfillment orders rely on ET-03. |
