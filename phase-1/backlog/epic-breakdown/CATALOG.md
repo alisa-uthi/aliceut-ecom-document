@@ -1,6 +1,6 @@
 # EPIC: CATALOG — Catalog Module
 
-**Sprint:** 3  
+**Sprint:** 6–7  
 **Lib:** `libs/catalog/`  
 **Module:** `CatalogModule`  
 **Controllers:** `CategoriesController`, `ProductsController`, `SellerCatalogController`  
@@ -169,25 +169,26 @@ Overview: Manages the product taxonomy, seller listings, and listing lifecycle s
 
 ---
 
-### CATALOG-009 — SellerCatalogController (Create/Edit/Delete)
+### CATALOG-009 — Seller Product Writes (Create/Edit/Delete)
 
 - **US Ref:** US-S-03, US-S-04
 - **Estimate:** L
-- **Dependencies:** CATALOG-008, SELLER-008
-- **Spec References:** `phase-1/technical-design/api-design/catalog.md`, `phase-1/technical-design/data-model-erd.md`, `phase-1/technical-design/kafka-events.md`
+- **Dependencies:** CATALOG-008
+- **Spec References:** `phase-1/technical-design/api-design/seller.md` (Products endpoints), `phase-1/technical-design/api-design/catalog.md` (read-only vs. write-path split), `phase-1/technical-design/data-model-erd.md`, `phase-1/technical-design/backend-module-architecture.md`, `phase-1/technical-design/kafka-events.md`
 
 **Implementation Notes:**
-- All endpoints guarded by `@JwtAuthGuard` + `@Roles('SELLER')` + `SellerKycGuard` (approved + active seller only)
+- Per `backend-module-architecture.md`, these routes are served by `SellerModule`'s controller (not a catalog-module controller) — `catalog.md` is explicit that catalog endpoints are read-only public routes and all writes go through the Seller API
+- All endpoints guarded by `@JwtAuthGuard` + `@Roles('SELLER')` + `SellerKycGuard` (SELLER-008 — approved + active seller only). Not listed as a formal `backlog.md` dependency but required functionally; flagged.
 - `POST /seller/products` — DTO: `CreateProductDto { title (10-200), description (Markdown ≤5000), categoryId, variants: [...], initialInventory: number }` — creates Product + Offer + Stock (initial) + publishes product.changed + offer.changed events in one transaction
-- `PUT /seller/products/:id` — edit own product only; re-run keyword blocklist check on save
+- `PATCH /seller/products/:id` — edit own product only (all fields optional); re-run keyword blocklist check on save
 - `DELETE /seller/products/:id` — soft-delete: set `product.status = REMOVED`, all offers `status = REMOVED`; publish `listing.soft_deleted` event
-- Ownership check: `offer.seller_id = authenticated seller's profile id`; 404 if not owned
+- Ownership check: `offer.seller_id = authenticated seller's profile id`; 403 if not owner, 404 if product not found
 - Cannot delete listing with PENDING orders on any variant (check before delete)
 - No DRAFT state: listings go live immediately on create
 
 **Done Criteria:**
 - Create product → product in DB + offer in DB + outbox events published
-- Cannot edit another seller's product → 404
+- Cannot edit another seller's product → 403
 - Soft-delete with PENDING orders blocked → 422
 
 ---
@@ -211,7 +212,7 @@ Overview: Manages the product taxonomy, seller listings, and listing lifecycle s
 **Done Criteria:**
 - Title containing "cocaine" → offer flagged; `listing.flagged` event in outbox
 - Prohibited category → 422 blocked immediately
-- False-positive can be cleared by admin (via ADMIN-008)
+- False-positive can be cleared by admin (via ADMIN-007, `decision: DISMISS`)
 
 ---
 
@@ -223,11 +224,11 @@ Overview: Manages the product taxonomy, seller listings, and listing lifecycle s
 - **Spec References:** `phase-1/technical-design/api-design/catalog.md`, `phase-1/technical-design/data-model-erd.md`
 
 **Implementation Notes:**
+- Offers are created directly in `ACTIVE` (CATALOG-009 — no `DRAFT` state in V1)
 - Valid transitions (enforced in `OfferStatusService`):
-  - `DRAFT → ACTIVE` (seller activates)
   - `ACTIVE → FLAGGED` (keyword blocklist hit or admin flag)
-  - `FLAGGED → ACTIVE` (admin clears false positive via ADMIN-008)
-  - `FLAGGED → REMOVED` (admin removes via ADMIN-007)
+  - `FLAGGED → ACTIVE` (admin clears false positive via ADMIN-007, `decision: DISMISS`)
+  - `FLAGGED → REMOVED` (admin removes via ADMIN-007, `decision: REMOVE`)
   - `ACTIVE → INACTIVE` (seller deactivates; reason = `SELLER_MANUAL`)
   - `ACTIVE/INACTIVE → INACTIVE` (seller suspended; reason = `SUSPENSION`)
   - `INACTIVE → ACTIVE` (seller reinstated; only if reason = `SUSPENSION`)
@@ -249,12 +250,18 @@ Overview: Manages the product taxonomy, seller listings, and listing lifecycle s
 
 **Implementation Notes:**
 - Register Avro schemas in Schema Registry for: `product.changed` (v1), `offer.changed` (v1), `listing.soft_deleted` (v1), `listing.flagged` (v1)
-- `product.changed` payload: `{ product_id, status, category_id, title, description, brand, attributes, changed_at }`
-- `offer.changed` payload: `{ offer_id, product_id, seller_id, status, status_changed_reason, variant_id, changed_at }`
-- `listing.soft_deleted` payload: `{ offer_id, product_id, seller_id, soft_deleted_at }`
-- `listing.flagged` payload: `{ offer_id, product_id, seller_id, flag_reason, source, flagged_at }`
+- Exact payload fields per event: see `phase-1/technical-design/kafka-events.md` § product.changed / offer.changed / listing.soft_deleted / listing.flagged
 - Events published inside the domain transaction (same PG TX as the state change) by writing to `platform.outbox_event`
 
 **Done Criteria:**
 - Create product → `product.changed` + `offer.changed` events appear in Kafka UI within 2s of TX commit
 - Schema Registry shows all 4 schemas registered
+
+---
+
+## Notes / Flagged Discrepancies (not silently resolved)
+
+- **CATALOG-009 Dependencies field:** `backlog.md`'s row lists only `CATALOG-008`, not `SELLER-008`. The endpoint set functionally needs `SellerKycGuard` (SELLER-008) to gate seller-role writes — kept as a flagged prose note in Implementation Notes rather than added to the formal Dependencies field, per strict-`backlog.md`-mirroring policy.
+- **CATALOG-011 fixed:** the prior draft's offer status state machine included a `DRAFT → ACTIVE` transition, contradicting CATALOG-009's "No DRAFT state: listings go live immediately on create." Removed; offers are created directly in `ACTIVE`.
+- **CATALOG-012 scope kept beyond `backlog.md`'s title:** `backlog.md`'s canonical CATALOG-012 title lists only `product.changed, offer.changed, listing.soft_deleted`, omitting `listing.flagged` — but CATALOG-010 explicitly requires publishing `listing.flagged`, and this file's own header `Kafka producers` line already includes it. Kept `listing.flagged` in scope rather than dropping a functionally-required event; flagged for the spec owner to reconcile the title.
+- **Unresolved cross-epic/cross-doc conflict (flagged only, not acted on):** `api-design/catalog.md` states "Catalog endpoints are read-only public routes. All writes go through the Seller API (`/seller/products`, `/seller/offers`)" — implying offer/product create-edit-delete belongs to the Seller module. `api-design/seller.md`'s Endpoint Index documents exactly that surface (`POST/GET/PATCH /seller/offers`, `PUT .../prices/:priceType`) under what reads as the Seller module's own controller. Yet `backlog.md`'s CATALOG-009 assigns this same create/edit/delete work to a `SellerCatalogController` inside the **CATALOG** epic (as built here). This is a genuine architecture-level inconsistency across `api-design/catalog.md`, `api-design/seller.md`, and `backlog.md`'s epic assignment — re-architecting epic ownership is out of scope for this alignment pass; flagged for the spec owner.

@@ -1,253 +1,205 @@
-# EPIC: FE-SHARED — Frontend Shared Libraries
+# Epic: FE-SHARED — Frontend Shared Libraries
 
-**Sprint:** 9–10  
-**Total Tasks:** 7  
+**Epic ID:** FE-SHARED  
+**Sprint(s):** 16  
+**Total Tasks:** 12
 
-Shared Angular libraries used by all three portals: API client, Angular Material theme, auth state management, common UI components, HTTP interceptors, guards, and error handling. Must be in place before any portal-specific feature work begins.
+## Epic Goal
+
+Shared Angular libraries used by all three portals (buyer-app :4200, seller-app :4201, admin-app :4202): Nx workspace, Angular Material theme, HTTP client + interceptors, decimal display pipe, auth state + guards, shared UI component library, nginx build, OpenAPI client generation. Must be in place before any portal-specific feature work begins.
 
 ---
 
-## FE-SHARED-001 — Angular Material Theme Setup
+### FE-SHARED-001 — Nx Frontend Workspace Setup
 
 - **US Ref:** —
-- **Estimate:** M
-- **Dependencies:** INFRA-002
-- **Spec References:** `phase-1/technical-design/backend-module-architecture.md`
-
-**Implementation Notes**
-
-- File: `libs/shared/src/styles/theme.scss`
-- Angular Material 3 custom theme using M3 `mat.define-theme()`:
-  ```scss
-  @use '@angular/material' as mat;
-  
-  $aliceut-theme: mat.define-theme((
-    color: (
-      theme-type: light,
-      primary: mat.$violet-palette,    // adjust per Figma design
-      tertiary: mat.$blue-palette,
-    ),
-    typography: (
-      brand-family: 'Roboto, sans-serif',
-    ),
-    density: (
-      scale: 0,
-    ),
-  ));
-  
-  html {
-    @include mat.all-component-themes($aliceut-theme);
-  }
-  ```
-- Dark mode: `prefers-color-scheme: dark` variant using `mat.define-theme(theme-type: dark)`
-- Import `theme.scss` in each app's `styles.scss`
-- Google Fonts: `Roboto:300,400,500,700` loaded in each app's `index.html`
-- Global reset: `body { margin: 0; font-family: Roboto, sans-serif; }`
-- Reference Figma file (`F69ukaWjsqx4adgo26vDFQ`) via `aliceut-design-system` skill when finalizing colors
-
-**Done Criteria**
-
-- Angular Material components render with AliceUT theme in all three portals
-- No console warnings about missing theme providers
-- Light/dark mode switching works with `prefers-color-scheme`
-- Figma color tokens mapped to Material palette tokens
-
----
-
-## FE-SHARED-002 — API Client (OpenAPI-Generated)
-
-- **US Ref:** —
-- **Estimate:** M
-- **Dependencies:** INFRA-001, INFRA-002
-- **Spec References:** `phase-1/technical-design/backend-module-architecture.md`
-
-**Implementation Notes**
-
-- Package: `@openapitools/openapi-generator-cli`
-- Generator: `typescript-angular` generator
-- npm script: `"api:generate": "openapi-generator-cli generate -i http://localhost:3000/api/docs-json -g typescript-angular -o libs/api-client/src"`
-- `libs/api-client/` is DO-NOT-EDIT (regenerated from OpenAPI spec)
-- Generated services available as Angular `Injectable` services; use `provideHttpClient()` in all portals
-- Base URL configured in each portal's `environment.ts`:
-  ```ts
-  export const environment = {
-    apiBaseUrl: '/api',  // proxied to localhost:3000 in dev
-    production: false,
-  };
-  ```
-- `ApiModule.forRoot(() => new Configuration({ basePath: environment.apiBaseUrl }))` in each app's `AppModule`
-- Manual interim: hand-write API services for Sprint 9-10 features; regenerate once backend is stable (Sprint 10)
-
-**Done Criteria**
-
-- `npm run api:generate` runs without error when backend is running
-- Generated `AuthService`, `CartService`, `SearchService` inject correctly in Angular
-- API base URL correctly points to backend in dev (proxied) and prod (nginx)
-- Regenerating does not break existing portal code (check for breaking changes before committing)
-
----
-
-## FE-SHARED-003 — Auth State Service (NgRx/Signal Store)
-
-- **US Ref:** US-B-01
 - **Estimate:** L
-- **Dependencies:** FE-SHARED-002
-- **Spec References:** `phase-1/technical-design/backend-module-architecture.md`
+- **Dependencies:** INFRA-002
+- **Spec References:** `conventions/frontend-coding-standards.md`
 
-**Implementation Notes**
+**Implementation Notes:**
+- Angular 22+ Nx workspace; apps: `buyer-app` (:4200), `seller-app` (:4201), `admin-app` (:4202); libs: `shared`, `api-client`
+- Workspace/lib boundaries and naming: per `conventions/frontend-coding-standards.md`
 
-- Use Angular Signals (Angular 17+) or NgRx Signal Store (simpler than full NgRx for V1)
-- `AuthStore` in `libs/shared/src/auth/auth.store.ts`:
-  ```ts
-  export const AuthStore = signalStore(
-    { providedIn: 'root' },
-    withState({
-      user: null as UserProfile | null,
-      accessToken: null as string | null,
-      refreshToken: null as string | null,
-      isLoading: false,
-      error: null as string | null,
-    }),
-    withMethods((store) => ({
-      login: rxMethod<LoginCredentials>(...),    // calls POST /auth/login
-      logout: rxMethod<void>(...),               // calls POST /auth/logout
-      refresh: rxMethod<void>(...),              // calls POST /auth/refresh
-      restoreSession: rxMethod<void>(...),       // called on app init; reads tokens from memory
-    })),
-    withComputed((store) => ({
-      isAuthenticated: computed(() => !!store.accessToken()),
-      userRole: computed(() => store.user()?.role ?? null),
-    }))
-  );
-  ```
-- Token storage: **in-memory only** (not localStorage) for security; refresh token also in memory
-- Session persistence: re-login required on page refresh (acceptable for V1; localStorage persistence in Phase 2)
-- Auto-refresh: `HttpInterceptor` catches 401 responses; calls `refresh()`; retries original request once
-
-**Done Criteria**
-
-- Login sets `accessToken` and `user` in store
-- Logout clears all state; calls `POST /auth/logout`
-- Page refresh loses session (by design in V1)
-- `isAuthenticated` signal returns true after login, false after logout
-- Token not in `localStorage` or `sessionStorage` (confirmed via browser DevTools)
+**Done Criteria:**
+- `nx serve buyer-app`, `nx serve seller-app`, `nx serve admin-app` each start on their designated port
 
 ---
 
-## FE-SHARED-004 — HTTP Interceptors
+### FE-SHARED-002 — Angular Material Theme Setup
 
 - **US Ref:** —
 - **Estimate:** M
-- **Dependencies:** FE-SHARED-003
-- **Spec References:** `phase-1/technical-design/backend-module-architecture.md`
+- **Dependencies:** FE-SHARED-001
+- **Spec References:** `conventions/design-system.md`, Figma file `F69ukaWjsqx4adgo26vDFQ` (`aliceut-design-system` skill)
 
-**Implementation Notes**
+**Implementation Notes:**
+- Design tokens, typography, color palette: per `conventions/design-system.md`
+- Shared `theme.scss` imported by all three portals
 
-- `authInterceptor` (`libs/shared/src/interceptors/auth.interceptor.ts`): adds `Authorization: Bearer {accessToken}` to all requests (if token present); skips for `/auth/login`, `/auth/register`, `/auth/refresh`
-- `refreshInterceptor`: catches 401 responses; attempts token refresh via `AuthStore.refresh()`; retries original request with new token; on second 401, logs out user
-- `errorInterceptor`: catches 4xx/5xx; maps to user-friendly messages; shows `MatSnackBar` notification for common errors (403 = "Access denied", 404 = "Not found", 500 = "Server error")
-- `loadingInterceptor`: tracks pending requests; updates `LoadingService.isLoading` signal; used by global loading spinner
-- Apply all interceptors in `provideHttpClient(withInterceptors([...]))` in each portal's `app.config.ts`
-
-**Done Criteria**
-
-- API request includes `Authorization` header with valid token
-- 401 response triggers refresh; original request retried with new token
-- Second consecutive 401: user logged out; redirected to login page
-- Error snackbar appears on 500 response
-- Loading spinner visible during API requests
+**Done Criteria:**
+- Material components render with the AliceUT theme in all three portals
 
 ---
 
-## FE-SHARED-005 — Route Guards
+### FE-SHARED-003 — HTTP Client Config
 
 - **US Ref:** —
 - **Estimate:** S
-- **Dependencies:** FE-SHARED-003
-- **Spec References:** `phase-1/technical-design/backend-module-architecture.md`
+- **Dependencies:** FE-SHARED-001
+- **Spec References:** `conventions/api-conventions.md`
 
-**Implementation Notes**
+**Implementation Notes:**
+- Per-portal `environment.ts` with API base URL; `withCredentials: true` so the refresh-token cookie is sent (per `conventions/auth-jwt-design.md`)
 
-- `authGuard` (`canActivate`): redirects to `/login` if `!isAuthenticated`; stores `returnUrl` in query param
-- `roleGuard` (`canActivate`): factory function `roleGuard(['seller'])` → checks `userRole`; redirects to `/unauthorized` if wrong role
-- `guestGuard` (`canActivate`): redirects authenticated users away from login/register pages (to appropriate portal home)
-- `sellerActiveGuard`: additionally checks `sellerStatus === 'ACTIVE'` (from seller profile API call); redirects to `/seller/pending-kyc` if not active
-- Use functional guards (Angular 15+ style):
-  ```ts
-  export const authGuard: CanActivateFn = (route, state) => {
-    const auth = inject(AuthStore);
-    return auth.isAuthenticated() ? true : inject(Router).parseUrl(`/login?returnUrl=${state.url}`);
-  };
-  ```
-
-**Done Criteria**
-
-- Unauthenticated user navigating to `/orders`: redirected to `/login?returnUrl=/orders`
-- After login: redirected back to `/orders` (via `returnUrl`)
-- Buyer navigating to `/seller/dashboard`: redirected to `/unauthorized`
-- Authenticated user navigating to `/login`: redirected to home
+**Done Criteria:**
+- Requests from each portal reach the backend with the refresh cookie attached
 
 ---
 
-## FE-SHARED-006 — Common UI Components
+### FE-SHARED-004 — Auth Interceptor
 
-- **US Ref:** —
+- **US Ref:** US-B-00
 - **Estimate:** L
 - **Dependencies:** FE-SHARED-001
-- **Spec References:** `phase-1/technical-design/backend-module-architecture.md`
+- **Spec References:** `conventions/auth-jwt-design.md`
 
-**Implementation Notes**
+**Implementation Notes:**
+- Attaches JWT access token to outgoing requests; on `401`, calls refresh (`POST /auth/refresh`) and retries once; on repeat failure, redirects to the appropriate portal login
+- Token rotation/refresh contract: per `conventions/auth-jwt-design.md`
 
-- `libs/shared/src/components/`:
-- `<app-loading-spinner>`: full-page overlay spinner using `LoadingService.isLoading` signal; `MatProgressSpinner`
-- `<app-error-page>`: generic error page (404, 403, 500); accepts `@Input() code` and `@Input() message`
-- `<app-pagination>`: cursor-based pagination controls; emits `(pageChange)` event with cursor; `@Input() hasMore`, `@Input() loading`
-- `<app-money>`: renders monetary value correctly; `@Input() amount: string`, `@Input() currency: string`; formats using `Intl.NumberFormat`; never accepts `number` input
-- `<app-notification-badge>`: unread count badge for notification bell icon; subscribes to `NotificationStore`
-- `<app-avatar>`: user/seller avatar with fallback initial; accepts `@Input() imageUrl`, `@Input() name`
-- All components use `OnPush` change detection strategy
-- All components are standalone (`standalone: true`)
-
-**Done Criteria**
-
-- `<app-money amount="1234.5600" currency="JPY">` renders `¥1,235` (JPY no decimals)
-- `<app-money amount="25.9900" currency="USD">` renders `$25.99`
-- Loading spinner shows/hides correctly with active HTTP requests
-- All components lint-clean; no `any` types
+**Done Criteria:**
+- Expired access token → transparent refresh + retry; refresh failure → redirect to login
 
 ---
 
-## FE-SHARED-007 — Error Handling & Notification Toast
+### FE-SHARED-005 — Error Interceptor
+
+- **US Ref:** US-P-09
+- **Estimate:** M
+- **Dependencies:** FE-SHARED-001
+- **Spec References:** `conventions/api-conventions.md` (RFC 7807 error shape)
+
+**Implementation Notes:**
+- Maps RFC 7807 API error responses to user-friendly messages; structured error display via shared UI (see FE-SHARED-010)
+
+**Done Criteria:**
+- A 4xx/5xx API error renders a readable message, not a raw stack/JSON dump
+
+---
+
+### FE-SHARED-006 — Correlation ID Header Interceptor
+
+- **US Ref:** NFR-12
+- **Estimate:** S
+- **Dependencies:** FE-SHARED-001
+- **Spec References:** `conventions/observability.md`
+
+**Implementation Notes:**
+- Adds `X-Correlation-ID` (UUID, generated per request or reused per user session per spec) to every outgoing HTTP request
+
+**Done Criteria:**
+- Every request in DevTools Network tab carries an `X-Correlation-ID` header
+
+---
+
+### FE-SHARED-007 — Decimal Display Pipe
+
+- **US Ref:** US-P-04
+- **Estimate:** M
+- **Dependencies:** FE-SHARED-001
+- **Spec References:** `phase-1/ui-design/shared-components.md` § 8 Pipes (`currencyDisplay`)
+
+**Implementation Notes:**
+- Implements the `currencyDisplay` pipe per `shared-components.md`: `Intl.NumberFormat` + currency-aware decimal places (`Currency.minor_unit_scale`; JPY=0, others=2 in V1); input `amount` is always a string, converted to `Number` for formatting only — never for arithmetic
+- Used by `PriceDisplayComponent` (FE-SHARED-010) and `DataTableComponent`'s `pipe: 'currencyDisplay'` column option
+
+**Done Criteria:**
+- Per `shared-components.md`'s `currencyDisplay` examples: `"99.99" | currencyDisplay:"THB"` renders with correct symbol/decimals; JPY amounts show 0 decimals
+
+---
+
+### FE-SHARED-008 — Auth State Service
+
+- **US Ref:** US-B-00
+- **Estimate:** M
+- **Dependencies:** FE-SHARED-001
+- **Spec References:** `conventions/auth-jwt-design.md`
+
+**Implementation Notes:**
+- Signals-based store: `currentUser`, `isAuthenticated`, `roles`; consumed by FE-SHARED-004 (auth interceptor) and FE-SHARED-009 (route guards)
+- Token storage per `conventions/auth-jwt-design.md`
+
+**Done Criteria:**
+- Login populates `currentUser`/`roles`; logout clears state; `isAuthenticated` reflects current session
+
+---
+
+### FE-SHARED-009 — Route Guards
+
+- **US Ref:** US-A-00b
+- **Estimate:** M
+- **Dependencies:** FE-SHARED-008
+- **Spec References:** `conventions/auth-jwt-design.md`
+
+**Implementation Notes:**
+- `AuthGuard`: redirects unauthenticated users to the correct portal login
+- `RoleGuard`: buyer/seller/admin role check; redirects to `/unauthorized` on mismatch
+
+**Done Criteria:**
+- Unauthenticated access to a guarded route → redirected to login
+- Wrong-role access to a guarded route → redirected to `/unauthorized`
+
+---
+
+### FE-SHARED-010 — Shared UI Components Lib
 
 - **US Ref:** —
-- **Estimate:** S
-- **Dependencies:** FE-SHARED-004
-- **Spec References:** `phase-1/technical-design/backend-module-architecture.md`
+- **Estimate:** L
+- **Dependencies:** FE-SHARED-002
+- **Spec References:** `phase-1/ui-design/shared-components.md` (full component/pipe contract)
 
-**Implementation Notes**
+**Implementation Notes:**
+- `libs/ui/` (`LibsUiModule`), standalone components, per `shared-components.md`:
+  - `NotificationBellComponent` — `<aliceut-notification-bell>`
+  - `StatusBadgeComponent` — `<aliceut-status-badge>`
+  - `PriceDisplayComponent` — `<aliceut-price-display>` (uses `currencyDisplay` pipe from FE-SHARED-007)
+  - `EmptyStateComponent` — `<aliceut-empty-state>`
+  - `DataTableComponent` — `<aliceut-data-table>` (wraps `MatTable` + `MatPaginator` + `MatSort`)
+  - `FileUploadComponent` — `<aliceut-file-upload>`
+  - `ConfirmDialogComponent` (opened via `MatDialog.open`)
+  - Pipes: `timeAgo`, `truncate` (both alongside `currencyDisplay` from FE-SHARED-007)
+- Do not re-embed each component's full input/output contract here — see `shared-components.md` §§1–8 for exact APIs
 
-- `NotificationService` wraps `MatSnackBar`:
-  ```ts
-  @Injectable({ providedIn: 'root' })
-  export class NotificationService {
-    success(message: string): void { /* green snackbar, 3s */ }
-    error(message: string): void   { /* red snackbar, 5s */ }
-    info(message: string): void    { /* blue snackbar, 3s */ }
-    warning(message: string): void { /* yellow snackbar, 4s */ }
-  }
-  ```
-- `GlobalErrorHandler`: Angular `ErrorHandler` implementation; catches unhandled component errors; shows generic error toast; logs to console
-- Register in all portals: `{ provide: ErrorHandler, useClass: GlobalErrorHandler }`
-- API error mapping (in `errorInterceptor`): map HTTP error codes to user messages:
-  - 400 `INSUFFICIENT_STOCK` → "Some items are out of stock"
-  - 409 `EMAIL_TAKEN` → "This email is already registered"
-  - 403 `SELLER_SUSPENDED` → "This seller is currently suspended"
-  - 422 validation errors → show first field error from `error.details`
-  - 5xx → "Something went wrong. Please try again."
+**Done Criteria:**
+- All components/pipes listed above implemented per `shared-components.md`'s contracts and usable from all three portals
 
-**Done Criteria**
+---
 
-- `notificationService.success('Order placed!')` shows green snackbar
-- HTTP 500 response: generic error toast shown; no stack trace to user
-- Form validation error (400): correct field error message displayed
-- `GlobalErrorHandler` prevents white screen on uncaught component errors
+### FE-SHARED-011 — nginx Dockerfile for Angular Apps
+
+- **US Ref:** —
+- **Estimate:** M
+- **Dependencies:** INFRA-003
+- **Spec References:** `phase-1/technical-design/docker-compose-topology.md`
+
+**Implementation Notes:**
+- Multi-stage build (Angular build → nginx serve) for each of the three apps; nginx proxies `/api/*` to `api:3000`
+
+**Done Criteria:**
+- `docker-compose up` serves all three portals via nginx; `/api/*` requests reach the backend container
+
+---
+
+### FE-SHARED-012 — OpenAPI Client Generation
+
+- **US Ref:** —
+- **Estimate:** M
+- **Dependencies:** SHARED-007
+- **Spec References:** `conventions/api-conventions.md`
+
+**Implementation Notes:**
+- `openapi-generator-cli` (`typescript-angular` generator) against the backend's Swagger/OpenAPI JSON (SHARED-007); npm script; generated `libs/api-client/` carries a do-not-edit banner
+
+**Done Criteria:**
+- `npm run api:generate` produces Angular-injectable API services with no manual edits required to consume them

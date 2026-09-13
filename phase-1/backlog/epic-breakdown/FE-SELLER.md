@@ -23,7 +23,7 @@ Seller portal (separate Angular app at `seller-app`): KYC onboarding flow, produ
 - Route: `/dashboard` (seller-app root; requires `sellerGuard` + `sellerActiveGuard`)
 - Summary cards: total listings count, active orders count, pending fulfillments count
 - Revenue summary: total revenue last 30 days (from `GET /seller/dashboard` endpoint)
-- Revenue displayed via `<app-money>` — always string, USD base
+- Revenue displayed via `<aliceut-price-display>` — always string, USD base
 - Recent orders table: last 5 fulfillments with status badge
 - Quick-action buttons: "Add product", "View fulfillments"
 
@@ -39,7 +39,7 @@ Seller portal (separate Angular app at `seller-app`): KYC onboarding flow, produ
 
 - **US Ref:** US-S-02
 - **Estimate:** M
-- **Dependencies:** FE-SHARED-001
+- **Dependencies:** FE-AUTH-009
 - **Spec References:** `phase-1/technical-design/api-design/seller.md`
 
 **Implementation Notes:**
@@ -67,15 +67,9 @@ Seller portal (separate Angular app at `seller-app`): KYC onboarding flow, produ
 - **Spec References:** `phase-1/technical-design/api-design/seller.md`
 
 **Implementation Notes:**
-- Route: `/kyc/submit` (multi-step form)
-- Step 1: Business info — business name, registration number, address, tax ID
-- Step 2: Document upload — file input for each required document type (IDENTITY, BUSINESS_REG, TAX_CERT)
-  - Accepted: PDF, JPG, PNG; max 5MB each
-  - File preview: filename + size; remove button
-  - Upload via `POST /seller/kyc/documents` (multipart, one doc at a time)
-  - Upload progress indicator (MatProgressBar)
-- Step 3: Review & submit — `POST /seller/kyc/submit`
-- Cannot skip steps; stepper enforces order
+- Route: `/kyc/submit`. Stepper layout/fields per `phase-1/ui-design/seller-portal.md` §Screen 3
+- Document upload: `POST /seller/kyc/documents` (multipart, one doc at a time); shared `FileUploadComponent` (`shared-components.md` §6)
+- Final submit: `POST /seller/kyc/submit`
 
 **Done Criteria:**
 - All 3 document types uploaded before submit enabled
@@ -94,14 +88,9 @@ Seller portal (separate Angular app at `seller-app`): KYC onboarding flow, produ
 - **Spec References:** `phase-1/technical-design/api-design/catalog.md`, `phase-1/technical-design/api-design/pricing.md`
 
 **Implementation Notes:**
-- Routes: `/listings/new`, `/listings/:offerId/edit`
-- Sections:
-  - Product info: title (required), description, brand, category (MatSelect with category tree), attributes (dynamic key-value pairs)
-  - Pricing sub-form (see FE-SELLER-005 for detail)
-  - Inventory: initial stock quantity, low-stock threshold
-- Create flow: `POST /catalog/products` → `POST /catalog/offers` → set pricing → set inventory
+- Routes: `/listings/new`, `/listings/:offerId/edit`. Form layout/sections per `phase-1/ui-design/seller-portal.md` §Screen 6
+- Create flow: `POST /catalog/products` → `POST /catalog/offers` → set pricing (FE-SELLER-005) → set inventory
 - Edit flow: load offer data → `PATCH /catalog/offers/:offerId` (product data, price, inventory as separate calls)
-- Reactive form with `FormGroup`; all validators run before save
 - Auto-save draft to localStorage (keyed by offerId or "new") every 30s
 
 **Done Criteria:**
@@ -121,13 +110,9 @@ Seller portal (separate Angular app at `seller-app`): KYC onboarding flow, produ
 - **Spec References:** `phase-1/technical-design/api-design/pricing.md`
 
 **Implementation Notes:**
-- Embedded inside product form (FE-SELLER-004) as reusable component: `<app-pricing-form>`
+- Embedded in product form (FE-SELLER-004) as `<app-pricing-form>`; layout per `phase-1/ui-design/seller-portal.md` §Screen 11
 - Supported currencies: USD, THB, JPY, SGD only (V1)
-- Per currency:
-  - LIST price input: text input typed as `string`; validated via `new Decimal(value).isFinite()`
-  - SALE price (optional): text input + start/end date pickers (MatDatepicker)
-  - B2B price (optional; shown only if `user.accountType === 'BUSINESS'`): text input + min qty
-- Price inputs never bound to `number` type — always `string`
+- Price inputs never bound to `number` type — always `string`; validated via `new Decimal(value).isFinite()`
 - Calls `POST /pricing/offers/:offerId/prices` per currency
 - Validation: SALE price must be < LIST price (decimal comparison); end date must be > start date
 
@@ -148,12 +133,8 @@ Seller portal (separate Angular app at `seller-app`): KYC onboarding flow, produ
 - **Spec References:** `phase-1/technical-design/api-design/catalog.md`
 
 **Implementation Notes:**
-- Image upload widget inside product form
-- Multiple file inputs; max 5 images; accepted formats: JPG, PNG, WebP; max 2MB each
-- Drag-and-drop support via Angular CDK drag-and-drop (reorder images)
-- Upload via `POST /catalog/products/:productId/images` (multipart)
-- Upload one at a time; show progress bar per file
-- Thumbnail preview after upload; delete button per image
+- Image widget inside product form; layout/limits per `phase-1/ui-design/seller-portal.md` §Screen 6; shared `FileUploadComponent` (`shared-components.md` §6)
+- Upload via `POST /catalog/products/:productId/images` (multipart); reorder via `PATCH /catalog/products/:productId/images`
 - Image stored in MinIO `product-images` bucket; URL returned from API
 
 **Done Criteria:**
@@ -218,13 +199,8 @@ Seller portal (separate Angular app at `seller-app`): KYC onboarding flow, produ
 - **Spec References:** `phase-1/technical-design/api-design/catalog.md`, `phase-1/technical-design/api-design/seller.md`
 
 **Implementation Notes:**
-- Route: `/listings/import`
-- File input: CSV only; max 5MB
-- Client-side CSV preview (first 5 rows) before upload
-- CSV template download link (static file in assets)
-- Upload via `POST /seller/listings/import` (multipart)
-- Upload shows progress bar; server streams import progress via polling `GET /seller/import/:jobId/status`
-- Result display: rows imported / rows failed / error details table (row number + error message)
+- Route: `/listings/import`. Dialog layout per `phase-1/ui-design/seller-portal.md` §Screen 9 (CSV Import Dialog)
+- Upload via `POST /seller/listings/import` (multipart); progress polled via `GET /seller/import/:jobId/status`
 
 **Done Criteria:**
 - CSV preview shown before upload
@@ -243,11 +219,8 @@ Seller portal (separate Angular app at `seller-app`): KYC onboarding flow, produ
 - **Spec References:** `phase-1/technical-design/api-design/orders.md`, `phase-1/technical-design/api-design/seller.md`
 
 **Implementation Notes:**
-- Route: `/fulfillments`
-- Table: fulfillment ID, buyer name (partial — first name only for privacy), items summary, status badge, placed-at date, actions
-- Status filter: PENDING / PROCESSING / SHIPPED / DELIVERED / CANCELLED / REFUNDED
+- Route: `/fulfillments`. Table layout per `phase-1/ui-design/seller-portal.md` §Screen 7; shared `DataTableComponent` (`shared-components.md` §5)
 - Default filter: PENDING + PROCESSING (new orders needing action)
-- Actions per row: "View details" → `/fulfillments/:fulfillmentId`
 - Cursor-based "load more"
 
 **Done Criteria:**
@@ -265,14 +238,9 @@ Seller portal (separate Angular app at `seller-app`): KYC onboarding flow, produ
 - **Spec References:** `phase-1/technical-design/api-design/orders.md`, `phase-1/technical-design/api-design/seller.md`
 
 **Implementation Notes:**
-- Route: `/fulfillments/:fulfillmentId`
-- Sections: fulfillment items (with snapshot prices), buyer shipping address (display only), status timeline
-- Actions based on current status:
-  - PENDING/PROCESSING: "Mark as shipped" button → dialog asks for tracking number → `POST /orders/fulfillments/:id/ship`
-  - SHIPPED/DELIVERED: "Request refund" button → dialog with reason dropdown → `POST /orders/fulfillments/:id/refund`
-  - Any non-terminal: "Cancel" button → confirm dialog with reason → `POST /orders/fulfillments/:id/cancel`
-- All amount displays via `<app-money>` (snapshot prices from FulfillmentItem)
-- Tracking number field validates non-empty string
+- Route: `/fulfillments/:fulfillmentId`. Layout per `phase-1/ui-design/seller-portal.md` §Screen 8
+- Ship: `POST /orders/fulfillments/:id/ship`; Refund: `POST /orders/fulfillments/:id/refund`; Cancel: `POST /orders/fulfillments/:id/cancel`
+- Amounts from FulfillmentItem snapshot via `<aliceut-price-display>`
 
 **Done Criteria:**
 - Ship action shows tracking number input; validates non-empty

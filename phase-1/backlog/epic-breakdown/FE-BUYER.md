@@ -6,7 +6,7 @@
 
 ## Epic Goal
 
-Full buyer-facing storefront: home page, search + filters, product detail page (with other sellers section), cart, checkout, order confirmation, order history, order detail, profile, address book, notification bell. All money values via `<app-money>` (string-based); never JS `number` for display.
+Full buyer-facing storefront: home page, search + filters, product detail page (with other sellers section), cart, checkout, order confirmation, order history, order detail, profile, address book, notification bell. All money values via `PriceDisplayComponent`/`<aliceut-price-display>` (per `phase-1/ui-design/shared-components.md`; string-based, never JS `number`) for display.
 
 ---
 
@@ -20,13 +20,11 @@ Full buyer-facing storefront: home page, search + filters, product detail page (
 - **Spec References:** `phase-1/technical-design/api-design/catalog.md`, `phase-1/technical-design/api-design/search.md`
 
 **Implementation Notes:**
-- Route: `/` (buyer-app root)
-- Featured products section: `GET /search?limit=12&sortBy=newest` (no auth required)
-- Category grid: static list of top-level categories from `GET /catalog/categories`
-- Search bar (top nav): routes to `/search?q=` on submit
-- Responsive grid: 4 columns (desktop) → 2 (tablet) → 1 (mobile)
-- Product card: thumbnail, title, effective price (LIST or SALE), in-stock badge
-- Price rendered via `<app-money [amount]="product.listPriceUsd" currency="USD">`
+- Route: `/` (buyer-app root). Screen/layout/breakpoints per `phase-1/ui-design/buyer-portal.md` §Screen 1
+- Featured products: `GET /search?limit=12&sortBy=newest` (no auth required)
+- Category grid: `GET /catalog/categories`
+- Search bar (top nav) → `/search?q=` on submit
+- Price via `<aliceut-price-display>` (never raw number)
 
 **Done Criteria:**
 - Home page loads without auth
@@ -44,13 +42,9 @@ Full buyer-facing storefront: home page, search + filters, product detail page (
 - **Spec References:** `phase-1/technical-design/api-design/search.md`
 
 **Implementation Notes:**
-- Route: `/search?q=&category=&brand=&minPrice=&maxPrice=&inStockOnly=&sortBy=&cursor=`
+- Route: `/search?q=&category=&brand=&minPrice=&maxPrice=&inStockOnly=&sortBy=&cursor=`. Screen/layout per `phase-1/ui-design/buyer-portal.md` §Screen 2
 - `SearchService.search(params)` calls `GET /search` with all params
-- Results grid: same product card component as home page
-- Loading skeleton: MatSkeletonLoader placeholders while request pending
-- "No results" empty state with suggestions
-- Sort dropdown: Relevance / Price Low-High / Price High-Low / Newest
-- Cursor-based pagination: "Load more" button (not page numbers); appends results to list
+- Cursor-based pagination: "Load more" appends results to list
 - URL reflects all filter state (shareable links)
 
 **Done Criteria:**
@@ -69,14 +63,10 @@ Full buyer-facing storefront: home page, search + filters, product detail page (
 - **Spec References:** `phase-1/technical-design/api-design/search.md`, `phase-1/technical-design/api-design/catalog.md`
 
 **Implementation Notes:**
-- Collapsible left sidebar on search results page (hidden on mobile → drawer/sheet)
-- Filters:
-  - Category tree (from `GET /catalog/categories`; hierarchical checkboxes)
-  - Price range: two number inputs (stored as strings; parsed via `new Decimal()` before query)
-  - In-stock only: toggle
-  - Brand: multi-select checkboxes (top 10 brands from search results' aggregations — V1: static from search response)
+- Filter sidebar layout per `phase-1/ui-design/buyer-portal.md` §Screen 2 (Layout)
+- Category tree from `GET /catalog/categories`
+- Price range inputs: stored as strings; parsed via `new Decimal()` before query
 - Filter state synced to URL params; changes trigger new search
-- "Clear all filters" button resets to empty `q=` results
 
 **Done Criteria:**
 - Category filter shows only relevant categories for current results
@@ -94,14 +84,10 @@ Full buyer-facing storefront: home page, search + filters, product detail page (
 - **Spec References:** `phase-1/technical-design/api-design/catalog.md`, `phase-1/technical-design/api-design/cart.md`
 
 **Implementation Notes:**
-- Route: `/products/:offerId`
+- Route: `/products/:offerId`. Screen/layout per `phase-1/ui-design/buyer-portal.md` §Screen 3
 - Calls `GET /catalog/products/:productId` + `GET /catalog/offers/:offerId`
-- Image gallery: main image + thumbnails (from MinIO URLs in offer data)
-- Effective price display: if SALE price active, show SALE price + strikethrough LIST price
-- B2B badge: if `user.roles` includes `BUYER` + account type = business → show B2B badge
-- Add to cart: calls `POST /cart/items`; quantity selector (min 1, max available stock)
-- Stock indicator: "In stock" / "Low stock (X left)" / "Out of stock"
-- Seller info: seller name, rating placeholder (V1: static 4.5★)
+- Add to cart: `POST /cart/items`; quantity selector (min 1, max available stock)
+- Seller info: seller name only (ratings/reviews out of scope V1 per BRD §3.2)
 
 **Done Criteria:**
 - PDP loads for authenticated and unauthenticated users
@@ -119,17 +105,14 @@ Full buyer-facing storefront: home page, search + filters, product detail page (
 - **Spec References:** `phase-1/technical-design/api-design/catalog.md`
 
 **Implementation Notes:**
-- Section below main PDP content: "Other offers for this product"
-- Calls `GET /catalog/products/:productId/offers` (all active offers for same product)
-- Lists: seller name, price in buyer's currency, in-stock status, "Add to cart" button
-- Sorted by effective price ascending
-- Excludes current offer (the one shown in main PDP section)
+- Section within PDP per `phase-1/ui-design/buyer-portal.md` §Screen 3 ("Other Sellers")
+- Calls `GET /catalog/products/:productId/offers`; excludes current offer; sorted by effective price ascending
 - Hidden if only one offer exists
 
 **Done Criteria:**
 - Section visible when 2+ offers exist for same product
 - Clicking "Add to cart" in other-sellers section adds that seller's offer
-- Price shown for each offer (as string via `<app-money>`)
+- Price shown for each offer (as string via `<aliceut-price-display>`)
 - Section hidden when only one seller has this product
 
 ---
@@ -142,14 +125,11 @@ Full buyer-facing storefront: home page, search + filters, product detail page (
 - **Spec References:** `phase-1/technical-design/api-design/cart.md`
 
 **Implementation Notes:**
-- Route: `/cart` (requires `authGuard`)
-- Calls `GET /cart` on load; renders line items grouped by seller
-- Line item: product thumbnail, title, seller name, unit price (string), quantity input, remove button, line total
-- Quantity input: PATCH `/cart/items/:itemId` on change; debounce 500ms
-- Remove: DELETE `/cart/items/:itemId` with confirm dialog
-- Order summary: subtotal (sum of line totals), note about taxes/shipping
-- "Proceed to checkout" button → `/checkout`
-- Cart badge in nav: calls `GET /cart` → count of items
+- Route: `/cart` (requires `authGuard`). Screen/layout per `phase-1/ui-design/buyer-portal.md` §Screen 4
+- Calls `GET /cart` on load; items grouped by seller
+- Quantity change: `PATCH /cart/items/:itemId`, debounce 500ms
+- Remove: `DELETE /cart/items/:itemId` with confirm dialog
+- "Proceed to checkout" → `/checkout`
 
 **Done Criteria:**
 - Cart groups items by seller
@@ -167,20 +147,14 @@ Full buyer-facing storefront: home page, search + filters, product detail page (
 - **Spec References:** `phase-1/technical-design/api-design/orders.md`, `phase-1/technical-design/api-design/cart.md`
 
 **Implementation Notes:**
-- Route: `/checkout` (requires `authGuard`)
-- Step 1: Shipping address — select from address book (`GET /identity/addresses`) or add new inline
-- Step 2: Order summary — read-only cart grouped by seller with effective prices
-- Step 3: Payment — mock payment form (card number/expiry/CVV fields — display only, no real processing)
-- "Place order" button calls `POST /cart/checkout` with selected address
-- Loading state during checkout (can take several seconds: reservation + snapshot + fulfillment creation)
+- Route: `/checkout` (requires `authGuard`). Step layout per `phase-1/ui-design/buyer-portal.md` §Screen 5 (address / summary / mock payment — display only, no real processing)
+- "Place order" → `POST /cart/checkout` with selected address (address book: `GET /identity/addresses`)
 - On success: redirect to `/orders/:orderId/confirmation`
-- On error:
-  - `INSUFFICIENT_STOCK`: highlight out-of-stock items; prompt to remove
-  - `SELLER_SUSPENDED`: notify seller unavailable; prompt to remove
+- On error: `INSUFFICIENT_STOCK` → highlight out-of-stock items; `SELLER_SUSPENDED` → notify seller unavailable, prompt to remove
 
 **Done Criteria:**
 - Cannot proceed without valid shipping address
-- All amounts shown as strings via `<app-money>`
+- All amounts shown as strings via `<aliceut-price-display>`
 - "Place order" shows spinner; button disabled during request
 - On success: redirect to confirmation page with order ID
 - Insufficient stock: shows which items are unavailable (from error response)
@@ -195,12 +169,9 @@ Full buyer-facing storefront: home page, search + filters, product detail page (
 - **Spec References:** `phase-1/technical-design/api-design/orders.md`
 
 **Implementation Notes:**
-- Route: `/orders/:orderId/confirmation`
-- Calls `GET /orders/:orderId` to fetch order details
-- Shows: order ID, placed-at timestamp, items per seller, total amount, shipping address
-- "Continue shopping" button → `/`
-- "View order details" button → `/orders/:orderId`
-- Email confirmation notice: "A confirmation email has been sent to {email}"
+- Route: `/orders/:orderId/confirmation`. Screen per `phase-1/ui-design/buyer-portal.md` §Screen 6
+- Calls `GET /orders/:orderId`
+- "Continue shopping" → `/`; "View order details" → `/orders/:orderId`
 
 **Done Criteria:**
 - Loads correct order data after redirect from checkout
@@ -217,11 +188,9 @@ Full buyer-facing storefront: home page, search + filters, product detail page (
 - **Spec References:** `phase-1/technical-design/api-design/orders.md`
 
 **Implementation Notes:**
-- Route: `/orders` (requires `authGuard`)
-- Calls `GET /orders?limit=20&cursor=` with cursor pagination
-- Order card: order ID, placed-at date, status badge (OPEN/COMPLETED/CANCELLED), total amount, thumbnail of first item
-- Status badge colors: OPEN=blue, COMPLETED=green, CANCELLED=grey, PARTIAL_REFUND=orange
-- Cursor-based "load more"
+- Route: `/orders` (requires `authGuard`). Screen per `phase-1/ui-design/buyer-portal.md` §Screen 7
+- Calls `GET /orders?limit=20&cursor=`; cursor-based "load more"
+- Status badge via shared `StatusBadgeComponent` (`shared-components.md` §2)
 - Filter: status filter chips (All / Active / Completed / Cancelled)
 
 **Done Criteria:**
@@ -240,15 +209,10 @@ Full buyer-facing storefront: home page, search + filters, product detail page (
 - **Spec References:** `phase-1/technical-design/api-design/orders.md`
 
 **Implementation Notes:**
-- Route: `/orders/:orderId`
+- Route: `/orders/:orderId`. Screen per `phase-1/ui-design/buyer-portal.md` §Screen 8
 - Calls `GET /orders/:orderId`
-- Sections:
-  - Order header: ID, placed-at, overall status
-  - Fulfillments list: per-seller section showing items, fulfillment status, tracking number (if shipped)
-  - Payment summary: amount paid (from snapshot; as string)
-  - Shipping address (display only; PII — rendered as-is, never logged client-side)
-- Fulfillment status badges per seller: PENDING/PROCESSING/SHIPPED/DELIVERED/CANCELLED/REFUNDED
-- "Track shipment" link: opens tracking URL in new tab (mock URL from `tracking_number` field)
+- Amounts from FulfillmentItem snapshot; shipping address is PII — display only, never logged client-side
+- "Track shipment" link: opens mock tracking URL from `tracking_number` (visible only when `status = SHIPPED`)
 
 **Done Criteria:**
 - All amounts from FulfillmentItem snapshot (not live pricing)
@@ -265,13 +229,10 @@ Full buyer-facing storefront: home page, search + filters, product detail page (
 - **Spec References:** `phase-1/technical-design/api-design/catalog.md`
 
 **Implementation Notes:**
-- Route: `/account/profile` (requires `authGuard`)
-- Calls `GET /identity/profile`
-- Editable fields: first name, last name, phone
-- Avatar upload: file input → `POST /identity/profile/avatar` (multipart); preview before upload
-- Read-only fields: email (change email flow out of scope V1)
-- Save via `PATCH /identity/profile`
-- MatFormField with reactive form + validators
+- Route: `/account/profile` (requires `authGuard`). Screen per `phase-1/ui-design/buyer-portal.md` §Screen 11
+- Calls `GET /identity/profile`; save via `PATCH /identity/profile`
+- Avatar upload: `POST /identity/profile/avatar` (multipart)
+- Email read-only (change-email flow out of scope V1)
 
 **Done Criteria:**
 - Profile loads with current values pre-filled
@@ -289,13 +250,11 @@ Full buyer-facing storefront: home page, search + filters, product detail page (
 - **Spec References:** `phase-1/technical-design/api-design/catalog.md`
 
 **Implementation Notes:**
-- Route: `/account/addresses` (requires `authGuard`)
+- Route: `/account/addresses` (requires `authGuard`). Screen per `phase-1/ui-design/buyer-portal.md` §Screen 11 (address tab)
 - Calls `GET /identity/addresses`
-- Address cards: full address display, "Default" badge on default address, Edit / Delete buttons
-- Max 10 addresses enforced by API; if 10 exist, hide "Add address" button + show tooltip
-- Add/edit: inline expand or MatDialog form (street, city, state, postal, country, label)
-- Delete: confirm dialog before `DELETE /identity/addresses/:id`
-- Set default: PUT button calls `PATCH /identity/addresses/:id { isDefault: true }`
+- Max 10 addresses enforced by API; hide "Add address" once reached
+- Delete: confirm dialog via shared `ConfirmDialogComponent` (`shared-components.md` §7) → `DELETE /identity/addresses/:id`
+- Set default: `PATCH /identity/addresses/:id { isDefault: true }`
 
 **Done Criteria:**
 - Default address marked visually
@@ -309,17 +268,14 @@ Full buyer-facing storefront: home page, search + filters, product detail page (
 
 - **US Ref:** US-B-13
 - **Estimate:** M
-- **Dependencies:** FE-SHARED-010
+- **Dependencies:** FE-SHARED-006
 - **Spec References:** `phase-1/technical-design/api-design/orders.md`
 
 **Implementation Notes:**
-- `<app-notification-badge>` in top nav (auth-required; hidden when logged out)
-- Badge count from `GET /notifications/unread-count` (polled every 30s via `interval(30000)`)
-- Click opens MatMenu dropdown showing latest 5 unread notifications
-- Each row: icon by type, title, relative time (e.g. "2 minutes ago")
-- "Mark all read" button calls `POST /notifications/read-all`
-- "View all" link → `/notifications`
-- `/notifications` route: full paginated list using `GET /notifications`
+- Shared `NotificationBellComponent` (`phase-1/ui-design/shared-components.md` §1) in top nav; `/notifications` route per `buyer-portal.md` §Screen 16
+- Badge count: `GET /notifications/unread-count`, polled every 30s
+- "Mark all read" → `POST /notifications/read-all`
+- `/notifications` full list: `GET /notifications` (paginated)
 
 **Done Criteria:**
 - Badge count updates within 30s of new notification

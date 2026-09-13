@@ -45,12 +45,9 @@ Admin portal (separate Angular app at `admin-app`): KYC review queue, listing mo
 - **Spec References:** `phase-1/technical-design/api-design/admin.md`
 
 **Implementation Notes:**
-- Route: `/kyc`
+- Route: `/kyc`. Table layout per `phase-1/ui-design/admin-portal.md` §Screen 3; shared `DataTableComponent` (`shared-components.md` §5)
 - Calls `GET /admin/kyc?status=UNDER_REVIEW&limit=20&cursor=`
-- Table: business name, submitted-at date, document count, status badge, "Review" button
-- Status filter: UNDER_REVIEW / APPROVED / REJECTED (default: UNDER_REVIEW)
-- Sort: submitted-at ascending (oldest first — FIFO review queue)
-- Cursor-based "load more"
+- Default filter/sort: UNDER_REVIEW, submitted-at ascending (FIFO review queue)
 
 **Done Criteria:**
 - Queue shows UNDER_REVIEW submissions oldest-first
@@ -68,15 +65,11 @@ Admin portal (separate Angular app at `admin-app`): KYC review queue, listing mo
 - **Spec References:** `phase-1/technical-design/api-design/admin.md`
 
 **Implementation Notes:**
-- Route: `/kyc/:sellerId`
+- Route: `/kyc/:sellerId`. Layout per `phase-1/ui-design/admin-portal.md` §Screen 4
 - Calls `GET /admin/sellers/:sellerId` + `GET /seller/kyc/documents/:sellerId`
-- Sections:
-  - Seller info: business name, registration number, tax ID, contact
-  - Documents: each document shown with type label + "View document" button
-  - Document viewer: opens KYC doc from MinIO in new tab (pre-signed URL from `GET /admin/kyc/documents/:docId/url`)
-- Action buttons:
-  - "Approve": `POST /admin/kyc/:sellerId/approve` → confirm dialog → success snackbar + redirect to queue
-  - "Reject": dialog with required rejection reason text input → `POST /admin/kyc/:sellerId/reject { reason }` → redirect to queue
+- Document viewer: pre-signed URL from `GET /admin/kyc/documents/:docId/url`
+- "Approve": `POST /admin/kyc/:sellerId/approve` → confirm dialog → redirect to queue
+- "Reject": required reason → `POST /admin/kyc/:sellerId/reject { reason }` → redirect to queue
 - KYC doc access logged by backend (NFR-09); no client-side logging needed
 
 **Done Criteria:**
@@ -95,11 +88,9 @@ Admin portal (separate Angular app at `admin-app`): KYC review queue, listing mo
 - **Spec References:** `phase-1/technical-design/api-design/admin.md`
 
 **Implementation Notes:**
-- Route: `/moderation`
+- Route: `/moderation`. Table layout per `phase-1/ui-design/admin-portal.md` §Screen 5; shared `DataTableComponent` (`shared-components.md` §5)
 - Calls `GET /admin/moderation?status=FLAGGED&limit=20&cursor=`
-- Table: product title, seller name, flagged-at date, flag reason, "Review" button
-- Status filter: FLAGGED / REMOVED / CLEARED (default: FLAGGED)
-- Sort: flagged-at ascending (oldest-first)
+- Default filter/sort: FLAGGED, flagged-at ascending (oldest-first)
 
 **Done Criteria:**
 - Queue shows FLAGGED listings oldest-first
@@ -116,12 +107,10 @@ Admin portal (separate Angular app at `admin-app`): KYC review queue, listing mo
 - **Spec References:** `phase-1/technical-design/api-design/admin.md`
 
 **Implementation Notes:**
-- Route: `/moderation/:offerId`
+- Route: `/moderation/:offerId`. Layout per `phase-1/ui-design/admin-portal.md` §Screen 6
 - Calls `GET /catalog/offers/:offerId` + `GET /catalog/products/:productId`
-- Shows: product title, description, images, seller name, flag reason, current listing status
-- Actions:
-  - "Remove listing": confirm dialog + required reason → `POST /admin/moderation/listings/:offerId/remove { reason }`
-  - "Clear flag" (if false positive): `POST /admin/moderation/listings/:offerId/clear`
+- "Remove listing": required reason → `POST /admin/moderation/listings/:offerId/remove { reason }`
+- "Clear flag": `POST /admin/moderation/listings/:offerId/clear`
 - After action: return to moderation queue; listing removed from FLAGGED filter
 
 **Done Criteria:**
@@ -140,11 +129,8 @@ Admin portal (separate Angular app at `admin-app`): KYC review queue, listing mo
 - **Spec References:** `phase-1/technical-design/api-design/admin.md`
 
 **Implementation Notes:**
-- Route: `/sellers`
+- Route: `/sellers`. Table/filters layout per `phase-1/ui-design/admin-portal.md` §Screen 7; shared `DataTableComponent` (`shared-components.md` §5)
 - Search input: `GET /admin/sellers?search=&status=&limit=20&cursor=`
-- Table: seller name, email, KYC status badge, seller status badge, registered-at date, "View" button
-- Status filter: seller_status: ACTIVE / SUSPENDED / INACTIVE
-- KYC status filter: APPROVED / UNDER_REVIEW / REJECTED
 - Search by: seller name, business name, email (handled backend-side)
 
 **Done Criteria:**
@@ -157,23 +143,15 @@ Admin portal (separate Angular app at `admin-app`): KYC review queue, listing mo
 
 ### FE-ADMIN-007 — Seller profile view
 
-- **US Ref:** US-A-07
+- **US Ref:** US-A-06
 - **Estimate:** M
 - **Dependencies:** FE-ADMIN-006
 - **Spec References:** `phase-1/technical-design/api-design/admin.md`
 
 **Implementation Notes:**
-- Route: `/sellers/:sellerId`
-- Calls `GET /admin/sellers/:sellerId`
-- Sections:
-  - Account info: name, email, registered-at, roles
-  - Seller profile: business name, KYC status, seller status
-  - Recent admin actions on this seller (from `GET /admin/actions?targetId=:sellerId&limit=5`)
-  - Quick stats: active listings count, total orders
-- Action buttons based on current status:
-  - ACTIVE seller: "Suspend" button
-  - SUSPENDED seller: "Reinstate" button
-  - KYC UNDER_REVIEW: "Review KYC" button → `/kyc/:sellerId`
+- Route: `/sellers/:sellerId`. Layout per `phase-1/ui-design/admin-portal.md` §Screen 8
+- Calls `GET /admin/sellers/:sellerId`; recent actions via `GET /admin/actions?targetId=:sellerId&limit=5`
+- Action buttons based on current status: ACTIVE → "Suspend"; SUSPENDED → "Reinstate"; KYC UNDER_REVIEW → "Review KYC" → `/kyc/:sellerId`
 
 **Done Criteria:**
 - All seller data displayed correctly
@@ -184,18 +162,14 @@ Admin portal (separate Angular app at `admin-app`): KYC review queue, listing mo
 
 ### FE-ADMIN-008 — Suspend modal
 
-- **US Ref:** US-A-08
+- **US Ref:** US-A-05
 - **Estimate:** M
 - **Dependencies:** FE-ADMIN-007
 - **Spec References:** `phase-1/technical-design/api-design/admin.md`
 
 **Implementation Notes:**
-- MatDialog component: `SuspendSellerDialogComponent`
+- MatDialog component: `SuspendSellerDialogComponent`; fields/layout per `phase-1/ui-design/admin-portal.md` §Screen 8 (Suspend Confirmation)
 - Opened from seller profile page "Suspend" button
-- Fields:
-  - Reason: text area (required; min 10 chars)
-  - Duration: radio buttons — Permanent / Temporary
-  - Temporary: days input (1–365; shown only when Temporary selected)
 - Submit: `POST /admin/sellers/:sellerId/suspend { reason, duration_days? }`
 - On success: dialog closes; seller profile status badge updates to SUSPENDED; snackbar
 - On error: error message inside dialog; dialog stays open
@@ -210,16 +184,14 @@ Admin portal (separate Angular app at `admin-app`): KYC review queue, listing mo
 
 ### FE-ADMIN-009 — Reinstate modal
 
-- **US Ref:** US-A-09
+- **US Ref:** US-A-05b
 - **Estimate:** S
 - **Dependencies:** FE-ADMIN-007
 - **Spec References:** `phase-1/technical-design/api-design/admin.md`
 
 **Implementation Notes:**
-- MatDialog component: `ReinstateSellerDialogComponent`
+- MatDialog component: `ReinstateSellerDialogComponent`; fields/layout per `phase-1/ui-design/admin-portal.md` §Screen 8 (Lift Suspension)
 - Opened from seller profile page "Reinstate" button
-- Fields:
-  - Optional note (text area; not required)
 - Submit: `POST /admin/sellers/:sellerId/reinstate { note? }`
 - On success: dialog closes; seller profile status badge updates to ACTIVE; snackbar
 - On error: error message inside dialog

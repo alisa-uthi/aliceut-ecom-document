@@ -174,7 +174,7 @@
 | CATALOG-006 | ProductImage entity + MinIO upload | L | 8 |
 | CATALOG-007 | GET /products, GET /products/:id | M | 4 |
 | CATALOG-008 | Offer entity + repository | M | 4 |
-| CATALOG-009 | SellerCatalogController CRUD | L | 8 |
+| CATALOG-009 | Seller product writes (create/edit/delete) | L | 8 |
 | CATALOG-010 | Keyword blocklist + prohibited category guard | L | 8 |
 | **Total** | | | **54h → carry CATALOG-011/012 + all PRICING to S7** |
 
@@ -196,7 +196,7 @@
 | PRICING-001 | pricing schema migrations | M | 4 |
 | PRICING-002 | Currency seed (USD/THB/JPY/SGD) | S | 2 |
 | PRICING-003 | OfferPrice entity + repository | M | 4 |
-| PRICING-004 | Seller pricing CRUD | L | 8 |
+| PRICING-004 | PUT /seller/offers/:id/prices/:type (upsert) | L | 8 |
 | PRICING-005 | Effective price resolution service | L | 8 |
 | PRICING-006 | FxRate entity + repository | M | 4 |
 | PRICING-007 | FX display conversion helper | M | 4 |
@@ -274,15 +274,14 @@
 | ADMIN-004 | POST /admin/kyc/:id/approve | M | 4 |
 | ADMIN-005 | POST /admin/kyc/:id/reject | M | 4 |
 | ADMIN-006 | GET /admin/moderation | M | 4 |
-| ADMIN-007 | POST /admin/moderation/:id/remove | L | 8 |
-| ADMIN-008 | POST /admin/moderation/:id/clear | M | 4 |
-| ADMIN-009 | POST /admin/sellers/:id/suspend | L | 8 |
-| ADMIN-010 | POST /admin/sellers/:id/reinstate | M | 4 |
-| ADMIN-011 | GET /admin/sellers (search) | M | 4 |
-| ADMIN-012 | GET /admin/sellers/:id | M | 4 |
-| ADMIN-013 | GET /admin/dashboard | M | 4 |
-| ADMIN-014 | Suspension expiry scheduler | M | 4 |
-| ADMIN-015 | Outbox: all admin events | M | 4 |
+| ADMIN-007 | POST /admin/moderation/:caseId/decide (REMOVE\|DISMISS) | L | 8 |
+| ADMIN-008 | POST /admin/sellers/:id/suspend | L | 8 |
+| ADMIN-009 | POST /admin/sellers/:id/reinstate | M | 4 |
+| ADMIN-010 | GET /admin/sellers (search) | M | 4 |
+| ADMIN-011 | GET /admin/sellers/:id | M | 4 |
+| ADMIN-012 | GET /admin/dashboard | M | 4 |
+| ADMIN-013 | Suspension expiry scheduler | M | 4 |
+| ADMIN-014 | Outbox: all admin events | M | 4 |
 | **Total** | | | **60h — split; carry CART + SEARCH to S11** |
 
 > Sprint 10 covers admin only. CART and SEARCH move to Sprint 11.

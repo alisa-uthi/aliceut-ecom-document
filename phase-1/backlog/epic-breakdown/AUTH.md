@@ -1,34 +1,29 @@
 # EPIC: AUTH — Authentication & Authorization
 
 **Sprint:** 2  
-**Total Tasks:** 19  
+**Total Tasks:** 21  
 
 Full authentication and authorization system: JWT with refresh rotation, local + Google + Facebook OAuth, email verification, password reset, RBAC, seller role upgrade, and Kafka event publishing for auth-triggered notifications.
 
 ---
 
-## AUTH-001 — auth Schema Migrations
+## AUTH-001 — identity Schema Migrations
 
 - **US Ref:** —
-- **Estimate:** M
+- **Estimate:** L
 - **Dependencies:** PLATFORM-001
-- **Spec References:** `phase-1/technical-design/api-design/auth.md`, `phase-1/technical-design/data-model-erd.md`
+- **Spec References:** `phase-1/technical-design/api-design/auth.md` DB Mapping §, `phase-1/technical-design/data-model-erd.md`
 
 **Implementation Notes**
 
-- File: `libs/auth/src/infrastructure/migrations/0001_auth_schema.sql`
-- Creates `auth` schema and tables:
-  - `auth.user`: id (UUIDv7 PK), email (unique), password_hash, email_verified, role enum (`BUYER`|`SELLER`|`ADMIN`), status (`ACTIVE`|`SUSPENDED`|`CLOSED`), created_at, updated_at
-  - `auth.refresh_token`: id, user_id FK, token_hash (indexed), expires_at, revoked_at nullable, family (for rotation chain detection), created_at
-  - `auth.email_verification_token`: id, user_id FK, token_hash, expires_at, used_at nullable
-  - `auth.password_reset_token`: id, user_id FK, token_hash, expires_at, used_at nullable
-  - `auth.oauth_provider`: id, user_id FK, provider (`google`|`facebook`), provider_user_id, access_token_enc nullable, refresh_token_enc nullable, linked_at
-- Indexes: `user(email)`, `refresh_token(token_hash)`, `refresh_token(user_id, revoked_at)`, `oauth_provider(provider, provider_user_id)`
+- File: `libs/identity/src/infrastructure/migrations/0001_identity_schema.sql`
+- Creates `identity` schema, raw-SQL, per backlog.md AUTH-001: `identity.user`, `identity.oauth_identity`, `identity.refresh_session`, `identity.address`, `identity.email_verification_token`, `identity.password_reset_token`.
+- Exact columns/indexes per `api-design/auth.md` DB Mapping + `data-model-erd.md` — see spec, don't restate here. Single `identity.user` table holds auth + profile fields together (no separate `auth.user` / `identity.user_profile` split).
 
 **Done Criteria**
 
-- All auth tables created in `auth` schema
-- `INSERT INTO auth.user` with duplicate email fails unique constraint
+- All six `identity.*` tables created per spec
+- `INSERT INTO identity.user` with duplicate email fails unique constraint
 
 ---
 
@@ -76,9 +71,9 @@ Full authentication and authorization system: JWT with refresh rotation, local +
 
 - `LocalStrategy extends PassportStrategy(Strategy, 'local')`:
   - `usernameField: 'email'`
-  - `validate(email, password)`: find user by email; `bcrypt.compare(password, user.password_hash)`; throw `UnauthorizedException` if invalid; return user object
+  - `validate(email, password)`: find user by email; `argon2id.verify(password, user.password_hash)`; throw `UnauthorizedException` if invalid or `password_hash IS NULL` (OAuth-only account); return user object
 - `LoginDto { email: string, password: string, guestCart?: GuestCartItemDto[] }` — `guestCart` for merge on login (CART-008)
-- Password hashing: `bcrypt` with `saltRounds: 12`
+- Password hashing: **argon2id** per `conventions/auth-jwt-design.md` §7 (`memoryCost: 65536`, `timeCost: 3`, `parallelism: 4`) — not bcrypt
 - Never store plaintext password; log nothing sensitive
 
 **Done Criteria**
@@ -98,19 +93,18 @@ Full authentication and authorization system: JWT with refresh rotation, local +
 
 **Implementation Notes**
 
-- `RegisterDto { email, password (8–72 chars, min 1 uppercase + 1 digit + 1 special), name, accountType ('buyer'|'seller') }`
+- `RegisterDto { email, password (min 8), fullName, accountType: 'B2C' | 'B2B' }` per `api-design/auth.md` Registration section
 - Check duplicate email → 409 `EMAIL_ALREADY_REGISTERED`
-- Hash password with bcrypt (saltRounds=12); create `auth.user` (role=`accountType`, email_verified=false)
-- Create `identity.user_profile` record (linked by same id) — call IdentityService directly (same process, no HTTP)
-- Generate email verification token (random 32-byte hex, expires 24h); store hash in `auth.email_verification_token`
-- Publish `auth.email_verification_requested` outbox event: `{ userId, email, tokenHash, expiresAt }`
-- Response: `{ message: "Registration successful. Check your email to verify your account." }` (201 no auto-login to force verification flow)
+- Hash password with argon2id (per AUTH-003 params); insert single `identity.user` row (roles=['BUYER'], email_verified=false, status='ACTIVE') — no separate profile table
+- Generate email verification token; store hash in `identity.email_verification_token` (expires 24h)
+- Publish `auth.email_verification_requested` outbox event via `platform.outbox_event` — exact payload shape per spec sequence diagram
+- Response 201: `{ data: { userId, email, message: "Verification email sent" } }` — no auto-login, forces verification flow
 
 **Done Criteria**
 
 - Duplicate email → 409
-- Weak password → 400 with validation detail
-- Valid registration → user row + profile row created; outbox event written
+- Invalid body → 400
+- Valid registration → `identity.user` row + `identity.email_verification_token` row created; outbox event written in same transaction
 - No auto-login token returned on register
 
 ---
@@ -125,9 +119,9 @@ Full authentication and authorization system: JWT with refresh rotation, local +
 **Implementation Notes**
 
 - `POST /auth/verify-email { token: string }`:
-  - Hash incoming token; find unexpired, unused row in `auth.email_verification_token`
-  - Mark `used_at = now()`; set `auth.user.email_verified = true`
-  - Return `{ message: "Email verified. You can now log in." }`
+  - Hash incoming token; find unexpired row in `identity.email_verification_token`
+  - Delete token; set `identity.user.email_verified = true`
+  - Return `{ data: { message: "Email verified" } }`
 - `POST /auth/resend-verification { email: string }`:
   - Rate limited: `EmailResendRateLimitGuard` (max 3/hour per email, Redis-backed — see SHARED-007)
   - If user already verified: 200 `{ message: "Email already verified." }` (idempotent)
@@ -152,18 +146,15 @@ Full authentication and authorization system: JWT with refresh rotation, local +
 
 **Implementation Notes**
 
-- `POST /auth/login` uses `LocalGuard` (Passport local strategy validates credentials first)
-- After strategy validates: generate access token (JWT 15min) + refresh token (random 32-byte hex, hash stored in DB, TTL 14 days)
-- Refresh token response: `Set-Cookie: refreshToken=<token>; HttpOnly; SameSite=Strict; Max-Age=1209600` (DO NOT return in JSON body)
-- Response JSON: `{ accessToken, user: { id, email, role }, cartMergeResult? }`
-- If `guestCart` sent in body → call `CartService.mergeGuestCart()` (CART-008); include `cartMergeResult` in response
-- Unverified email → 403 `EMAIL_NOT_VERIFIED` with message directing to resend
+- `POST /auth/login` uses `LocalGuard` (AUTH-003 strategy validates credentials first)
+- On success: insert `identity.refresh_session` row, sign JWT access token — exact cookie attributes, TTLs (access 15min, refresh 7d) and response shape per `api-design/auth.md` Login section — see spec, don't restate here
+- If `guestCart` sent in body → call `CartService.mergeGuestCart()` (CART-008); include `cartMergeResult` in response (extension beyond base spec contract)
+- Suspended/banned account → 403 per spec
 
 **Done Criteria**
 
-- Valid login: access token in body, refresh token in HttpOnly cookie
-- Unverified email: 403 (not 401)
-- Response never contains refresh token in JSON body
+- Valid login: access token in body, refresh token in HttpOnly cookie, never in JSON
+- Suspended/banned account: 403
 - `cartMergeResult` present when guestCart sent
 
 ---
@@ -177,18 +168,14 @@ Full authentication and authorization system: JWT with refresh rotation, local +
 
 **Implementation Notes**
 
-- `POST /auth/refresh` reads refresh token from `Cookie: refreshToken`
-- Validate: hash cookie value; find active (non-revoked, non-expired) row in `auth.refresh_token`
-- On valid: revoke old token (`revoked_at = now()`); issue new refresh token (new DB row, same `family`); issue new access token
-- **Token reuse detection**: if incoming token is already revoked but `family` exists → revoke ALL tokens in that family (compromise response); return 401 `TOKEN_FAMILY_COMPROMISED`
-- Refresh token TTL: 14 days; sliding expiry (reset on each refresh)
-- Set-Cookie same as login
+- `POST /auth/refresh` reads refresh token from `Cookie: refreshToken`; validates against `identity.refresh_session` and rotates (revoke old row, insert new) per `api-design/auth.md` Refresh token sequence — see spec for exact flow, don't restate here
+- **Token reuse detection**: presenting an already-revoked token revokes ALL sessions for that user (`identity.refresh_session.revoked_at`), forcing full re-login — no separate "family" concept, per spec
 
 **Done Criteria**
 
 - Valid refresh → new access token + new refresh token cookie
 - Expired refresh → 401
-- Replaying a previously rotated refresh token → ALL family tokens revoked; 401
+- Replaying a previously rotated refresh token → all sessions for that user revoked; 401
 
 ---
 
@@ -201,21 +188,18 @@ Full authentication and authorization system: JWT with refresh rotation, local +
 
 **Implementation Notes**
 
-- `POST /auth/logout` requires valid access token (`@JwtAuthGuard`)
-- Revoke current refresh token (from cookie)
-- Add `auth:revoke_before:{userId} = now()` in Redis (TTL = remaining access token life; max 16min) — invalidates all previously issued access tokens for this user
-- Clear refresh token cookie: `Set-Cookie: refreshToken=; Max-Age=0; HttpOnly; SameSite=Strict`
-- Response: 204 No Content
+- `POST /auth/logout` requires valid access token (`@JwtAuthGuard`); revokes the one `identity.refresh_session` row matching the request body's `refreshToken` (not the cookie — see `api-design/auth.md` Logout section)
+- Response: 204 No Content (no cookie-clear or Redis revocation per current spec — that's `/auth/logout-all`'s job, AUTH-020)
 
 **Done Criteria**
 
-- After logout: access token (still valid TTL) rejected by JWT strategy (Redis revocation check)
-- Refresh token cookie cleared in response headers
+- Logout revokes only the matching `identity.refresh_session` row; other sessions for the user remain valid
+- Missing/invalid `refreshToken` in body → session not found, still returns 204 (idempotent) or per spec error handling
 - 204 response
 
 ---
 
-## AUTH-009 — Password Reset (request + confirm)
+## AUTH-009 — Password Reset (forgot-password + reset-password)
 
 - **US Ref:** US-B-03
 - **Estimate:** M
@@ -224,25 +208,20 @@ Full authentication and authorization system: JWT with refresh rotation, local +
 
 **Implementation Notes**
 
-- `POST /auth/password-reset/request { email: string }`:
-  - Always 200 `{ message: "If that email is registered, a reset link has been sent." }` (no user enumeration)
-  - Generate reset token (32-byte random); hash; store in `auth.password_reset_token` (TTL 1h)
-  - Publish `auth.password_reset_requested` outbox event
-- `POST /auth/password-reset/confirm { token: string, newPassword: string }`:
-  - Validate token (hash match, unexpired, unused); update `password_hash`; mark token `used_at`
-  - Revoke all refresh tokens for user (force re-login everywhere)
-  - Publish `auth.password_changed` outbox event (triggers security notification email)
+- `POST /auth/forgot-password { email }` — always 202 (enumeration-safe); on match: insert `identity.password_reset_token` (TTL 60min), publish `auth.password_reset_requested` outbox event
+- `POST /auth/reset-password { token, newPassword }` — validate + consume token, update `identity.user.password_hash`, revoke all `identity.refresh_session` rows for user, publish `auth.password_changed` outbox event
+- Exact request/response shapes per `api-design/auth.md` Forgot password / Reset password sections — see spec, don't restate here
 
 **Done Criteria**
 
-- Invalid email → still 200 (enumeration-safe)
-- Expired token → 400
-- Valid confirm → password updated; all existing sessions invalidated
+- Unknown email → still 202 (enumeration-safe)
+- Expired/used token → 400
+- Valid reset → password updated; all existing sessions invalidated
 - `auth.password_changed` event in outbox
 
 ---
 
-## AUTH-010 — POST /auth/change-password (authenticated)
+## AUTH-010 — PATCH /auth/change-password (authenticated)
 
 - **US Ref:** US-B-03
 - **Estimate:** S
@@ -251,15 +230,15 @@ Full authentication and authorization system: JWT with refresh rotation, local +
 
 **Implementation Notes**
 
-- `POST /auth/change-password { currentPassword, newPassword }` — requires `@JwtAuthGuard`
-- Verify `currentPassword` against stored hash; 401 if wrong
-- Validate `newPassword` meets complexity rules; hash and update
-- Revoke all refresh tokens; `auth.password_changed` outbox event
+- `PATCH /auth/change-password { currentPassword, newPassword, currentRefreshToken }` — requires `@JwtAuthGuard`; note method is **PATCH**, not POST
+- Verify `currentPassword` via argon2id against stored hash; 401 if wrong
+- Revokes all `identity.refresh_session` rows **except the caller's current session** (identified by `currentRefreshToken`) — not a full revoke-all; `auth.password_changed` outbox event
+- Exact flow per `api-design/auth.md` Change password section
 
 **Done Criteria**
 
 - Wrong current password → 401
-- Successful change → other device sessions invalidated within 15min (access token TTL)
+- Successful change → other sessions revoked immediately; caller's current session remains valid
 
 ---
 
@@ -272,18 +251,15 @@ Full authentication and authorization system: JWT with refresh rotation, local +
 
 **Implementation Notes**
 
-- `GET /auth/google` — redirects to Google consent screen
-- `GET /auth/google/callback` — Passport Google strategy processes code exchange
-- On callback: check `auth.oauth_provider` for existing `(provider='google', provider_user_id)`
-  - Found: log in as that user
-  - Not found: check if email matches existing `auth.user`; if yes, link; if no, create new user (email_verified=true, no password_hash)
-- Access + refresh token issued same as login; redirect to frontend with `?token=<accessToken>` (SPA reads from URL and discards from history)
+- `GET /auth/google` — redirects to Google consent screen (Passport GoogleStrategy, CSRF state nonce)
+- `GET /auth/google/callback` — three-branch flow per `api-design/auth.md` OAuth — Google section: existing `identity.oauth_identity` linked / email exists unlinked / new account — see spec for exact branch logic, don't restate here
+- Access + refresh token issued same as login (`identity.refresh_session` insert); redirect to `buyer-app/auth/callback?accessToken=...`
 - Credentials: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` env vars; callback URL: `${API_URL}/auth/google/callback`
 
 **Done Criteria**
 
-- New user via Google: user + profile + oauth_provider rows created
-- Existing email linked: same user account, new oauth_provider row added
+- New user via Google: `identity.user` + `identity.oauth_identity` rows created
+- Existing email linked: same user account, new `identity.oauth_identity` row added
 - Redirect back to frontend with access token in query param
 
 ---
@@ -344,7 +320,7 @@ Full authentication and authorization system: JWT with refresh rotation, local +
 **Implementation Notes**
 
 - `POST /auth/upgrade-to-seller` — requires `@JwtAuthGuard`, current role must be `BUYER`
-- Set `auth.user.role = 'SELLER'`
+- Add `'SELLER'` to `identity.user.roles` array (roles is multi-valued per DB Mapping — user keeps BUYER too)
 - Triggers implicit creation of `seller.seller_profile` (if not already exists) — call SellerService directly
 - Re-issue access token with updated role claim (or instruct client to call `/auth/refresh`)
 - Response: `{ message: "Account upgraded to seller.", accessToken }` — new token with role=SELLER
@@ -366,12 +342,11 @@ Full authentication and authorization system: JWT with refresh rotation, local +
 **Implementation Notes**
 
 - `apps/workers/src/startup/admin-seeder.service.ts` — runs on workers startup
-- Check if any user with `role = 'ADMIN'` exists; if not, create:
+- Check if any `identity.user` row has `'ADMIN'` in `roles`; if not, create one:
   - Email: `ADMIN_EMAIL` env var
-  - Password: `ADMIN_PASSWORD` env var (bcrypt hashed)
-  - `email_verified = true`, `role = 'ADMIN'`, `status = 'ACTIVE'`
+  - Password: `ADMIN_PASSWORD` env var (argon2id hashed, per AUTH-003 params)
+  - `email_verified = true`, `roles = ['ADMIN']`, `status = 'ACTIVE'`
 - Idempotent: no-op if admin exists
-- Identity profile created: `{ name: 'Admin', avatarUrl: null }`
 
 **Done Criteria**
 
@@ -389,12 +364,9 @@ Full authentication and authorization system: JWT with refresh rotation, local +
 
 **Implementation Notes**
 
-- Events published via outbox (SHARED-005) from auth service methods:
-  - `auth.email_verification_requested` — on register + resend (payload: `{ userId, email, verificationUrl, expiresAt }`)
-  - `auth.password_reset_requested` — on password-reset/request (payload: `{ userId, email, resetUrl, expiresAt }`)
-  - `auth.password_changed` — on confirm-reset + change-password (payload: `{ userId, email, changedAt }`)
+- Events published via outbox (SHARED-005) from auth service methods: `auth.email_verification_requested` (register + resend-verification), `auth.password_reset_requested` (forgot-password), `auth.password_changed` (reset-password + change-password) — exact payload field names per `api-design/auth.md` sequence diagrams, don't restate here
 - Notifications module consumes these events to send emails (NOTIFICATIONS-005)
-- All three events published inside the same transaction as the state change (token creation/update)
+- All events published inside the same transaction as the state change (token creation/update)
 
 **Done Criteria**
 
@@ -463,10 +435,50 @@ Full authentication and authorization system: JWT with refresh rotation, local +
 - `POST /auth/admin/users/:id/force-logout` — requires `@Roles('ADMIN')`
 - Revoke ALL refresh tokens for target user
 - Set Redis `auth:revoke_before:{userId}` (access token blacklist)
-- Used by admin during suspension flow (ADMIN-009 triggers this)
+- Used by admin during suspension flow (ADMIN-008 triggers this)
 - Response: 204
 
 **Done Criteria**
 
 - Admin force-logout: target user's next API call with existing access token → 401
 - Admin force-logout: refresh attempt → 401
+
+---
+
+## AUTH-020 — POST /auth/logout-all
+
+- **US Ref:** US-B-01
+- **Estimate:** S
+- **Dependencies:** AUTH-002
+- **Spec References:** `phase-1/technical-design/api-design/auth.md`
+
+**Implementation Notes**
+
+- `POST /auth/logout-all` — requires `@JwtAuthGuard`, no request body
+- Revokes ALL `identity.refresh_session` rows for the authenticated user; returns count revoked
+- Exact response shape per `api-design/auth.md` Logout all sessions section
+
+**Done Criteria**
+
+- All sessions for the user revoked; response includes `sessionsRevoked` count
+- A previously issued refresh token for this user now returns 401 on `/auth/refresh`
+
+---
+
+## AUTH-021 — POST /auth/set-password
+
+- **US Ref:** US-S-01
+- **Estimate:** S
+- **Dependencies:** AUTH-002
+- **Spec References:** `phase-1/technical-design/api-design/auth.md`
+
+**Implementation Notes**
+
+- `POST /auth/set-password { newPassword }` — requires `@JwtAuthGuard`; lets an OAuth-only account (`identity.user.password_hash IS NULL`) link a local password
+- Required before an OAuth-only user can apply as a seller (seller application requires local credentials)
+- 409 if `password_hash` already set; hash new password with argon2id (AUTH-003 params)
+
+**Done Criteria**
+
+- OAuth-only account: sets password_hash, can subsequently log in via `/auth/login`
+- Account with existing local password: 409

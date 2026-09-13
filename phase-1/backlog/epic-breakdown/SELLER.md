@@ -1,12 +1,12 @@
 # EPIC: SELLER — Seller Module
 
-**Sprint:** 3  
+**Sprint:** 9  
 **Lib:** `libs/seller/`  
 **Module:** `SellerModule`  
 **Controllers:** `SellerController`  
 **Kafka producers:** `seller.kyc.submitted`  
 
-Overview: Seller onboarding — registration, KYC document submission and status tracking, KYC resubmission, and the seller dashboard summary. Seller profile is created on first seller-role login; KYC approval is required before any listing actions.
+Overview: Seller onboarding — a BUYER submits business info, tax ID, and identity/business documents in one registration call; this creates the seller profile and KYC application together, adds the SELLER role, and starts KYC review. KYC approval gates listing/pricing/inventory actions via `SellerKycGuard`; sellers can check status and resubmit after rejection. Dashboard summary is available regardless of KYC status.
 
 ---
 
@@ -15,202 +15,186 @@ Overview: Seller onboarding — registration, KYC document submission and status
 - **US Ref:** —
 - **Estimate:** M
 - **Dependencies:** PLATFORM-001
-- **Spec References:** `phase-1/technical-design/api-design/seller.md`, `phase-1/technical-design/data-model-erd.md`, `phase-1/technical-design/kafka-events.md`
+- **Spec References:** `phase-1/technical-design/data-model-erd.md` § seller schema, `phase-1/technical-design/api-design/seller.md` § DB Mapping
 
 **Implementation Notes:**
 - File: `libs/seller/src/infrastructure/migrations/0001_seller_schema.sql`
-- Tables:
-  - `seller.seller_profile`: id (same as `auth.user.id`), display_name, business_name nullable, logo_url nullable, kyc_status (enum: `PENDING`|`UNDER_REVIEW`|`APPROVED`|`REJECTED`), status (`ACTIVE`|`SUSPENDED`|`CLOSED`), suspension_expires_at nullable, suspension_reason nullable, created_at, updated_at
-  - `seller.kyc_application`: id (UUIDv7 PK), seller_id FK, document_type (`ID_CARD`|`PASSPORT`|`BUSINESS_REG`), document_front_key, document_back_key nullable, selfie_key nullable, submitted_at, reviewed_at nullable, reviewer_id nullable, review_notes nullable, status (`SUBMITTED`|`APPROVED`|`REJECTED`)
-- `seller.seller_profile.id → auth.user(id)` FK
-- `seller.kyc_application.seller_id → seller.seller_profile(id)` FK
-- Index: `seller_profile(kyc_status)`, `seller_profile(status)`, `kyc_application(seller_id)`
+- `seller.seller_profile`: `id` UUID PK, `user_id` UUID FK → `identity.user(id)` (unique, required), `business_name` TEXT required, `tax_id` TEXT required, `kyc_status seller_kyc_status` required (`PENDING_KYC`\|`APPROVED`\|`REJECTED`), `suspension_status seller_suspension_status` required default `ACTIVE` (`ACTIVE`\|`SUSPENDED`), `suspended_until` TIMESTAMPTZ nullable, `suspension_reason` TEXT nullable, `created_at`/`updated_at`
+- `seller.kyc_application`: `id` UUID PK, `seller_id` UUID FK → `seller.seller_profile(id)` required, `submitted_data` JSONB required, `document_references` JSONB required, `status kyc_status` required (`PENDING`\|`UNDER_REVIEW`\|`APPROVED`\|`REJECTED` — distinct enum from `seller_profile.kyc_status`), `reviewer_user_id` UUID nullable FK → `identity.user(id)`, `decision_reason` TEXT nullable, `submitted_at`/`decided_at`, `created_at`/`updated_at`
+- Exact column list/types: see ERD. Enum semantics and lifecycle: see api-design/seller.md.
+- Indexes: `seller_profile(user_id)` unique, `seller_profile(kyc_status)`, `kyc_application(seller_id)`, `kyc_application(status)`
 
 **Done Criteria:**
-- Tables created; `kyc_status` constraint enforces allowed values
+- Tables created; both enum constraints enforce allowed values; FK to `identity.user` enforced
 
 ---
 
-### SELLER-002 — SellerProfile Entity + Auto-creation on Role Upgrade
+### SELLER-002 — SellerProfile Entity + Repository Interface
 
 - **US Ref:** US-S-01
 - **Estimate:** M
-- **Dependencies:** SELLER-001, AUTH-014
-- **Spec References:** `phase-1/technical-design/api-design/seller.md`, `phase-1/technical-design/data-model-erd.md`
+- **Dependencies:** SELLER-001
+- **Spec References:** `phase-1/technical-design/data-model-erd.md` § seller schema
 
 **Implementation Notes:**
-- TypeORM entity for `seller.seller_profile`
-- `SellerService.getOrCreateProfile(userId)`: returns existing profile or creates one with `kyc_status='PENDING'`, `status='ACTIVE'`
-- Called from: `AUTH-014` (role upgrade to SELLER) — create profile if not exists
-- `SellerRepository`: `findById(id)`, `findByKycStatus(status)`, `save(profile)`, `updateStatus(id, status, reason?, expiresAt?)`
+- TypeORM entity for `seller.seller_profile` (fields per SELLER-001)
+- `SellerProfileRepository` interface: `findById(id)`, `findByUserId(userId)`, `findByKycStatus(status)`, `save(profile)`, `updateKycStatus(id, status)`, `updateSuspension(id, { suspensionStatus, suspendedUntil?, suspensionReason? })`
+- `updateSuspension` is consumed by ADMIN's suspend/reinstate tasks (ADMIN-008, ADMIN-009) — suspend/reinstate is owned by the ADMIN epic, not SELLER; this repository is the shared write path
+- No auto-creation on role upgrade: a profile exists only after SELLER-004 (`POST /seller/register`) runs — it creates the profile and the KYC application together in one transaction
 
 **Done Criteria:**
-- Role upgrade: seller profile created automatically with `kyc_status=PENDING`
-- Calling `getOrCreateProfile` twice: idempotent (no duplicate)
+- Repository methods (incl. `updateSuspension`) covered by unit tests
+- No profile exists for a user until SELLER-004 runs
 
 ---
 
-### SELLER-003 — KycApplication Entity + POST /seller/kyc
+### SELLER-003 — KycApplication Entity + Repository Interface
 
-- **US Ref:** US-S-02
+- **US Ref:** US-S-01
+- **Estimate:** M
+- **Dependencies:** SELLER-001
+- **Spec References:** `phase-1/technical-design/data-model-erd.md` § seller schema
+
+**Implementation Notes:**
+- TypeORM entity for `seller.kyc_application` (`submitted_data`/`document_references` JSONB, `status kyc_status`)
+- `KycApplicationRepository` interface: `findLatestBySellerId(sellerId)`, `findById(id)`, `save(application)`
+- `document_references`: array of MinIO storage keys (see SELLER-004/SELLER-005), never URLs — presigned on demand
+
+**Done Criteria:**
+- Repository methods covered by unit tests
+- `findLatestBySellerId` returns the most recent row by `submitted_at`
+
+---
+
+### SELLER-004 — POST /seller/register (step 1: account; link SELLER role to existing account or create new)
+
+- **US Ref:** US-S-01
 - **Estimate:** L
-- **Dependencies:** SELLER-001, SHARED-006
-- **Spec References:** `phase-1/technical-design/api-design/seller.md`, `phase-1/technical-design/data-model-erd.md`, `phase-1/technical-design/kafka-events.md`
+- **Dependencies:** AUTH-002
+- **Spec References:** `phase-1/technical-design/api-design/seller.md` § POST /seller/register (endpoint + sequence)
 
 **Implementation Notes:**
-- TypeORM entity for `seller.kyc_application`
-- `POST /seller/kyc` — multipart form; `@JwtAuthGuard` + `@Roles('SELLER')`
-- DTO: `SubmitKycDto { documentType: 'ID_CARD'|'PASSPORT'|'BUSINESS_REG', documentFront: file, documentBack?: file, selfie?: file }`
-- Upload documents to MinIO `kyc-documents` bucket; keys: `kyc/{sellerId}/{uuid}-{docType}-front.jpg` etc.
-- Store keys only (not URLs) in DB — presigned on demand
-- Create `kyc_application` row (`status='SUBMITTED'`); set `seller_profile.kyc_status = 'UNDER_REVIEW'`
-- Publish `seller.kyc.submitted` outbox event
-- Block resubmission if existing application is `UNDER_REVIEW` → 422 `KYC_ALREADY_UNDER_REVIEW`
-- Block if already `APPROVED` → 422 `KYC_ALREADY_APPROVED`
+- Auth, request/response shape, MinIO upload, and outbox emission: see api-design/seller.md's `POST /seller/register` sequence — do not restate the full contract here.
+- Task-specific: Auth BUYER + EMAIL_VERIFIED; 409 if the user already has a seller profile. Single transaction: append SELLER role to `identity.user`, `INSERT seller_profile` (`kyc_status=PENDING_KYC`, `suspension_status=ACTIVE`), `INSERT kyc_application` (`status=PENDING`), upload documents to MinIO `kyc-documents` bucket (AES-256 at rest), publish `seller.kyc.submitted` outbox event.
+- **Discrepancy flagged:** this task's title frames registration as "step 1: account" separate from KYC submission (see SELLER-005). The documented API combines account/role linking and KYC submission into this single endpoint — there is no separate account-only registration call in `api-design/seller.md`. Not resolved here; left to spec owner.
 
 **Done Criteria:**
-- Submit KYC → files uploaded to MinIO; application row created; profile status = UNDER_REVIEW
-- Submit when UNDER_REVIEW → 422
-- `seller.kyc.submitted` event in outbox
+- Per api-design/seller.md's response/error list for this endpoint
+- Existing seller profile → 409
 
 ---
 
-### SELLER-004 — GET /seller/kyc/status
-
-- **US Ref:** US-S-02
-- **Estimate:** S
-- **Dependencies:** SELLER-003
-- **Spec References:** `phase-1/technical-design/api-design/seller.md`, `phase-1/technical-design/data-model-erd.md`
-
-**Implementation Notes:**
-- `GET /seller/kyc/status` — `@JwtAuthGuard` + `@Roles('SELLER')`
-- Returns: `{ kycStatus, latestApplication: { id, documentType, submittedAt, reviewedAt, reviewNotes, status } | null }`
-- `documentFrontUrl` — presigned MinIO URL (900s TTL) if application exists
-- `reviewNotes` visible to seller only when `status = 'REJECTED'`
-
-**Done Criteria:**
-- PENDING (no application): `{ kycStatus: 'PENDING', latestApplication: null }`
-- After submit: `{ kycStatus: 'UNDER_REVIEW', latestApplication: { status: 'SUBMITTED', ... } }`
-- After rejection: `reviewNotes` visible in response
-
----
-
-### SELLER-005 — POST /seller/kyc/resubmit
-
-- **US Ref:** US-S-02
-- **Estimate:** M
-- **Dependencies:** SELLER-003
-- **Spec References:** `phase-1/technical-design/api-design/seller.md`, `phase-1/technical-design/data-model-erd.md`, `phase-1/technical-design/kafka-events.md`
-
-**Implementation Notes:**
-- `POST /seller/kyc/resubmit` — same multipart as initial submission
-- Allowed only when latest application `status = 'REJECTED'`
-- Create new `kyc_application` row; set `seller_profile.kyc_status = 'UNDER_REVIEW'`
-- Previous rejected application retained (history for admin review)
-- Publish `seller.kyc.submitted` event (same event type as initial submission)
-
-**Done Criteria:**
-- Resubmit when status = APPROVED → 422
-- Resubmit when status = UNDER_REVIEW → 422
-- Valid resubmit → new application row; profile status = UNDER_REVIEW
-
----
-
-### SELLER-006 — SellerKycGuard (POST /seller/register flow)
-
-- **US Ref:** US-S-03
-- **Estimate:** S
-- **Dependencies:** SELLER-002, AUTH-018
-- **Spec References:** `phase-1/technical-design/api-design/seller.md`
-
-**Implementation Notes:**
-- Defined in AUTH-018 (`SellerKycGuard`)
-- Checks `seller_profile.kyc_status = 'APPROVED'` AND `seller_profile.status = 'ACTIVE'`
-- Applied to: all endpoints in CATALOG (seller CRUD), PRICING (seller pricing), INVENTORY (seller inventory)
-- Logic in `SellerService.getApprovedAndActiveProfile(userId)` — single query joining seller_profile
-
-**Done Criteria:**
-- Seller with `kyc_status = 'PENDING'` → 403 `KYC_NOT_APPROVED`
-- Suspended seller → 403 `SELLER_SUSPENDED`
-
----
-
-### SELLER-007 — POST /seller/register
+### SELLER-005 — POST /seller/kyc (KYC form + doc upload to MinIO kyc-documents bucket; presigned GET for download)
 
 - **US Ref:** US-S-01
-- **Estimate:** S
-- **Dependencies:** SELLER-002, AUTH-014
-- **Spec References:** `phase-1/technical-design/api-design/seller.md`, `phase-1/technical-design/data-model-erd.md`
+- **Estimate:** L
+- **Dependencies:** SELLER-003
+- **Spec References:** `phase-1/technical-design/api-design/seller.md` § POST /seller/register, § POST /seller/kyc/resubmit
 
 **Implementation Notes:**
-- `POST /seller/register { displayName, businessName? }` — `@JwtAuthGuard`; works for BUYER (upgrades) or SELLER (updates profile)
-- If user is BUYER: call `AuthService.upgradeToSeller(userId)` internally; create profile
-- If user already SELLER: update `display_name`, `business_name` only
-- Validation: `displayName` 2–100 chars; `businessName` optional, 2–200 chars if provided
+- **Discrepancy flagged:** `api-design/seller.md`'s Endpoint Index has no standalone `POST /seller/kyc` path — initial KYC submission is documented as part of `POST /seller/register` (SELLER-004). Implemented here as the shared KYC document module (upload + presigned retrieval) consumed by SELLER-004 and SELLER-007, rather than its own public endpoint, so the work isn't duplicated.
+- MinIO `kyc-documents` bucket; key pattern `kyc/{sellerId}/{uuid}-{docName}`; store keys only in `document_references`, never URLs
+- Presigned `GET` for document download: TTL 900s, generated on demand (admin review, seller status check)
 
 **Done Criteria:**
-- BUYER registers as seller: role upgraded, profile created in one call
-- SELLER updates: only display_name/business_name updated (no role change)
+- Upload helper produces storage keys consumed correctly by SELLER-004 and SELLER-007
+- Presigned GET returns a valid, time-limited URL for a stored key
 
 ---
 
-### SELLER-008 — GET /seller/dashboard
+### SELLER-006 — GET /seller/kyc/status (returns current application status + rejection reason if applicable)
 
-- **US Ref:** US-S-09
+- **US Ref:** US-S-02
+- **Estimate:** S
+- **Dependencies:** SELLER-003
+- **Spec References:** `phase-1/technical-design/api-design/seller.md` § GET /seller/kyc
+
+**Implementation Notes:**
+- **Discrepancy flagged (naming only):** documented path is `GET /seller/kyc` (no `/status` suffix). Implement the documented path.
+- Auth SELLER. Response shape: see api-design/seller.md — `{ id, status, submittedAt, decidedAt, decisionReason }`
+- `decisionReason` populated only when `status = REJECTED`
+
+**Done Criteria:**
+- Response reflects the latest `kyc_application` row for the seller
+- `decisionReason` present only after rejection
+
+---
+
+### SELLER-007 — POST /seller/kyc/resubmit (update docs + resubmit; links to prior rejection)
+
+- **US Ref:** US-S-02
 - **Estimate:** M
-- **Dependencies:** SELLER-002, CATALOG-008, INVENTORY-002
-- **Spec References:** `phase-1/technical-design/api-design/seller.md`, `phase-1/technical-design/data-model-erd.md`
+- **Dependencies:** SELLER-003
+- **Spec References:** `phase-1/technical-design/api-design/seller.md` § POST /seller/kyc/resubmit
 
 **Implementation Notes:**
-- `GET /seller/dashboard` — `@JwtAuthGuard` + `@Roles('SELLER')`; does NOT require KYC
-- Response: `{ kycStatus, activeListings, pendingOrders, lowStockCount, totalRevenue: null (V1 placeholder), suspensionInfo: { expiresAt, reason } | null }`
-- `activeListings`: count of `catalog.offer WHERE seller_id = ? AND status = 'ACTIVE'`
-- `pendingOrders`: count of fulfillment items where seller_id and status IN (`PROCESSING`, `SHIPPED`)
-- `lowStockCount`: count of stock rows where `available_qty - reserved_qty <= reorder_threshold`
-- `totalRevenue`: null in V1 (no payment tracking yet; placeholder for V2)
+- Full contract (request fields, guard, response): see api-design/seller.md's `POST /seller/kyc/resubmit` sequence.
+- Task-specific: allowed only when the latest `kyc_application.status = REJECTED`; inserts a new `kyc_application` row (`status=PENDING`); updates `seller_profile.kyc_status = PENDING_KYC`; previous rejected application retained for admin history; publishes `seller.kyc.submitted` with `is_resubmission=true`. Uses the upload helper from SELLER-005.
 
 **Done Criteria:**
-- Seller with 3 active listings, 1 pending order, 2 low-stock: response reflects all counts
-- KYC PENDING seller can still access dashboard (only catalog/inventory blocked)
+- Resubmit when latest status != REJECTED → error per spec
+- Valid resubmit → new `kyc_application` row; `seller_profile.kyc_status = PENDING_KYC`; outbox event with `is_resubmission=true`
 
 ---
 
-### SELLER-009 — Outbox Event: seller.kyc.submitted
+### SELLER-008 — SellerKycGuard (block listing endpoints until kyc_status=APPROVED and suspension_status=ACTIVE)
 
-- **US Ref:** FR-P-09
-- **Estimate:** S
-- **Dependencies:** SHARED-005, SELLER-003
-- **Spec References:** `phase-1/technical-design/kafka-events.md`, `phase-1/technical-design/data-model-erd.md`
-
-**Implementation Notes:**
-- Avro schema for `seller.kyc.submitted`:
-  - Payload: `{ seller_id, application_id, document_type, submitted_at }`
-- Written in same transaction as `kyc_application` insert
-- Admin notifications consumer (NOTIFICATIONS-007) sends email to admin on this event
-
-**Done Criteria:**
-- Schema registered; Kafka UI shows event within 2s of KYC submission
-
----
-
-### SELLER-010 — Seller Suspension / Reinstatement (internal service API)
-
-- **US Ref:** US-A-07
+- **US Ref:** US-S-02
 - **Estimate:** M
 - **Dependencies:** SELLER-002
-- **Spec References:** `phase-1/technical-design/api-design/seller.md`, `phase-1/technical-design/data-model-erd.md`, `phase-1/technical-design/kafka-events.md`
+- **Spec References:** `phase-1/technical-design/api-design/seller.md` § Sequence Diagram Conventions
 
 **Implementation Notes:**
-- Not an HTTP endpoint — internal `SellerService` methods called by `AdminController` (ADMIN-009, ADMIN-010):
-  - `suspend(sellerId, reason, durationDays?)`: set `status = 'SUSPENDED'`, set `suspension_expires_at` (null = indefinite)
-  - `reinstate(sellerId)`: set `status = 'ACTIVE'`, clear suspension fields
-- Suspension side effects (handled by Kafka consumers in respective modules):
-  - Deactivate all seller's ACTIVE offers → emit `seller.suspended` event (ADMIN handles; CATALOG consumer reacts)
-  - Force-logout seller → call `AuthService.revokeAllSessions(sellerId)`
-- Reinstatement side effects (on `seller.reinstated` event):
-  - CATALOG consumer: reactivate offers with `status_changed_reason = 'SUSPENSION'`
-- Suspension expiry scheduler (ADMIN-014): auto-reinstate when `suspension_expires_at < now()`
+- Checks `seller_profile.kyc_status = APPROVED` AND `suspension_status = ACTIVE`
+- Applied to seller-role endpoints in CATALOG (seller CRUD), PRICING (seller pricing), INVENTORY (seller inventory)
+- Suspended-seller exception (per spec's Sequence Diagram Conventions): a `SUSPENDED` seller may still access `GET /seller/orders`, `GET /seller/orders/:id`, `POST /seller/orders/:id/ship` — guard must not block those three regardless of guard level
+- Logic in `SellerService.getApprovedAndActiveProfile(userId)` — single query
 
 **Done Criteria:**
-- Suspend → seller `status = SUSPENDED`; all ACTIVE offers deactivated
-- Reinstate → seller `status = ACTIVE`; offers with SUSPENSION reason reactivated
+- `kyc_status != APPROVED` on a guarded endpoint → 403
+- `suspension_status = SUSPENDED` on a guarded endpoint → 403, except the 3 order endpoints listed above
+
+---
+
+### SELLER-009 — GET /seller/dashboard (counts: pending orders, low-stock SKUs, active listings, flagged listings)
+
+- **US Ref:** US-S-00
+- **Estimate:** M
+- **Dependencies:** SELLER-002
+- **Spec References:** `phase-1/technical-design/api-design/seller.md` § GET /seller/dashboard
+
+**Implementation Notes:**
+- Auth SELLER; does NOT require KYC approval
+- Response fields and per-field source queries (active listings, pending orders, low-stock, flagged listings): see api-design/seller.md's dashboard endpoint — reads across `catalog.offer` and `inventory.stock` (cross-module read, not a build dependency; hence dependency stays SELLER-002 only per backlog)
+- `totalRevenue`: null in V1 (no payment tracking yet — out of scope per CLAUDE.md)
+
+**Done Criteria:**
+- Counts match underlying rows for a seller with active listings, pending orders, and low-stock SKUs
+- KYC-`PENDING_KYC` seller can still access the dashboard (only catalog/pricing/inventory endpoints are guard-blocked)
+
+---
+
+### SELLER-010 — Outbox Event: seller.kyc.submitted (Avro schema; seller_id, kyc_application_id, is_resubmission)
+
+- **US Ref:** US-P-10
+- **Estimate:** S
+- **Dependencies:** PLATFORM-004
+- **Spec References:** `phase-1/technical-design/kafka-events.md`, `phase-1/technical-design/data-model-erd.md` § seller schema
+
+**Implementation Notes:**
+- Avro payload: `{ seller_id, kyc_application_id, is_resubmission }` — supersedes any earlier draft with a `document_type`/`submitted_at` payload; documents are now a JSONB array (`document_references`), not one enum field per application
+- Written in the same transaction as the `kyc_application` insert (SELLER-004 initial submission, SELLER-007 resubmission)
+- Consumed by NOTIFICATIONS (admin email) — see NOTIFICATIONS epic
+
+**Done Criteria:**
+- Schema registered in Confluent Schema Registry; event visible in Kafka UI within 2s of submission or resubmission
+- `is_resubmission` correctly `false` on SELLER-004, `true` on SELLER-007
+
+---
+
+## Notes / Flagged Discrepancies (not silently resolved)
+
+- **Task numbering realigned to `backlog.md`.** The prior draft of this file numbered tasks differently from `backlog.md`'s canonical SELLER-001…010 (e.g. its old SELLER-003 merged entity+endpoint work that `backlog.md` splits across SELLER-003/SELLER-005). Renumbered to match `backlog.md` and `sprint-plan.md` (Sprint 9) exactly, since ADMIN.md's SELLER-002/SELLER-003 dependency references already assume this numbering.
+- **Register vs. KYC submission is one endpoint, not two** (SELLER-004/SELLER-005) — `api-design/seller.md` has no standalone `POST /seller/kyc`. Handled by scoping SELLER-005 as a shared upload helper rather than inventing a nonexistent endpoint; flagged for the spec owner to reconcile `backlog.md`'s two-task framing with the one-endpoint API design.
+- **`GET /seller/kyc/status` vs. documented `GET /seller/kyc`** (SELLER-006) — path suffix mismatch, implement the documented path.
+- **Removed:** the prior draft's standalone "Seller Suspension / Reinstatement" task (old SELLER-010) — not present in `backlog.md`'s SELLER list. That behavior belongs to ADMIN-008/ADMIN-009, which already depend on SELLER-002 for the `updateSuspension` write path added there.

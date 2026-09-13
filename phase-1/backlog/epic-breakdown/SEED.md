@@ -1,167 +1,236 @@
-# EPIC: SEED — Development Seed Data
+# EPIC: SEED — Seed Data
 
-**Sprint:** 5  
-**Total Tasks:** 5  
+**Sprint:** 5
+**Total Tasks:** 11
 
-Kaggle "Amazon Product Data" — curated to 100 products across major categories. Seed script is idempotent (safe to re-run). Provides realistic dev/demo data for all modules.
+Kaggle "Amazon Product Data" curated to 100 products; exactly 4 demo accounts (per US-P-06 / US-A-00b); idempotent, re-runnable seed pipeline. Architecture must still support 10k+ products (NFR-03) even though seed data is small.
 
 ---
 
-## SEED-001 — Seed Data Preparation (Kaggle Dataset Curation)
+## SEED-001 — UUIDv7 PostgreSQL Extension Function
 
 - **US Ref:** —
+- **Estimate:** S
+- **Dependencies:** INFRA-004
+- **Spec References:** `phase-1/technical-design/data-model-erd.md`
+
+**Implementation Notes**
+
+- File: `libs/platform/src/infrastructure/migrations/000_uuidv7_extension.sql`
+- Raw-SQL function providing `uuidv7()` (PostgreSQL has no native UUIDv7 generator as of the locked version); must run **before every other migration** since all PK defaults reference it
+- Numbered `000_` so migration runner applies it first regardless of module
+
+**Done Criteria**
+
+- `SELECT uuidv7();` returns a valid UUID on a fresh DB
+- Every subsequent migration that defaults a PK to `uuidv7()` succeeds
+
+---
+
+## SEED-002 — Idempotent Seed Runner
+
+- **US Ref:** US-P-06
+- **Estimate:** M
+- **Dependencies:** PLATFORM-001
+- **Spec References:** `phase-1/technical-design/backend-module-architecture.md`
+
+**Implementation Notes**
+
+- File: `apps/workers/src/seed/seed.runner.ts` — NestJS CLI command (`nest-commander`), invoked via `npm run seed`
+- Each step (currency, accounts, categories, products, images, sellers, offers, inventory, email templates) is check-before-insert (idempotent) and independently re-runnable
+- `--step=<name>` runs a single step; default runs all in dependency order
+- Exit 0 on success; exit 1 on any step failure; console summary table `[step] [status] [count]`
+
+**Done Criteria**
+
+- Running the seed command twice produces no duplicate rows and no error
+- `--step=<name>` runs only that step
+
+---
+
+## SEED-003 — Currency Seed Rows
+
+- **US Ref:** US-P-06a
+- **Estimate:** S
+- **Dependencies:** PRICING-001
+- **Spec References:** `CLAUDE.md` (V1 currencies), `phase-1/technical-design/data-model-erd.md`
+
+**Implementation Notes**
+
+- File: `apps/workers/src/seed/steps/seed-currencies.ts`
+- Seeds exactly the V1-locked currency set: USD, THB, JPY, SGD
+- Each row: correct `minor_unit_scale` (JPY = 0, others = 2), `is_seller_price_allowed = true`
+
+**Done Criteria**
+
+- 4 currency rows exist, each with correct `minor_unit_scale`
+- No currency outside the V1 set is seeded
+
+---
+
+## SEED-004 — Demo Account Seed
+
+- **US Ref:** US-P-06
+- **Estimate:** M
+- **Dependencies:** AUTH-001
+- **Spec References:** `phase-1/requirements/user-stories/` (US-P-06, US-A-00b)
+
+**Implementation Notes**
+
+- File: `apps/workers/src/seed/steps/seed-accounts.ts`
+- Seeds exactly 4 demo accounts, one per role required by US-P-06 / US-A-00b: consumer buyer, business buyer, seller, admin — exact emails/roster per those user stories, not duplicated here
+- Passwords hashed with argon2id (same hashing path as real signup — no shortcut)
+- `isEmailVerified = true` set directly (skip token flow for seed convenience)
+- Seller account: KYC APPROVED, suspension status ACTIVE (ready to list immediately)
+
+**Done Criteria**
+
+- Exactly 4 accounts exist after seeding — no extras
+- Each account can log in with its seeded password
+- Seller account can create listings without further KYC steps
+
+---
+
+## SEED-005 — Category Taxonomy Seed
+
+- **US Ref:** US-P-06
+- **Estimate:** M
+- **Dependencies:** CATALOG-001
+- **Spec References:** `phase-1/technical-design/data-model-erd.md`, `CLAUDE.md` (prohibited categories)
+
+**Implementation Notes**
+
+- File: `apps/workers/src/seed/steps/seed-categories.ts`
+- 6+ top-level categories with full hierarchy slugs (parent/child path)
+- `is_prohibited = true` on weapons/drugs/adult-content branches, per the prohibited-categories rule — these exist in the taxonomy for moderation-flag testing but are never used by seeded products (SEED-006)
+
+**Done Criteria**
+
+- 6+ top-level categories exist with correct slug hierarchy
+- Prohibited branches flagged `is_prohibited = true`
+
+---
+
+## SEED-006 — Kaggle Amazon Product Data Import Pipeline
+
+- **US Ref:** US-P-06
+- **Estimate:** XL
+- **Dependencies:** CATALOG-001
+- **Spec References:** `phase-1/technical-design/data-model-erd.md`
+
+**Implementation Notes**
+
+- File: `apps/workers/src/seed/steps/import-kaggle-products.ts`
+- Source: Kaggle "Amazon Product Data" (public dataset), curated to exactly 100 products across major categories (SEED-005), ≥5 per top-level category
+- Parses CSV, cleans missing/malformed fields, maps to `catalog.product` (+ variant where the dataset provides size/color) schema
+- Idempotent: skip products already imported (match on source SKU/ASIN)
+- Publishes `product.changed` via outbox per imported product (async ES indexing, per event-driven-writes rule)
+
+**Done Criteria**
+
+- Exactly 100 products imported, spanning ≥5 categories from SEED-005
+- No duplicate products on re-run
+- Each import triggers a `product.changed` outbox event
+
+---
+
+## SEED-007 — Product Images Import
+
+- **US Ref:** US-P-06
 - **Estimate:** L
-- **Dependencies:** INFRA-001
-- **Spec References:** `phase-1/technical-design/data-model-erd.md`, `phase-1/technical-design/data-model-mongodb.md`
+- **Dependencies:** SEED-006
+- **Spec References:** `phase-1/technical-design/data-model-mongodb.md` (MinIO buckets)
 
 **Implementation Notes**
 
-- Source: Kaggle "Amazon Product Data" (public dataset)
-- Curation target: 100 products across these categories (≥5 products each):
-  - Electronics
-  - Books
-  - Home & Kitchen
-  - Sports & Outdoors
-  - Clothing & Accessories
-  - Beauty & Personal Care
-  - Toys & Games
-  - Office Products
-- File: `apps/workers/src/seed/data/products.json` — curated subset with fields:
-  ```json
-  {
-    "id": "...",
-    "title": "...",
-    "description": "...",
-    "brand": "...",
-    "category": "Electronics > Headphones",
-    "imageUrl": "https://...",
-    "originalPrice": "39.99",
-    "currency": "USD",
-    "sku": "AMZN-001"
-  }
-  ```
-- Images: use Kaggle-provided URLs (external CDN). Do NOT download to MinIO for seed (dev convenience only)
-- Keep original ASIN or row ID as `sku` for traceability
+- File: `apps/workers/src/seed/steps/import-product-images.ts`
+- Downloads images from Kaggle-provided URLs where reachable; falls back to a placeholder image set otherwise (dataset image links rot over time)
+- Uploads to MinIO `product-images` bucket; associates with the corresponding `catalog.product` row
 
 **Done Criteria**
 
-- 100 product records in `products.json`
-- At least 8 categories represented
-- No duplicate products
+- Every seeded product has at least one image in the `product-images` MinIO bucket
+- Placeholder fallback used with no pipeline failure when a source URL is unreachable
 
 ---
 
-## SEED-002 — Seed Users, Sellers, Categories
+## SEED-008 — Seeded Seller Profiles
 
-- **US Ref:** —
+- **US Ref:** US-P-06
 - **Estimate:** M
-- **Dependencies:** AUTH-001, SELLER-003, CATALOG-002
+- **Dependencies:** SELLER-001
 - **Spec References:** `phase-1/technical-design/data-model-erd.md`
 
 **Implementation Notes**
 
-- File: `apps/workers/src/seed/seed-users.ts`
-- Create via service layer (not raw SQL) to trigger proper side effects:
-  - 2 ADMIN users: `admin1@aliceut.dev`, `admin2@aliceut.dev` (password: `Admin1234!`)
-  - 3 SELLER users, all KYC APPROVED, status ACTIVE: `seller1@aliceut.dev`, `seller2@aliceut.dev`, `seller3@aliceut.dev`
-  - 5 BUYER users: `buyer1@aliceut.dev` through `buyer5@aliceut.dev` (password: `Buyer1234!`)
-- All accounts: `isEmailVerified = true` (set directly in DB; skip token flow)
-- Seller profiles: `displayName = "Demo Seller N"`, `businessName = "Demo Business N"`
-- Seed categories (catalog.category):
-  - Electronics (+ 3 subcategories)
-  - Books, Home & Kitchen, Sports & Outdoors, Clothing & Accessories, Beauty & Personal Care, Toys & Games, Office Products (flat; no subcategories for simplicity)
-- Idempotent: check by email/slug before insert
+- File: `apps/workers/src/seed/steps/seed-seller-profiles.ts`
+- 3 pre-approved seller profiles (`kyc_status = APPROVED`, `suspension_status = ACTIVE`) — distinct from the single seller demo-login account in SEED-004; these are the sellers products get assigned to in SEED-009
+- Products distributed round-robin across the 3 profiles
 
 **Done Criteria**
 
-- All users created; can log in with seeded passwords
-- All seller profiles KYC APPROVED; sellers can create listings
-- 8+ categories exist in `catalog.category`
+- 3 seller profiles exist, all KYC APPROVED and ACTIVE
+- Each can be assigned offers without further approval steps
 
 ---
 
-## SEED-003 — Seed Products, Offers, Prices
+## SEED-009 — Offer + Price Seed
 
-- **US Ref:** —
+- **US Ref:** US-P-06
+- **Estimate:** L
+- **Dependencies:** SEED-008
+- **Spec References:** `CLAUDE.md` (pricing model), `phase-1/technical-design/data-model-erd.md`
+
+**Implementation Notes**
+
+- File: `apps/workers/src/seed/steps/seed-offers.ts`
+- One `catalog.offer` per seeded product (100 total), assigned to a seller profile from SEED-008
+- Price currency mix across the 4 V1 currencies (SEED-003) — `pricing.offer_price` rows, never priced on `Product` directly
+- 10% of offers get a `SALE` price (time-bounded) in addition to `LIST`; 5% get a `B2B_TIER` price (min-qty tier)
+- Publishes `product.changed` (or `offer.changed`, per the event actually tied to offer/price mutation in `kafka-events.md`) via outbox for each created offer
+
+**Done Criteria**
+
+- 100 offers exist, each with a `LIST` price in one of the 4 V1 currencies
+- ~10% of offers additionally have a `SALE` price, ~5% a `B2B_TIER` price
+- No price row references `Product` directly
+
+---
+
+## SEED-010 — Inventory Seed
+
+- **US Ref:** US-P-06
 - **Estimate:** M
-- **Dependencies:** SEED-001, SEED-002, CATALOG-008, PRICING-006
+- **Dependencies:** INVENTORY-001
 - **Spec References:** `phase-1/technical-design/data-model-erd.md`
 
 **Implementation Notes**
 
-- File: `apps/workers/src/seed/seed-products.ts`
-- For each of the 100 products from `products.json`:
-  1. Create `catalog.product` row (use curated data)
-  2. Assign to one seller (round-robin across 3 seed sellers: product index % 3)
-  3. Create `catalog.offer` (status = `ACTIVE`)
-  4. Create `pricing.offer_price` (type = `LIST`, currency = `USD`, price from curated data)
-  5. Create `catalog.stock` (qty = random 5–100)
-- Distribute products across seed categories (by curated `category` field mapping)
-- `offer.status = ACTIVE` for all seed offers
-- No image upload to MinIO (use external URLs from curated data)
+- File: `apps/workers/src/seed/steps/seed-inventory.ts`
+- One inventory row per offer from SEED-009: reasonable random `on_hand` quantity, `low_stock_threshold = 5`
+- No initial reservations (clean slate for checkout/cart testing)
 
 **Done Criteria**
 
-- 100 products in DB; all indexed in ES via async `product.changed` event
-- Each product: 1 offer, 1 USD price, 1 stock record
-- `GET /search?q=headphones` returns matching products within 5s of seeding
+- Every offer from SEED-009 has exactly one inventory row
+- No reservation rows exist immediately after seeding
 
 ---
 
-## SEED-004 — Seed Orders (sample order history)
+## SEED-011 — Email Template Seed
 
-- **US Ref:** —
+- **US Ref:** US-P-06
 - **Estimate:** M
-- **Dependencies:** SEED-003, ORDERS-005
-- **Spec References:** `phase-1/technical-design/data-model-erd.md`, `phase-1/technical-design/data-model-mongodb.md`
+- **Dependencies:** NOTIFICATIONS-001
+- **Spec References:** `phase-1/requirements/user-stories/email-templates.md` (ET-01..21, plus the ET-13b variant)
 
 **Implementation Notes**
 
-- File: `apps/workers/src/seed/seed-orders.ts`
-- Create 20 sample orders (bypass checkout validation for seed; use `dataSource.transaction` directly):
-  - 5 orders status = `PROCESSING` (for buyers 1–3)
-  - 5 orders status = `SHIPPED` (buyers 4–5; set `shipped_at = now() - 1 day`)
-  - 5 orders status = `DELIVERED` (various buyers; set `delivered_at = now() - 3 days`)
-  - 5 orders status = `CANCELLED` (various buyers; reservations already released)
-- Each order: 1–3 fulfillment items from existing products; mock `payment_attempt` with `SUCCEEDED`
-- `display_id` format: `ORD-YYYYMMDD-XXXX` (use actual date of seeding)
-- Seed audit log entries in MongoDB for status transitions
+- File: `apps/workers/src/seed/steps/seed-email-templates.ts`
+- Seeds `notifications.email_template` rows for the full canonical template set defined in `email-templates.md` — subjects/HTML/text bodies sourced from that doc, not duplicated here
+- Idempotent: upsert by template code (`ET-01`, `ET-02`, ... `ET-13b`, ...)
 
 **Done Criteria**
 
-- 20 orders seeded across 4 statuses
-- GET /orders returns buyer's orders (buyer1 sees only their orders)
-- GET /seller/fulfillments: seller1 sees their fulfillments
-
----
-
-## SEED-005 — Master Seed Runner + Idempotency Guard
-
-- **US Ref:** —
-- **Estimate:** M
-- **Dependencies:** SEED-002, SEED-003, SEED-004
-- **Spec References:** `phase-1/technical-design/data-model-erd.md`
-
-**Implementation Notes**
-
-- File: `apps/workers/src/seed/seed.runner.ts`
-- Single entry point: `npm run seed` (or `ts-node seed.runner.ts`)
-- Execution order:
-  1. `seedCategories()` — categories first (products depend on them)
-  2. `seedUsers()` — users and seller profiles
-  3. `seedProducts()` — products, offers, prices, stock
-  4. `seedOrders()` — orders and fulfillments
-- Each step: `SeedRunner.isSeeded(stepName): boolean` — checks a `seed_log` table or config flag
-  - `seed_log` table: `(step_name TEXT PRIMARY KEY, seeded_at TIMESTAMP)`
-  - If already seeded: skip + log `[SKIP] Step already seeded`
-  - If not seeded: run + insert `seed_log` row on success
-- `--force` flag: drop all seed data and re-run (dev convenience; never in prod)
-- `--step=users` flag: run single step only
-- Exit 0 on success; exit 1 on any step failure; partial success logged clearly
-
-**Done Criteria**
-
-- `npm run seed` completes idempotently (no error on second run)
-- `npm run seed --force` re-seeds from scratch
-- `npm run seed --step=users` runs only user seed
-- Final console output: summary table `[step] [status] [count]`
+- Every template code in `email-templates.md` has a corresponding seeded row
+- Re-running the step updates existing rows rather than duplicating them

@@ -1,7 +1,7 @@
 # EPIC: SHARED — Shared Libraries
 
 **Sprint:** 1–2  
-**Total Tasks:** 9  
+**Total Tasks:** 10  
 
 Cross-cutting utilities consumed by every module: money value objects, UUIDv7 generation, pagination DTOs, outbox integration helpers, base exception classes, storage service, and OpenAPI configuration. Must be completed before any feature module starts.
 
@@ -17,27 +17,41 @@ Cross-cutting utilities consumed by every module: money value objects, UUIDv7 ge
 **Implementation Notes**
 
 - File: `libs/shared/src/domain/money.value-object.ts`
-- Wraps `decimal.js` `Decimal` internally; never exposes raw JS `number`
-- Constructor: `new MoneyVO(amount: string | Decimal, currency: string)`
-- Validates: `amount` must parse as valid decimal; `currency` must be 3-char ISO 4217 string
-- Methods:
-  - `add(other: MoneyVO): MoneyVO` — asserts same currency before add
-  - `subtract(other: MoneyVO): MoneyVO` — asserts same currency
-  - `multiply(factor: string | number): MoneyVO` — factor treated as Decimal
-  - `equals(other: MoneyVO): boolean`
-  - `isGreaterThan(other: MoneyVO): boolean`
-  - `toJSON(): { amount: string; currency: string }` — amount is 4-decimal-place string (e.g. `"99.9900"`)
-  - `toDbDecimal(): string` — same as `toJSON().amount`; used when writing to TypeORM
-- Static: `MoneyVO.fromDb(amount: string, currency: string): MoneyVO`
-- Throw `InvalidMoneyException` (extends `BadRequestException`) on currency mismatch or invalid input
-- Lint rule note: document in this file that `*price`, `*amount`, `*tax`, `*fee` TypeORM column types must be `NUMERIC(19,4)` not `float` or `integer`
+- Wraps `decimal.js` `Decimal`; never exposes raw JS `number`. Method set (add/subtract/multiply/equals/isGreaterThan/toDbDecimal/fromDb) per `conventions/backend-coding-standards.md` §3.1 `Money` class — see spec for exact signatures.
+- `toJSON(scale: number): string` — scale-aware, caller passes `scale` from `CurrencyScaleCache.get(currency)` (SHARED-001b). **Never hardcode a 4dp constant for display** — 4dp is storage-only, via `toDbDecimal()`. See §3.2-3.3 for the DB↔app↔JSON mapping.
+- Throw `InvalidMoneyException` on currency mismatch or invalid input
+- Lint rule note: document that `*price`, `*amount`, `*tax`, `*fee` TypeORM column types must be `NUMERIC(19,4)`, never `float`/`integer`
 
 **Done Criteria**
 
-- `new MoneyVO("10.5", "USD").add(new MoneyVO("0.50", "USD")).toJSON()` returns `{ amount: "11.0000", currency: "USD" }`
+- `new MoneyVO("10.5", "USD").add(new MoneyVO("0.50", "USD")).toDbDecimal()` returns `"11.0000"`
+- `new MoneyVO("1000", "JPY").toJSON(0)` returns `"1000"`; `new MoneyVO("9.99", "USD").toJSON(2)` returns `"9.99"`
 - Adding USD + THB throws `InvalidMoneyException`
-- Unit tests cover: add, subtract, multiply, equals, currency mismatch, invalid amount
-- `toJSON()` always produces 4 decimal places (not floating point noise)
+- Unit tests cover: add, subtract, multiply, equals, currency mismatch, invalid amount, scale-aware `toJSON` for JPY (0dp) vs USD (2dp)
+- `toDbDecimal()` always produces 4 decimal places (storage precision); `toJSON(scale)` never hardcodes 4dp for display
+
+---
+
+## SHARED-001b — Currency Scale Cache (`CurrencyScaleCache`)
+
+- **US Ref:** FR-P-04
+- **Estimate:** S (½d)
+- **Dependencies:** SHARED-001, INFRA-004
+- **Spec References:** `conventions/backend-coding-standards.md` §3.2, `phase-1/technical-design/data-model-erd.md`
+
+**Implementation Notes**
+
+- File: `libs/shared/src/money/currency-scale.cache.ts`
+- Implement per `conventions/backend-coding-standards.md` §3.2 exactly (class shape, 24h refresh interval, `get(code)` default) — see spec for the full implementation.
+- **Authoritative source is DB `pricing.currency.minor_unit_scale` — never hardcode a `CURRENCY_SCALE` constant.**
+- Register + export from `SharedModule`; services formatting money for JSON inject this and pass the result into `MoneyVO.toJSON(scale)`
+
+**Done Criteria**
+
+- Cache loads `USD=2, THB=2, SGD=2, JPY=0, BHD=3` from seeded `pricing.currency` rows on boot
+- `get('JPY')` returns `0`, `get('USD')` returns `2`, `get('XXX')` (unseeded) returns `2` (default)
+- Adding a new `pricing.currency` row and waiting for refresh (or manually invoking refresh in test) updates `get()` without app restart
+- No `CURRENCY_SCALE` constant exists anywhere in the codebase (grep-able convention check)
 
 ---
 
@@ -155,37 +169,20 @@ Cross-cutting utilities consumed by every module: money value objects, UUIDv7 ge
 
 ---
 
-## SHARED-005 — Outbox Event Writer Service
+## SHARED-005 — Outbox Event Writer Helper (consumes PLATFORM's `OutboxEvent`)
 
 - **US Ref:** FR-P-09
-- **Estimate:** M (1d)
-- **Dependencies:** INFRA-004, SHARED-002
+- **Estimate:** S (½d)
+- **Dependencies:** PLATFORM-002, SHARED-002
 - **Spec References:** `phase-1/technical-design/backend-module-architecture.md`, `phase-1/technical-design/data-model-erd.md`, `phase-1/technical-design/kafka-events.md`
 
 **Implementation Notes**
 
+- **Ownership note:** the `OutboxEvent` TypeORM entity, `platform.outbox_event` table migration, and `OutboxRepository` interface are owned by **PLATFORM-002**, not this task. SHARED-005 only provides a thin, module-agnostic helper that any feature module (Product, Order, etc.) calls from inside its own transaction — it re-exports/wraps what PLATFORM-002 provides rather than redefining the entity.
 - File: `libs/shared/src/outbox/outbox-event-writer.service.ts`
-- `OutboxEvent` TypeORM entity (table: `platform.outbox_event`):
-  ```ts
-  @Entity({ schema: 'platform', name: 'outbox_event' })
-  class OutboxEvent {
-    @PrimaryColumn('uuid') id: string = generateId();
-    @Column() aggregateType: string;    // e.g. 'Product'
-    @Column() aggregateId: string;
-    @Column() eventType: string;        // e.g. 'product.changed'
-    @Column() eventVersion: number;
-    @Column({ type: 'jsonb' }) payload: object;
-    @Column({ type: 'uuid', nullable: true }) correlationId?: string;
-    @CreateDateColumn() occurredAt: Date;
-    @Column({ default: 'PENDING' }) status: 'PENDING' | 'PUBLISHED' | 'FAILED';
-    @Column({ default: 0 }) retryCount: number;
-    @Column({ nullable: true }) publishedAt?: Date;
-    @Column({ nullable: true }) failedReason?: string;
-  }
-  ```
-- `OutboxEventWriterService.write(entityManager: EntityManager, event: OutboxEventDto): Promise<void>` — inserts outbox row using the provided `EntityManager` (same transaction as domain write)
+- `OutboxEventWriterService.write(entityManager: EntityManager, event: OutboxEventDto): Promise<void>` — inserts an outbox row (using PLATFORM-002's `OutboxEvent` entity) via the provided `EntityManager` (same transaction as domain write)
 - `OutboxEventDto`: `{ aggregateType, aggregateId, eventType, eventVersion, payload, correlationId? }`
-- Envelope added automatically: `event_id = generateId()`, `occurred_at = new Date()`
+- Envelope fields added automatically: `event_id = generateId()` (SHARED-002), `occurred_at = new Date()`
 - Usage pattern in application services:
   ```ts
   await this.dataSource.transaction(async (em) => {
@@ -206,6 +203,7 @@ Cross-cutting utilities consumed by every module: money value objects, UUIDv7 ge
 - Within a transaction: if domain save succeeds but outbox insert fails, entire transaction rolls back
 - If domain save fails, outbox row is NOT written (atomicity test)
 - Integration test confirms both rows appear/disappear together
+- No duplicate `OutboxEvent` entity/migration defined in `libs/shared/` — single source of truth stays in PLATFORM-002's `platform.outbox_event` table
 
 ---
 

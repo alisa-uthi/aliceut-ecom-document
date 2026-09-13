@@ -28,7 +28,7 @@
 | PRICING | Pricing Module | 3 | 9 | Next |
 | INVENTORY | Inventory Module | 3–4 | 11 | Next |
 | SELLER | Seller Module | 4 | 10 | Next |
-| ADMIN | Admin Module | 4 | 15 | Next |
+| ADMIN | Admin Module | 4 | 14 | Next |
 | CART | Cart Module | 4 | 10 | Next |
 | SEARCH | Search Module | 5 | 14 | Later |
 | ORDERS | Orders / Checkout Module | 6 | 22 | Later |
@@ -143,7 +143,7 @@
 | CATALOG-006 | ProductImage entity + MinIO upload handler (product-images bucket; JPEG/PNG/WebP ≤5MB) | L | CATALOG-001 | US-S-03 | Next |
 | CATALOG-007 | ProductsController: GET /products, GET /products/:id (buyer read) | M | CATALOG-004 | US-B-05 | Next |
 | CATALOG-008 | Offer entity + repository interface | M | CATALOG-001 | US-P-01 | Next |
-| CATALOG-009 | SellerCatalogController: POST/PUT/DELETE /seller/products (create/edit/soft-delete listing) | L | CATALOG-008 | US-S-03 | Next |
+| CATALOG-009 | Seller product writes: POST/PATCH/DELETE /seller/products (create/edit/soft-delete listing; served by SellerModule per backend-module-architecture.md) | L | CATALOG-008 | US-S-03 | Next |
 | CATALOG-010 | Keyword blocklist service + prohibited category guard (block on save, flag offer) | L | CATALOG-008 | US-P-06c | Next |
 | CATALOG-011 | Offer status state machine (DRAFT→ACTIVE, ACTIVE→FLAGGED, FLAGGED→ACTIVE/REMOVED; status_changed_reason) | M | CATALOG-008 | US-S-04 | Next |
 | CATALOG-012 | Outbox events: product.changed, offer.changed, listing.soft_deleted (Avro schemas registered) | M | PLATFORM-004 | US-P-10 | Next |
@@ -157,7 +157,7 @@
 | PRICING-001 | pricing schema raw-SQL migrations (currency, offer_price, fx_rate) | M | PLATFORM-001 | — | Next |
 | PRICING-002 | Currency seed (USD, THB, JPY, SGD; minor_unit_scale; is_seller_price_allowed) | S | PRICING-001 | US-P-06a | Next |
 | PRICING-003 | OfferPrice entity + repository interface | M | PRICING-001 | US-P-01 | Next |
-| PRICING-004 | PricingController seller: GET/POST/PUT/DELETE /seller/offers/:id/prices | L | PRICING-003 | US-S-04b | Next |
+| PRICING-004 | PUT /seller/offers/:id/prices/:type (upsert price for currency + type) | L | PRICING-003 | US-S-04b | Next |
 | PRICING-005 | Effective price resolution service (B2B_TIER → SALE → LIST priority; time + qty + account_type) | L | PRICING-003 | US-P-01 | Next |
 | PRICING-006 | FxRate entity + repository | M | PRICING-001 | US-P-02 | Next |
 | PRICING-007 | FX display conversion helper (cheapest-offer + FX → estimated price with ≈ label) | M | PRICING-006 | US-P-02 | Next |
@@ -211,15 +211,14 @@
 | ADMIN-004 | POST /admin/kyc/:id/approve (activate seller; publish seller.kyc.decided outbox) | M | SELLER-002 | US-A-02 | Next |
 | ADMIN-005 | POST /admin/kyc/:id/reject (set rejection reason; publish seller.kyc.decided outbox) | M | SELLER-002 | US-A-02 | Next |
 | ADMIN-006 | GET /admin/moderation (flagged listings queue; sorted by flagged_at DESC) | M | ADMIN-002 | US-A-03 | Next |
-| ADMIN-007 | POST /admin/moderation/:id/remove (remove listing + mandatory reason; create audit record; publish moderation.listing.removed) | L | ADMIN-002 | US-A-04 | Next |
-| ADMIN-008 | POST /admin/moderation/:id/clear (dismiss flag; listing stays live; audit record; publish listing.flagged resolve) | M | ADMIN-002 | US-A-04b | Next |
-| ADMIN-009 | POST /admin/sellers/:id/suspend (reason + duration; deactivate listings; publish seller.suspended) | L | SELLER-002 | US-A-05 | Next |
-| ADMIN-010 | POST /admin/sellers/:id/reinstate (early lift; reactivate SUSPENSION listings only; publish seller.reinstated) | M | SELLER-002 | US-A-05b | Next |
-| ADMIN-011 | GET /admin/sellers (search by name/email/tax_id; paginated) | M | SELLER-002 | US-A-06 | Next |
-| ADMIN-012 | GET /admin/sellers/:id (full profile: KYC status, listings, moderation history) | M | SELLER-002 | US-A-06 | Next |
-| ADMIN-013 | GET /admin/dashboard (live counts: pending KYC, flagged listings, suspended sellers, SLA breaches) | M | SELLER-002 | US-A-00 | Next |
-| ADMIN-014 | Suspension expiry scheduler (poll SUSPENDED sellers where suspended_until <= now(); reinstate + publish seller.suspension_expired) | M | SELLER-002 | US-P-18 | Next |
-| ADMIN-015 | Outbox events: seller.kyc.decided, seller.suspended, seller.reinstated, seller.suspension_expired, moderation.listing.removed, listing.flagged | M | PLATFORM-004 | US-P-10 | Next |
+| ADMIN-007 | POST /admin/moderation/:caseId/decide (decision: REMOVE\|DISMISS; REMOVE = remove listing + mandatory reason, publish moderation.listing.removed; DISMISS = listing stays live, publish offer.changed) | L | ADMIN-002 | US-A-04, US-A-04b | Next |
+| ADMIN-008 | POST /admin/sellers/:id/suspend (reason + duration; deactivate listings; publish seller.suspended) | L | SELLER-002 | US-A-05 | Next |
+| ADMIN-009 | POST /admin/sellers/:id/reinstate (early lift; reactivate SUSPENSION listings only; publish seller.reinstated) | M | SELLER-002 | US-A-05b | Next |
+| ADMIN-010 | GET /admin/sellers (search by name/email/tax_id; paginated) | M | SELLER-002 | US-A-06 | Next |
+| ADMIN-011 | GET /admin/sellers/:id (full profile: KYC status, listings, moderation history) | M | SELLER-002 | US-A-06 | Next |
+| ADMIN-012 | GET /admin/dashboard (live counts: pending KYC, flagged listings, suspended sellers, SLA breaches) | M | SELLER-002 | US-A-00 | Next |
+| ADMIN-013 | Suspension expiry scheduler (poll SUSPENDED sellers where suspended_until <= now(); reinstate + publish seller.suspension_expired) | M | SELLER-002 | US-P-18 | Next |
+| ADMIN-014 | Outbox events: seller.kyc.decided, seller.suspended, seller.reinstated, seller.suspension_expired, moderation.listing.removed, offer.changed | M | PLATFORM-004 | US-P-10 | Next |
 
 ---
 
@@ -244,10 +243,10 @@
 
 | Task ID | Title | Estimate | Depends On | US Ref | Status |
 |---------|-------|----------|------------|--------|--------|
-| SEARCH-001 | Elasticsearch product index mapping (product_id, offer fields, display_prices map, availability, category path, rating) | L | INFRA-007 | US-B-02 | Later |
-| SEARCH-002 | SearchController: GET /search (keyword, category, price_range, min_rating, in_stock, sort, page, limit) | L | SEARCH-001 | US-B-02 | Later |
-| SEARCH-003 | ES query builder (multi-match fuzzy on title+description; bool filter for category/price/stock/rating) | L | SEARCH-001 | US-B-03 | Later |
-| SEARCH-004 | Faceted aggregations (category counts, price buckets, rating histogram) | M | SEARCH-003 | US-B-03 | Later |
+| SEARCH-001 | Elasticsearch product index mapping (productId, lowestOffer + offer fields, display_prices map, inStock, category path) | L | INFRA-007 | US-B-02 | Later |
+| SEARCH-002 | SearchController: GET /search/products (q, categoryId, priceMin, priceMax, currency, inStock, sortBy, limit, cursor) | L | SEARCH-001 | US-B-02 | Later |
+| SEARCH-003 | ES query builder (multi-match fuzzy on title+brand+description; bool filter for category/price/stock) | L | SEARCH-001 | US-B-03 | Later |
+| SEARCH-004 | Faceted aggregations (category counts, price range) | M | SEARCH-003 | US-B-03 | Later |
 | SEARCH-005 | Kafka consumer: product.changed (upsert product doc in ES) | M | PLATFORM-007 | US-P-11 | Later |
 | SEARCH-006 | Kafka consumer: offer.changed (update offer fields; recalculate display_prices) | M | PLATFORM-007 | US-P-11 | Later |
 | SEARCH-007 | Kafka consumer: inventory.changed (update available_qty field; handle zero-stock visibility) | M | PLATFORM-007 | US-P-11 | Later |

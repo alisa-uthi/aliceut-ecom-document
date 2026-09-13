@@ -1,6 +1,6 @@
 # EPIC: CART — Cart Module
 
-**Sprint:** 4  
+**Sprint:** 11  
 **Lib:** `libs/cart/`  
 **Module:** `CartModule`  
 **Controllers:** `CartController`  
@@ -113,7 +113,7 @@ Overview: Manages the server-side authenticated cart. Guest carts live in browse
 
 ---
 
-### CART-006 — PUT /cart/items/:id
+### CART-006 — PATCH /cart/items/:id
 
 - **US Ref:** US-B-06
 - **Estimate:** M
@@ -150,7 +150,7 @@ Overview: Manages the server-side authenticated cart. Guest carts live in browse
 
 ---
 
-### CART-008 — Guest Cart Merge on Login
+### CART-008 — POST /cart/merge (Guest Cart Merge on Login)
 
 - **US Ref:** US-B-07
 - **Estimate:** L
@@ -158,22 +158,12 @@ Overview: Manages the server-side authenticated cart. Guest carts live in browse
 - **Spec References:** `phase-1/technical-design/api-design/cart.md`, `phase-1/technical-design/data-model-erd.md`
 
 **Implementation Notes:**
-- Triggered in `AuthService.login()` after successful authentication, if client sends `guestCart` in request body
-- `guestCart` format: `[{ offerId, quantity }]` (same as localStorage format in frontend)
-- Merge logic:
-  1. For each guest item:
-     - Check offer is ACTIVE and `available_qty > 0`
-     - If offer already in server cart: `newQty = serverQty + guestQty`; cap at `available_qty`
-     - If not in cart: add as new item (check 50-item limit)
-  2. Collect result: `{ addedCount, adjustedCount, skippedCount }`
-- Return: `{ accessToken, refreshToken, user, cartMergeResult }`
-- Toast message logic: "N item(s) from your guest session were added to your cart." + append adjustment warning if `adjustedCount > 0`
+- Dedicated endpoint `POST /cart/merge` — `@JwtAuthGuard`; called by the client right after login/register when the localStorage guest cart is non-empty (not embedded in `AuthService.login()`)
+- Request DTO, conflict-resolution rule (server qty wins, guest quantity discarded on conflict), availability capping, and response shape: per `api-design/cart.md` "Merge guest cart (on login)" section — do not re-derive here
+- Cart-not-yet-existing case handled same as any first authenticated write (CART-002 `getOrCreateCart`)
 
 **Done Criteria:**
-- Login with guest cart: server cart contains merged items
-- Quantity caps at live available_qty (checked at merge time)
-- Inactive offer in guest cart → skipped (not added)
-- Cart limit (50 items) respected during merge
+- Login with guest cart, then `POST /cart/merge`: server cart matches the merge outcome defined in api-design/cart.md exactly (server qty wins on conflict, inactive offers skipped, availability + 50-item cap enforced)
 
 ---
 
@@ -194,7 +184,7 @@ Overview: Manages the server-side authenticated cart. Guest carts live in browse
 
 **Done Criteria:**
 - Seller removes listing → GET /cart shows that item as stale
-- POST /orders/checkout with stale items: stale items excluded from checkout (not a blocking error; included in `skipped_items` response per US-B-09)
+- POST /orders with stale items: stale items excluded from checkout (not a blocking error; included in `failedGroups`/skipped response per US-B-09)
 
 ---
 
@@ -214,3 +204,20 @@ Overview: Manages the server-side authenticated cart. Guest carts live in browse
 **Done Criteria:**
 - 50 distinct items already in cart → adding 51st → 422
 - Increasing quantity of existing item → 200 (not limited)
+
+---
+
+### CART-011 — DELETE /cart (Clear Cart)
+
+- **US Ref:** US-B-06
+- **Estimate:** S
+- **Dependencies:** CART-003
+- **Spec References:** `phase-1/technical-design/api-design/cart.md`, `phase-1/technical-design/data-model-erd.md`
+
+**Implementation Notes:**
+- `@JwtAuthGuard`; deletes all `cart_item` rows for the authenticated user's cart in a single operation
+- Request/response contract per api-design/cart.md "Clear cart" section
+
+**Done Criteria:**
+- `DELETE /cart` → 204; subsequent `GET /cart` returns an empty cart
+- Scoped to authenticated user's own cart (cannot clear another user's cart)
