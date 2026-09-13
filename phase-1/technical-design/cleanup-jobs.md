@@ -2,7 +2,7 @@
 
 Phase 1 implementation of the data lifecycle convention. All jobs run inside PostgreSQL via `pg_cron`.
 
-**Convention:** [conventions/data-lifecycle.md](../../conventions/data-lifecycle.md)
+**Convention:** [conventions/data-lifecycle.md](../../conventions/data-lifecycle.md)  
 **Related:** [data-model-erd.md](./data-model-erd.md), [conventions/auth-jwt-design.md](../../conventions/auth-jwt-design.md)
 
 ---

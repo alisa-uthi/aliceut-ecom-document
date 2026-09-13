@@ -1,6 +1,6 @@
 # Phase 1 — Module Inventory
 
-**Status:** Draft  
+**Status:** Complete  
 **Source of truth:** [conventions/backend-module-architecture.md](../../conventions/backend-module-architecture.md)
 
 Module structure conventions (hexagonal layers, CQRS pattern, outbox integration, OpenAPI generation, shared library): see [conventions/backend-module-architecture.md](../../conventions/backend-module-architecture.md).

@@ -1,6 +1,6 @@
 # Docker Compose Topology — Phase 1
 
-**Status:** Draft  
+**Status:** Complete  
 **Source of truth:** [BRD v1.2 §12](../requirements/BRD.md), [architecture-overview §8](../../architecture-overview.md)
 
 ---

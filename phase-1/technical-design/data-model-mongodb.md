@@ -1,6 +1,6 @@
 # MongoDB Data Model — Phase 1
 
-**Status:** Draft  
+**Status:** Complete  
 **Source of truth:** [BRD v1.2](../requirements/BRD.md)
 
 Collections used for high-write append data: audit accountability and domain lifecycle events. All writes come from the single `audit` Kafka consumer group (see [kafka-events.md](kafka-events.md)).

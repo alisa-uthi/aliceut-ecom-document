@@ -29,11 +29,32 @@ Daily log of work on this project. Newest entry on top. One entry per active day
 ---
 
 **Index**
-- [2026-09-13](#2026-09-13) — Added Claude Code subagents guideline; updated development-flow conventions map.
+- [2026-09-13](#2026-09-13) — Phase 1 backlog decomposition complete: master backlog, sprint plan, all 20 epic breakdowns.
 - [2026-09-12](#2026-09-12) — Phase 1 documentation complete: full developer-readiness audit, cross-doc alignment (multi-pass), Mermaid rendering fixes, interactive architecture diagrams.
 
 <a id="2026-09-13"></a>
 ## 2026-09-13
+**Focus:** Phase 1 backlog decomposition — implementation-ready backlog for solo developer.
+
+**Done:**
+- `phase-1/backlog/backlog.md`: master backlog with all 20 epics (~236 tasks), prioritized by implementation order, including iceberg, DoR, DoD
+- `phase-1/backlog/sprint-plan.md`: 11 detailed sprints + 7 directional (Sprints 12–18), solo dev 40h/sprint, goal + task table + done criteria per sprint, risk register
+- `phase-1/backlog/epic-breakdown/` — all 20 epic files: INFRA, SHARED, PLATFORM, AUTH, IDENTITY, CATALOG, PRICING, INVENTORY, SELLER, ADMIN, CART, SEARCH, ORDERS, NOTIFICATIONS, SEED, FE-SHARED, FE-AUTH, FE-BUYER, FE-SELLER, FE-ADMIN
+- Each task has: ID (EPIC-NNN), estimate (S/M/L/XL), user story ref, dependencies, implementation notes, done criteria
+
+**Decisions:**
+- Money invariants enforced in every task description: `decimal.js`, `NUMERIC(19,4)`, amounts as strings in API
+- Transactional outbox pattern referenced in every domain write task
+- Search always async via Kafka (never sync from API write path)
+- UUIDv7 via `uuidv7()` PostgreSQL function throughout
+
+**Next:**
+- Implementation kickoff: start with INFRA → SHARED → PLATFORM (Sprint 1–2 per sprint plan)
+
+---
+
+<a id="2026-09-13-tooling"></a>
+## 2026-09-13 (earlier)
 **Focus:** Developer tooling — Claude Code subagent routing guideline.
 
 **Done:**
