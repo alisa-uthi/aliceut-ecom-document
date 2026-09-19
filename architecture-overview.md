@@ -116,7 +116,7 @@ The Elasticsearch index is rebuilt from Kafka events. It is a read model and may
 
 ### Effective-price resolution
 
-Price is never stored on `Product`. The hierarchy is `Product → Offer (per seller) → Price (per currency, per price_type)`. Cart and fulfillment items reference `Offer`. At checkout, `FulfillmentItem` snapshots `unit_price`, `currency`, `tax`, and `fx_rate_used_at_capture`. Historical orders never re-derive amounts from live FX or current price rows.
+Price is never stored on `Product`. The hierarchy is `Product → Offer (per seller) → Price (per price_type)`. Currency belongs to the offer, not to the price row: `catalog.offer.native_currency_code` is `NOT NULL` and every price row on that offer is denominated in it, so a seller who wants a second currency creates a second offer. Cart and fulfillment items reference `Offer`. At checkout, `FulfillmentItem` snapshots `unit_price`, `currency_code`, `tax`, `fx_rate_used_at_capture`, and the buyer-currency equivalents of the amounts. Historical orders never re-derive amounts from live FX or current price rows.
 
 <a id="architectural-invariants"></a>
 ## 7. Architectural invariants
@@ -166,13 +166,22 @@ See `phase-1/technical-design/data-model-erd.md` for the full table-level design
 | FX rates | Scheduled refresh from exchangerate.host; display-only cache in PostgreSQL | Same or commercial provider |
 | Payment | Fake internal adapter; deterministic mock outcomes | Real payment gateway |
 | Shipping | Fake internal adapter; mock method, cost, ETA, tracking | Real carrier APIs |
-| Email | Kafka-driven outbound SMTP adapter; asynchronous, failure-isolated | Same pattern; provider may change |
+| Email | Kafka-driven outbound SMTP adapter; asynchronous, failure-isolated. Delivers to Mailpit, a local sink with a web inbox — no mail reaches a real recipient in V1 | Same pattern; real SMTP provider replaces the sink |
 | Object storage | MinIO (self-hosted S3-compatible) | S3 or equivalent managed service |
+| Log and metric collection | Alloy scrapes container logs and API metrics into Loki and Prometheus; Grafana queries both | Managed or in-cluster equivalent |
 
 <a id="deployment-topology"></a>
 ## 10. Deployment topology
 
-**Phase 1 (Docker Compose):** Three nginx containers serving the Angular apps, NestJS API, NestJS workers (outbox relay + Kafka consumers), PostgreSQL, MongoDB, Elasticsearch, Kafka, Confluent Schema Registry, Kafka UI, and MinIO. Full topology and service configuration in `phase-1/technical-design/docker-compose-topology.md`.
+**Phase 1 (Docker Compose):** 19 services, 11 module libraries, 2 deployable Node applications.
+
+These three counts are published here and nowhere else. A document that needs one links to this section instead of restating it — the service count has already drifted once by being copied.
+
+The 19 services: three nginx containers serving the built Angular apps (`buyer-nginx`, `seller-nginx`, `admin-nginx`); the NestJS API; the NestJS workers process (outbox relay + Kafka consumers + scheduled jobs); PostgreSQL; MongoDB; Redis; Elasticsearch; Kafka; Confluent Schema Registry; Kafka UI; MinIO and the one-shot `minio-init` bucket-creation container; Mailpit as the email sink (SMTP in, web inbox out — no mail leaves the machine); and the observability stack of Alloy, Loki, Prometheus and Grafana. The observability four are V1 services, not a later addition: structured logs are only useful if something collects and queries them, and the outbox-lag gauge defined in `phase-1/technical-design/api-design/health.md` is scraped by that Prometheus on the exposition contract in `conventions/observability.md § 6`. Full topology and service configuration in `phase-1/technical-design/docker-compose-topology.md`.
+
+The 2 applications are `api` and `workers`, both built from the same backend monorepo. The 11 module libraries are domain libs inside it, not separately deployed units — see `conventions/backend-module-architecture.md`.
+
+The compose file and the config it mounts live in a sibling repository, `aliceut-ecom-infra`, alongside `aliceut-ecom-document`, `aliceut-ecom-backend` and `aliceut-ecom-frontend`. Its bind mounts are relative to that repo root, so the repos must be cloned as siblings — see `guidelines/development-flow.md § 1`. The nginx containers serve host-built Angular output, so the frontend is built before compose is brought up, not by it.
 
 **Phase 2+ (Kubernetes):** One `Deployment` per domain module. Each service owns its data store. Kafka via Strimzi. Service mesh via Istio. Extraction begins with low-coupling consumers (Search, Notifications) and progresses inward. A module extraction is complete when the extracted service is the sole writer of its schema and all consumers use its API or Kafka events instead of direct database access.
 
@@ -185,8 +194,8 @@ See `phase-1/technical-design/data-model-erd.md` for the full table-level design
 | Security | DTO validation, parameterized queries, Argon2id passwords, short-lived JWTs with refresh rotation, secrets in environment variables |
 | Performance | Elasticsearch serves search; API avoids synchronous indexing; targets: product listing ≤2 s p95, search ≤500 ms p95 |
 | Scalability | Search model supports 10,000+ products; module interfaces and Kafka contracts are future extraction seams |
-| Portability | Raw SQL migrations and repository interfaces prevent ORM leakage into domain logic |
-| Observability | Structured JSON logs and correlation IDs on requests and every event; monitor outbox relay and consumer lag |
+| Portability | Raw SQL migrations and repository interfaces prevent ORM leakage into domain logic. One caveat (NFR-18): `pricing.offer_price`'s overlap `EXCLUDE` needs the bundled contrib extension `btree_gist`, so a managed PostgreSQL that forbids contrib also forbids that constraint |
+| Observability | Structured JSON logs, `X-Correlation-ID` accepted/generated/echoed and carried onto every event envelope, sensitive-key masking; monitor outbox relay lag and consumer lag. Governed by `conventions/observability.md` from Phase 1 onward |
 
 <a id="implementation-structure"></a>
 ## 12. Implementation structure
@@ -219,9 +228,14 @@ Detailed design evolves within each phase's directory.
 |---|---|
 | Business requirements | `phase-1/requirements/BRD.md` |
 | User stories | `phase-1/requirements/user-stories/` |
-| Data model and ERD | `phase-1/technical-design/data-model-erd.md` |
-| REST API contracts | `phase-1/technical-design/api-design.md` |
+| Data model and ERD (PostgreSQL) | `phase-1/technical-design/data-model-erd.md` |
+| MongoDB collections | `phase-1/technical-design/data-model-mongodb.md` |
+| REST API index and cross-cutting conventions | `phase-1/technical-design/api-design.md` |
+| REST API contracts, one document per module | `phase-1/technical-design/api-design/` — `auth`, `profile`, `catalog`, `pricing`, `search`, `cart`, `orders`, `seller`, `admin`, `notifications`, `health` |
 | Kafka / Avro event schemas | `phase-1/technical-design/kafka-events.md` |
+| Scheduled cleanup and maintenance jobs | `phase-1/technical-design/cleanup-jobs.md` |
 | Docker Compose topology | `phase-1/technical-design/docker-compose-topology.md` |
 | NestJS module architecture | `phase-1/technical-design/backend-module-architecture.md` |
 | UI design and screen specs | `phase-1/ui-design/` |
+| Flow and lifecycle diagrams | `phase-1/diagrams/` — buyer journey, seller lifecycle, fulfillment lifecycle, admin moderation, pricing model, auth portals |
+| Cross-document alignment audits and their fix decisions | `phase-1/audits/` |

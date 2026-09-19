@@ -24,7 +24,7 @@
 | [9. Module wiring in the API composition root](#9-module-wiring-in-the-api-composition-root) | `AppModule` imports and global bootstrap configuration |
 | [10. Workers composition root](#10-workers-composition-root) | `WorkersModule`: outbox relay and Kafka consumers |
 | [11. Shared library (`libs/shared`)](#11-shared-library-libsshared) | Technical primitives: money, errors, logger, guards |
-| [12. Elasticsearch index design](#12-elasticsearch-index-design) | `products` index mapping and query strategy |
+| [12. Elasticsearch index design](#12-elasticsearch-index-design) | Index ownership and the rules over the `products` mapping |
 | [13. \[DESIGN DECISIONS\]](#13-design-decisions) | Locked architectural choices with rationale |
 
 <a id="1-repository-structure"></a>
@@ -604,47 +604,13 @@ Domain modules may import from `shared`. `shared` must never import from any dom
 
 The search module owns one index: `products`.
 
-### Index mapping (simplified)
-```json
-{
-  "mappings": {
-    "properties": {
-      "productId":    { "type": "keyword" },
-      "title":        { "type": "text", "analyzer": "standard" },
-      "brand":        { "type": "keyword" },
-      "categoryId":   { "type": "keyword" },
-      "categoryPath": { "type": "keyword" },
-      "status":       { "type": "keyword" },
-      "offers": {
-        "type": "nested",
-        "properties": {
-          "offerId":     { "type": "keyword" },
-          "sellerId":    { "type": "keyword" },
-          "status":      { "type": "keyword" },
-          "availableQty":{ "type": "integer" },
-          "prices": {
-            "type": "nested",
-            "properties": {
-              "currencyCode": { "type": "keyword" },
-              "amount":       { "type": "keyword" },
-              // Price amounts stored as keyword strings (e.g. "99.9900") to preserve NUMERIC(19,4)
-              // precision and ensure API serialization always returns a string per FR-P-04b.
-              // Range filters use the `display_prices` numeric sub-field.
-              // Do NOT change to a numeric type — float imprecision corrupts monetary values.
-              "priceType":    { "type": "keyword" }
-            }
-          }
-        }
-      },
-      "inStock":      { "type": "boolean" },
-      "createdAt":    { "type": "date" },
-      "images":       { "type": "keyword", "index": false }
-    }
-  }
-}
-```
+**The mapping is not defined here.** Field names, types and the query strategy belong to [api-design/search.md § Index Mapping](../phase-1/technical-design/api-design/search.md#index-mapping), which owns them alongside the endpoints that query the index and the consumers that write it. A second copy of a mapping is a copy that will disagree with the one Elasticsearch was created from.
 
-**Search query strategy:** Full-text on `title` (boosted), `brand`, `categoryPath`. Facets via aggregations on `categoryId` and nested `prices.amount` (with FX conversion applied at query time using cached FX rates). `inStock` filter applied as a top-level bool filter.
+Three rules over that mapping are conventions rather than phase-1 choices, and they hold whatever the field list becomes:
+
+- **The mapping is explicit, and the index is created before any consumer writes to it.** Dynamic mapping types the first price it sees as `float`, which breaks FR-P-04 on the first sort or range filter.
+- **No arithmetic is ever performed on an indexed monetary value.** Whatever storage type the index uses for amounts, it is a storage and comparison type only: values are read back and re-rendered with `decimal.js`, and API responses serialize them as strings (FR-P-04a, FR-P-04b).
+- **The index is written only by Kafka consumers**, never from an API request handler (FR-P-10). A read path that repairs a stale document on the fly is a synchronous write in disguise.
 
 ---
 
@@ -653,6 +619,6 @@ The search module owns one index: `products`.
 
 - **[DESIGN DECISION]** URI versioning via `VersioningType.URI` with `defaultVersion: '1'`. `setGlobalPrefix` carries only `'api'` — version segment is injected by NestJS. Reason: baking version into the prefix locks all routes to one version forever; URI versioning lets individual controllers bump independently without touching bootstrap.
 - **[DESIGN DECISION]** No `@nestjs/cqrs` dependency in V1. Commands and queries are plain handler classes dispatched by the ApplicationService facade. Removes a framework dependency while retaining the pattern's clarity.
-- **[DESIGN DECISION]** TypeORM `synchronize: false` always. Raw SQL migrations are the only schema change mechanism — stored in `alice-ut-utility-pipeline/database/phase-N/` and applied via golang-migrate CLI through GitHub Actions (`workflow_dispatch`). See [conventions/database-migrations.md](database-migrations.md).
+- **[DESIGN DECISION]** TypeORM `synchronize: false` always. Raw SQL migrations are the only schema change mechanism — stored in `migrations/phase-N/` in this repo and applied via the TypeORM CLI through the `db-migrate.yml` GitHub Actions workflow (`workflow_dispatch`). See [conventions/database-migrations.md](database-migrations.md).
 - **[DESIGN DECISION]** The Checkout module calls Inventory's ApplicationService synchronously (in-process) rather than via Kafka for the reservation step. This is the only deliberate cross-module synchronous call; it is documented as a composition flow seam. When Inventory is extracted to a separate service, this call is replaced with a two-phase reservation API + saga.
 - **[DESIGN DECISION]** `libs/contracts/` holds Avro schemas (`.avsc` files), generated Avro TypeScript types, and the OpenAPI JSON. It is the boundary module — never depends on any domain module. Both `api` and `workers` may import from `contracts`.

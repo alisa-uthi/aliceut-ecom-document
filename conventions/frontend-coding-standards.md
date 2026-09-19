@@ -13,7 +13,7 @@
 | [2. Component architecture](#2-component-architecture) | Standalone, smart/dumb split, OnPush |
 | [3. State management](#3-state-management) | Services + signals/BehaviorSubject, no NgRx |
 | [4. HTTP and API client](#4-http-and-api-client) | Generated client, interceptors, error handling |
-| [5. Money display patterns](#5-money-display-patterns) | MoneyPipe, Intl.NumberFormat, no JS number |
+| [5. Money display patterns](#5-money-display-patterns) | CurrencyDisplayPipe, Intl.NumberFormat, no JS number |
 | [6. Form patterns](#6-form-patterns) | Reactive forms, typed FormGroup, mat-error |
 | [7. Routing and guards](#7-routing-and-guards) | Route structure, CanActivateFn, lazy loading |
 | [8. Angular Material usage rules](#8-angular-material-usage-rules) | Component choices, import strategy |
@@ -146,7 +146,7 @@ No NgRx in V1. Angular services with `BehaviorSubject` or `signal()` cover all V
 | Service | State held | Tech |
 |---------|-----------|------|
 | `AuthService` | `currentUser`, access token in memory, logout | `BehaviorSubject<User \| null>` |
-| `CartService` | cart items, item count, total (display only) | `signal<CartItem[]>` |
+| `CartService` | cart items, item count, and the server-supplied total strings | `signal<CartItem[]>` |
 | `NotificationService` | unread notifications, toast queue | `BehaviorSubject<Notification[]>` |
 
 ### When to use `signal()` vs `BehaviorSubject`
@@ -221,7 +221,7 @@ Required interceptors (in order):
 |-------------|---------------|
 | `authInterceptor` | Attaches `Authorization: Bearer <token>` when token is present |
 | `refreshInterceptor` | On 401, calls `POST /auth/refresh` once, replays original request; on second 401, redirects to login |
-| `correlationIdInterceptor` | Attaches `X-Correlation-Id: <uuid>` header on every outbound request |
+| `correlationIdInterceptor` | Attaches `X-Correlation-ID: <uuidv7>` on every outbound request; the API echoes it back — see [observability.md § 4](observability.md#correlation-id) |
 
 ### Error handling
 
@@ -260,48 +260,40 @@ Lives at `libs/ui/src/lib/pipes/currency-display.pipe.ts`. Exported from `@alice
 @Pipe({ name: 'currencyDisplay', standalone: true, pure: true })
 export class CurrencyDisplayPipe implements PipeTransform {
   transform(amount: string, currencyCode: string): string {
-    const scale = CURRENCY_SCALE[currencyCode] ?? 2;
     return new Intl.NumberFormat(undefined, {
       style: 'currency',
       currency: currencyCode,
-      minimumFractionDigits: scale,
-      maximumFractionDigits: scale,
     }).format(Number(amount)); // Number() only at Intl boundary — no arithmetic
   }
 }
 ```
 
-Currency scale lookup (add to `libs/shared-util/src/lib/currency.ts`):
-
-```typescript
-export const CURRENCY_SCALE: Record<string, number> = {
-  JPY: 0,
-  BHD: 3, KWD: 3,
-  USD: 2, THB: 2, SGD: 2,
-};
-```
+**The client holds no currency scale table.** With `style: 'currency'` and a currency code, `Intl.NumberFormat` takes the fraction-digit count from the platform's ISO 4217 data — JPY 0, BHD and KWD 3, USD, THB and SGD 2 — so passing `minimumFractionDigits` and `maximumFractionDigits` would override a correct value with a hand-maintained copy of it. Adding a currency is a database row, not a frontend deploy. If a currency ever renders with the wrong number of digits, the fix is not a lookup map here; the server's `pricing.currency.minor_unit_scale` is the value to check, because that is the one that rounds.
 
 Template usage:
 
 ```html
-<span>{{ offer.price.amount | currencyDisplay:offer.price.currency }}</span>
+<span>{{ offer.price.amount | currencyDisplay:offer.price.currencyCode }}</span>
 ```
 
 ### Buyer display-currency conversion
 
-The buyer's display currency preference is a **display-only conversion**. It does not affect which `Price` row the server selects. The frontend:
+**The frontend never converts money.** Currency conversion is a server concern end to end: the API resolves the buyer's display currency, applies the FX rate, rounds once using `Currency.minor_unit_scale`, and returns the result as a string with its `currencyCode` beside it. The client renders what it is given.
 
-1. Reads the buyer's preferred currency from `AuthService` (or a `PreferencesService`).
-2. Fetches cached FX rates from `GET /fx-rates` (cached in `FxRateService` for the session).
-3. Applies multiplication via `Decimal` from `decimal.js` — never via JS `*` on numbers — then formats with `CurrencyDisplayPipe`.
+This is not a style preference. A converted amount computed in the browser can disagree with the amount the server snapshots at checkout, and FR-P-03 requires the captured figure to be the only one that ever existed.
 
 ```typescript
-// FX estimate — decimal.js multiplication only
-const rate = new Decimal(fxRates[fromCurrency][toCurrency]);
+// Wrong — client-side conversion, even with decimal.js
 const converted = new Decimal(amount).mul(rate).toFixed(scale);
+
+// Correct — render the server's string
+// { amount: "3499.00", currencyCode: "THB", isFxEstimate: true, offerCurrency: "USD" }
+<aliceut-price-display [amount]="p.amount" [currency]="p.currencyCode" [isFxEstimate]="p.isFxEstimate" />
 ```
 
-Mark FX-estimated amounts visually: prefix with `≈` and show an info tooltip (see `PriceDisplay` component in [design-system.md § 8.3](design-system.md)).
+The same rule kills client-side line totals and subtotals: a cart line's `lineTotal` and a per-seller subtotal come from the cart response, they are not `unitPrice × quantity` in a component. There is no `FxRateService` in a portal app, and no component multiplies, adds, or rounds a monetary value.
+
+Browse-time amounts in a currency other than the offer's are flagged by the server (`isFxEstimate`), and `PriceDisplay` renders the `≈` prefix and the info tooltip — see [design-system.md § 8.3](design-system.md#8-shared-component-library-libsui).
 
 ---
 
@@ -442,13 +434,19 @@ Before writing a custom component, check whether an Angular Material component f
 |------|-----|
 | Toast / brief feedback | `MatSnackBar` — 3s duration, bottom-center |
 | Confirmation dialogs | `ConfirmDialogComponent` from `@aliceut/shared-ui` |
-| Data tables | `MatTable` + `MatPaginator` + `MatSort` (wrapped by `DataTableComponent` from `@aliceut/shared-ui`) |
+| Data tables | `DataTableComponent` from `@aliceut/shared-ui` (wraps `MatTable` + `MatSort`; Previous/Next footer, **no `MatPaginator`** — see below) |
 | Multi-step forms | `MatStepper` linear mode |
 | Navigation drawers (seller/admin) | `MatSidenav` |
 | Selection chips / tags | `MatChipListbox` |
 | Loading indicators | `MatProgressBar` (page-level) / `MatProgressSpinner` (inline) |
 | Tooltips | `MatTooltip` directive |
 | Date inputs | `MatDatepicker` with Angular Material datepicker module |
+
+### Table pagination — Previous/Next only
+
+All list endpoints are cursor-paginated and return no total ([api-conventions.md § Pagination](api-conventions.md#pagination)). `MatPaginator` needs a `length` to render page numbers, a page count, or "N of M", and there is none — so it is not used. `DataTableComponent` renders a Previous / Next footer with the current page's row count, and the smart component owns the cursor stack: push `meta.nextCursor` on Next, pop on Previous.
+
+Because the user cannot infer position from a page count, every table states its boundaries explicitly: an empty result renders `EmptyState`, and the last page disables Next with an "End of list" caption. Never fake a total by counting loaded rows.
 
 ### Import strategy
 
@@ -465,7 +463,7 @@ Feature components must import individual Angular Material modules, not a catch-
 imports: [MatModule]
 ```
 
-Components in `shared-ui` re-export the AM modules they use. Feature components that use a `shared-ui` wrapper do not re-import the underlying AM module.
+A composite in `libs/ui` imports the AM modules it needs internally and does not re-export them — see [design-system.md § 14](design-system.md#14-component-import-strategy). A feature that uses a composite imports only the composite; a feature that also needs the underlying primitive imports that primitive itself.
 
 ### Snackbar conventions
 

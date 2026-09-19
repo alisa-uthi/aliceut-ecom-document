@@ -37,6 +37,8 @@ Every Avro record includes the following envelope fields as the outer record. To
 }
 ```
 
+`Payload` above is a placeholder, not a literal name. Every event shares the single namespace `com.aliceut.events`, so two payload records both named `Payload` would resolve to the same fully-qualified type and break Avro code generation. Each event names its payload record after itself — `FulfillmentPlacedPayload`, `SellerKycSubmittedPayload` — and that name is declared with the schema in the phase-specific event catalog. This convention owns the envelope field list, the envelope semantics and the namespace; the payload record's name and fields belong to the event.
+
 ---
 
 <a id="schema-registry"></a>
@@ -53,6 +55,8 @@ Every Avro record includes the following envelope fields as the outer record. To
 ## 3. Partition keys
 
 Each topic uses a partition key to co-locate related events and preserve ordering within an aggregate. Partition key per topic is defined in the phase-specific event catalog.
+
+Partition count and replication factor are properties of the broker deployment rather than of the event contract, so they are declared per topic in that same catalog and are not fixed here — for Phase 1, in [kafka-events.md § 3](../phase-1/technical-design/kafka-events.md#topic-retention). A single-node V1 broker cannot exceed a replication factor of 1, and the value that is correct there is a data-loss setting on the Phase 2 Strimzi cluster. What this convention requires is that every topic state both values explicitly instead of inheriting a broker default.
 
 ---
 
@@ -164,6 +168,7 @@ Each consumer group belongs to one family. The idempotency wrapper (§4) applies
 
 Each consumer group has a dedicated DLQ topic: `<consumer_group>.dlq`
 
+- **A DLQ is per consumer group, not per topic.** A group that consumes more than one topic has one DLQ covering all of them, so the number of DLQ topics equals the number of consumer groups and is never derived from the topic count. The tally for a given phase is in that phase's event catalog — for Phase 1, in [kafka-events.md § 4](../phase-1/technical-design/kafka-events.md#dlq-topics).
 - DLQ message includes the original event envelope + error metadata (`error_type`, `error_message`, `failed_at`, `attempt_count`).
 - DLQ non-empty → alert (Kafka UI monitoring or a health check endpoint exposed by workers).
 - SMTP failures: retry 3× with exponential backoff, then route to `email.outbound.dlq`.

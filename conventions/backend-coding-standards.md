@@ -189,7 +189,8 @@ export class Money {
     return new Money(this.amount.mul(factor), this.currency);
   }
 
-  toJSON(scale = 2): string {
+  // scale is required: a default of 2 emits "1000.00" for JPY, which FR-P-04 forbids.
+  toJSON(scale: number): string {
     return this.amount.toFixed(scale);
   }
 

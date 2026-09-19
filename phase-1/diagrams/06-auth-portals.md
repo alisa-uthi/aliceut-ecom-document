@@ -40,7 +40,7 @@ subgraph SELLER_P["SELLER PORTAL — /seller/login · /seller/register"]
     SP2 --> SP5["KYC documents form"]
     SP3 --> SP5
     SP5 --> SP6["Submit KYC\nET-14 to seller · ET-21 to admin"]
-    SP6 --> SP7["KYC_PENDING — awaiting admin review"]
+    SP6 --> SP7["kyc_status = PENDING_KYC\nkyc_application.status = PENDING\nAwaiting admin review"]
     SP_L(["Login"]) --> SP_LF["Email/Password only\nNo OAuth buttons"]
     SP_LF --> SP_S["Session: SELLER role\nSeller dashboard"]
 end

@@ -11,8 +11,8 @@ This document is the developer's starting point for AliceUT. Read it once when o
 
 | # | Section | Description |
 |---|---------|-------------|
-| 1 | [Repository overview](#1-repository-overview) | Monorepo layout: backend, frontend, docs, utility pipeline |
-| 2 | [Local development setup](#2-local-development-setup) | Prerequisites, `.env`, docker compose, seed data |
+| 1 | [Repository overview](#1-repository-overview) | Repo layout: docs, backend, frontend, infra, utility pipeline |
+| 2 | [Local development setup](#2-local-development-setup) | Prerequisites, `.env`, frontend build, docker compose, seed data |
 | 3 | [Daily development workflow](#3-daily-development-workflow) | Branch , code , test , PR , merge cycle |
 | 4 | [Conventions map](#4-conventions-map) | Which convention to read for which concern |
 | 5 | [Technology decisions reference](#5-technology-decisions-reference) | Stack summary and locked decisions |
@@ -28,24 +28,26 @@ This document is the developer's starting point for AliceUT. Read it once when o
 <a id="1-repository-overview"></a>
 ## 1. Repository overview
 
-AliceUT is a three-repo system:
+AliceUT is a multi-repo system:
 
 | Repo | Contents |
 |------|----------|
 | `aliceut-ecom-document` | Design docs, architecture, conventions, guidelines, phase requirements |
 | `aliceut-ecom-backend` | NestJS backend ─ Nx monorepo: API server, Kafka workers, domain libs |
 | `aliceut-ecom-frontend` | Angular frontend ─ Nx monorepo: buyer/seller/admin portals, shared libs |
+| `aliceut-ecom-infra` | `docker-compose.yml` and the config it mounts (nginx, alloy, prometheus, grafana) |
 | `aliceut-ecom-utility-pipeline` | CI utility workflows (non-migration); seed data scripts, infra automation |
 
 ### Local workspace layout
 
-Clone all repos as siblings under a single parent folder:
+Clone all repos as siblings under a single parent folder. The compose file lives in `aliceut-ecom-infra` and its relative bind-mount paths (`../aliceut-ecom-backend`, `../aliceut-ecom-frontend/dist/<app>`) assume exactly this layout — the sibling arrangement is load-bearing, not a preference.
 
 ```
 aliceut-ecom/
 ├── aliceut-ecom-document/          # this repo ─ design docs and conventions
 ├── aliceut-ecom-backend/           # NestJS backend
 ├── aliceut-ecom-frontend/          # Angular frontend
+├── aliceut-ecom-infra/             # docker-compose.yml + mounted config
 ├── aliceut-ecom-utility-pipeline/  # Utility Pipelines (non-migration)
 ```
 
@@ -69,14 +71,16 @@ See [backend-module-architecture.md](../conventions/backend-module-architecture.
 ```
 aliceut-ecom-frontend/
 ├── apps/
-│   ├── buyer-portal/    Mobile-first: public catalog, auth, cart, checkout, orders
-│   ├── seller-portal/   Desktop-first: listings, inventory, orders, KYC
-│   └── admin-portal/    Desktop-first: KYC moderation, user management, platform ops
+│   ├── buyer-app/       Mobile-first: public catalog, auth, cart, checkout, orders
+│   ├── seller-app/      Desktop-first: listings, inventory, orders, KYC
+│   └── admin-app/       Desktop-first: KYC moderation, user management, platform ops
 └── libs/
     ├── api-client/      Generated Angular HTTP client — never hand-edit
-    ├── shared-ui/       Presentational components, pipes, directives
+    ├── ui/              Presentational components, pipes, directives (`@aliceut/shared-ui`)
     └── shared-util/     Pure utility functions (money formatting, date helpers)
 ```
+
+App directory names are fixed by BRD §12 decision 12 (`buyer-app`, `seller-app`, `admin-app`) — the compose bind mounts and the build scripts both depend on them.
 
 See [frontend-coding-standards.md](../conventions/frontend-coding-standards.md) for import boundary rules and path aliases.
 
@@ -90,10 +94,11 @@ See [frontend-coding-standards.md](../conventions/frontend-coding-standards.md) 
 | Tool | Version | Install |
 |------|---------|---------|
 | Node.js | 22 LTS | https://nodejs.org |
-| pnpm | 10+ | `npm install -g pnpm` |
+| npm | 10+ | ships with Node 22 |
 | Docker Desktop | Latest | https://docker.com |
-| golang-migrate CLI | 4.18+ | `brew install golang-migrate` / download binary |
-| Angular CLI | 22+ | `pnpm add -g @angular/cli` |
+| Angular CLI | 22+ | `npm install -g @angular/cli` |
+
+No migration CLI to install: migrations run through TypeORM, which is already a backend dependency ([database-migrations.md § 2](../conventions/database-migrations.md#execution-engine)).
 
 ### Step 1 ─ Clone and install
 
@@ -103,11 +108,12 @@ mkdir aliceut-ecom && cd aliceut-ecom
 git clone git@github.com:alisa-uthi/aliceut-ecom-backend.git
 git clone git@github.com:alisa-uthi/aliceut-ecom-frontend.git
 git clone git@github.com:alisa-uthi/aliceut-ecom-document.git
+git clone git@github.com:alisa-uthi/aliceut-ecom-infra.git
 git clone git@github.com:alisa-uthi/aliceut-ecom-utility-pipeline.git
 
 # Install dependencies in each app repo
-cd aliceut-ecom-backend && pnpm install && cd ..
-cd aliceut-ecom-frontend && pnpm install && cd ..
+cd aliceut-ecom-backend && npm ci && cd ..
+cd aliceut-ecom-frontend && npm ci && cd ..
 
 # Copy CLAUDE.md templates so Claude Code loads project conventions automatically
 cp aliceut-ecom-document/guidelines/templates/backend-CLAUDE.md  aliceut-ecom-backend/CLAUDE.md
@@ -126,10 +132,23 @@ cp apps/workers/.env.example apps/workers/.env
 
 Required variables per service are documented in [backend-coding-standards.md §6.2](../conventions/backend-coding-standards.md#6-environment-config). Commit `.env.example` files alongside source code with placeholder values (no secrets).
 
-### Step 3 ─ Start infrastructure
+### Step 3 ─ Build the frontend apps
+
+**Do this before `docker compose up`.** The three nginx services do not build the Angular apps — they bind-mount `../aliceut-ecom-frontend/dist/<app>` from the host. If the `dist/` directories do not exist yet, nginx starts successfully and serves an empty directory: every portal returns 403/404 and nothing in the compose output says why.
 
 ```bash
-# Start all infrastructure services (Postgres, MongoDB, Redis, MinIO, Kafka, Schema Registry, Elasticsearch, Kafka UI)
+# Run from inside aliceut-ecom-frontend/
+npm run build:buyer && npm run build:seller && npm run build:admin
+```
+
+Re-run the relevant build after any frontend change you want to see through nginx. During feature work, prefer `ng serve` (Step 7) and skip the nginx containers entirely. The bind-mount rationale and the same command string are in [docker-compose-topology.md § 10](../phase-1/technical-design/docker-compose-topology.md).
+
+### Step 4 ─ Start infrastructure
+
+The compose file lives in `aliceut-ecom-infra/` — run compose from that directory so its relative bind mounts resolve.
+
+```bash
+# Run from inside aliceut-ecom-infra/
 docker compose up -d
 
 # Verify all containers are healthy
@@ -140,58 +159,81 @@ Compose services:
 
 | Service | Port | Purpose |
 |---------|------|---------|
+| `buyer-nginx` | 4200 | Serves the built buyer app |
+| `seller-nginx` | 4201 | Serves the built seller app |
+| `admin-nginx` | 4202 | Serves the built admin app |
+| `api` | 3000 | NestJS HTTP API |
+| `workers` | — | Outbox relay + Kafka consumers |
 | `postgres` | 5432 | Primary DB |
 | `mongodb` | 27017 | Audit/activity logs |
-| `redis` | 6379 | Cache |
+| `redis` | 6379 | JWT revocation keys, cache |
 | `minio` | 9000 / 9001 | Object storage / console |
-| `kafka` | 9092 | Event bus |
+| `minio-init` | — | One-shot bucket creation |
+| `kafka` | 29092 | Event bus |
 | `schema-registry` | 8081 | Avro schema registry |
 | `kafka-ui` | 8080 | Kafka topic browser (provectus/kafka-ui) |
 | `elasticsearch` | 9200 | Search index |
+| `mailpit` | 8025 / 1025 | Email sink — web inbox / SMTP |
+| `alloy` | 12345 | Log and metric collector |
+| `loki` | 3100 | Log aggregation, LogQL queries |
+| `prometheus` | 9090 | Metrics scrape and storage |
+| `grafana` | 3200 | Dashboards over Loki and Prometheus |
 
-### Step 4 ─ Run migrations
+Every service above is V1 — the observability four are not a later addition, and nothing here is optional for a working local stack. The table is the port map; the authoritative service, module-library and application counts are published in [architecture-overview.md § 10](../architecture-overview.md#deployment-topology) and are not restated here.
+
+**Where outbound email goes.** Nothing in development sends real mail. The notification consumer's SMTP transport points at `mailpit:1025`, and every message it produces — email verification links, KYC decisions, low-stock digests, order confirmations — lands in the Mailpit inbox at `http://localhost:8025`, where links are clickable. That inbox is the way to verify an email-producing flow end to end; there is no other sink and no provider account to configure. Mailpit holds mail in memory and has no volume, so a `docker compose restart mailpit` empties it.
+
+Full service definitions, health checks, and startup order: [docker-compose-topology.md](../phase-1/technical-design/docker-compose-topology.md).
+
+### Step 5 ─ Run migrations
 
 Migrations live in `aliceut-ecom-backend/migrations/phase-1/`. Run from inside the backend repo:
 
 ```bash
-migrate \
-  -path migrations/phase-1 \
-  -database "postgres://aliceut:aliceut@localhost:5432/aliceut?sslmode=disable" \
-  -table schema_migrations_phase1 \
-  up
+# DATABASE_URL comes from apps/api/.env (Step 2)
+npm run migration:run
+
+# Confirm what was applied
+npm run migration:show
 ```
+
+Nothing applies migrations for you — not `docker compose up`, not the API container on start. Running this script is the only way the schema advances.
 
 See [database-migrations.md](../conventions/database-migrations.md) for full migration conventions.
 
-### Step 5 ─ Seed development data
+### Step 6 ─ Seed development data
 
 ```bash
 # Load the 100-product Kaggle seed (local dev only ─ never in test fixtures)
-pnpm run seed:dev
+npm run seed:dev
 ```
 
 The seed script is defined in `apps/api/package.json` inside `aliceut-ecom-backend/`. It calls `POST /internal/dev/seed` on a running API. Start the API first.
 
-### Step 6 ─ Start the applications
+### Step 7 ─ Start the applications
+
+For day-to-day feature work, run the apps from source with hot reload instead of through the nginx containers.
 
 ```bash
 # Backend API
-pnpm --filter @aliceut/api dev
+npm run dev -w @aliceut/api
 
 # Workers (Kafka consumers + outbox relay)
-pnpm --filter @aliceut/workers dev
+npm run dev -w @aliceut/workers
 
-# Frontend ─ buyer portal
-pnpm --filter @aliceut/buyer-portal serve
+# Frontend ─ buyer app
+npm run serve -w @aliceut/buyer-app
 
-# Frontend ─ seller portal
-pnpm --filter @aliceut/seller-portal serve
+# Frontend ─ seller app
+npm run serve -w @aliceut/seller-app
 
-# Frontend ─ admin portal
-pnpm --filter @aliceut/admin-portal serve
+# Frontend ─ admin app
+npm run serve -w @aliceut/admin-app
 ```
 
-Buyer portal runs at `http://localhost:4200`, seller at `4201`, admin at `4202`. API at `http://localhost:3000`. Workers health check at `http://localhost:3001/health`.
+Buyer app runs at `http://localhost:4200`, seller at `4201`, admin at `4202`. API at `http://localhost:3000`. Workers health check at `http://localhost:3001/health`.
+
+These are the same host ports the nginx containers use, so stop the corresponding container before running `ng serve` against that port.
 
 ---
 
@@ -235,12 +277,12 @@ One logical change per commit. Compile and pass tests at each commit. No `WIP` c
 | Git branching, commits, PRs, releases | [git-workflow.md](git-workflow.md) |
 | NestJS module structure, layers, CQRS | [backend-module-architecture.md](../conventions/backend-module-architecture.md) |
 | REST API naming, response shapes, pagination, auth guards | [api-conventions.md](../conventions/api-conventions.md) |
-| Database migrations (SQL files, golang-migrate) | [database-migrations.md](../conventions/database-migrations.md) |
+| Database migrations (raw-SQL files, TypeORM CLI) | [database-migrations.md](../conventions/database-migrations.md) |
 | JWT claims, refresh token storage, token TTLs | [auth-jwt-design.md](../conventions/auth-jwt-design.md) |
 | Kafka event envelope, Avro schemas, consumer patterns, outbox | [kafka-events.md](../conventions/kafka-events.md) |
 | Structured logging, correlation ID, Grafana Alloy stack | [observability.md](../conventions/observability.md) |
 | Angular Material palette, design principles, components | [design-system.md](../conventions/design-system.md) |
-| Data lifecycle (pg_cron jobs, token cleanup, outbox cleanup) | [data-lifecycle.md](../conventions/data-lifecycle.md) |
+| Data lifecycle (scheduled cleanup jobs, token cleanup, outbox cleanup) | [data-lifecycle.md](../conventions/data-lifecycle.md) |
 | NestJS TypeScript config, ESLint, money patterns, DTOs, errors | [backend-coding-standards.md](../conventions/backend-coding-standards.md) |
 | Angular project structure, state, forms, routing, performance | [frontend-coding-standards.md](../conventions/frontend-coding-standards.md) |
 | Test pyramid, coverage thresholds, Jest/Playwright patterns | [testing-guidelines.md](testing-guidelines.md) |
@@ -289,7 +331,7 @@ Regenerate after any change to the backend's OpenAPI spec (`libs/contracts/opena
 
 ```bash
 # From the frontend workspace root
-pnpm run generate:api-client
+npm run generate:api-client
 ```
 
 This script calls `openapi-generator-cli typescript-angular` against `libs/contracts/openapi/aliceut-v1.json` (inside `aliceut-ecom-backend/`) and outputs to `libs/api-client/` inside `aliceut-ecom-frontend/`. The generated files are committed to source control.
@@ -307,16 +349,16 @@ A CI step runs the generator and diffs the output against the committed `api-cli
 
 ### Authoring a migration
 
-1. Add a new `{seq}_{description}.up.sql` + `.down.sql` pair in `aliceut-ecom-backend/migrations/phase-1/`.
-2. Sequence number is 4-digit zero-padded, next in sequence.
-3. Test locally: run `migrate up`, verify, then run `migrate down 1` to confirm rollback works.
-4. Open a PR in the utility pipeline repo.
+1. Add a new `{seq}_{description}.ts` shell plus its `.up.sql` + `.down.sql` pair in `aliceut-ecom-backend/migrations/phase-1/`.
+2. Sequence number is 4-digit zero-padded, next in sequence, and the migration class name ends in the same four digits.
+3. Test locally: run `npm run migration:run`, verify, then `npm run migration:revert` to confirm rollback works — one migration per invocation.
+4. Open a PR in the backend repo, where the migrations live.
 
 See [database-migrations.md](../conventions/database-migrations.md) for SQL rules (concurrent indexes, nullable columns, idempotent down scripts).
 
 ### Deploying migrations
 
-Migrations are applied via GitHub Actions `workflow_dispatch` in the utility pipeline repo ─ never automatically on code deploy. Production requires a manual reviewer approval step.
+Migrations are applied via the `db-migrate.yml` GitHub Actions `workflow_dispatch` in the backend repo ─ never automatically on code deploy, and never from a container entrypoint. Production requires a manual reviewer approval step.
 
 ---
 

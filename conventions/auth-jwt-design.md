@@ -58,14 +58,33 @@ The refresh token is an **opaque** random string (32 bytes, `crypto.randomBytes(
 |----------|-------|
 | TTL | **7 days** from issue |
 | Storage | `identity.refresh_session` (hashed) |
-| Rotation | Every `/auth/refresh` call issues a new pair and revokes the old refresh token atomically |
-| Revocation on password reset | All refresh sessions for the user are hard-deleted |
-| Revocation on password change | All refresh sessions except the current one are hard-deleted |
-| Expired row cleanup | `pg_cron` daily job — see [cleanup-refresh-sessions](../phase-1/technical-design/cleanup-jobs.md#cleanup-refresh-sessions) |
+| Rotation | Every `/auth/refresh` call issues a new pair and revokes the old session atomically: `revoked_at = now()`, `replaced_by_id = <new session id>` |
+| Revocation on password reset | Every session for the user is soft-revoked (`revoked_at = now()`) |
+| Revocation on password change | Every session except the current one is soft-revoked |
+| Row retention | Rows are **never deleted** on rotation, logout, or revocation — retention is what makes reuse detection possible (§1.4) |
+| Expired row cleanup | Scheduled job in the `workers` service — see [cleanup-refresh-sessions](../phase-1/technical-design/cleanup-jobs.md#cleanup-refresh-sessions). It deletes only rows whose `revoked_at` is older than the refresh TTL plus `REFRESH_SESSION_CLEANUP_BUFFER_DAYS` (default 7) |
+
+### 1.4 Reuse detection
+
+Because revoked sessions are retained, a stolen refresh token is detectable. `POST /auth/refresh` looks the presented token's hash up in `identity.refresh_session`:
+
+| Row state | Outcome |
+|-----------|---------|
+| Not found | `401` — unknown token. |
+| `revoked_at IS NULL` and not expired | Normal rotation: revoke this row, issue and link a new one. |
+| `revoked_at IS NOT NULL` | **Reuse — treated as token theft.** |
+
+On reuse the server:
+
+1. Soft-revokes every session in that user's family (`UPDATE identity.refresh_session SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL`) — the `replaced_by_id` chain keeps the family walkable for investigation.
+2. Bumps `auth:revoke_before:{userId}` in Redis (§10) so the access tokens already issued to both the legitimate user and the attacker stop passing `JwtAuthGuard` on their next request.
+3. Returns `401`. Both parties are forced to re-login; only the one holding the password gets back in.
+
+Reuse of an *expired* revoked session is handled the same way — expiry does not make a replayed token benign.
 
 ### 1.3 Token storage (client side)
 - `accessToken`: in-memory (JavaScript variable, not localStorage). Reduces XSS token theft surface.
-- `refreshToken`: `HttpOnly; Secure; SameSite=Strict` cookie OR `localStorage` with content-security-policy mitigation — **[DESIGN DECISION]** using `HttpOnly` cookie for refresh token. Cookie path `/api/v1/auth/refresh` to minimize CSRF surface.
+- `refreshToken`: `HttpOnly; Secure; SameSite=Strict` cookie OR `localStorage` with content-security-policy mitigation — **[DESIGN DECISION]** using `HttpOnly` cookie for refresh token. Cookie path `/api/v1/auth` to minimize CSRF surface — the auth routes and nothing else. The path carries the global prefix and the version segment because there is no unversioned alias: a cookie scoped to `/auth` would never be sent to `POST /api/v1/auth/refresh`, and rotation would fail on the first attempt in every environment.
 
 ---
 
@@ -82,7 +101,7 @@ The seller portal uses **email/password only**. No OAuth. Reasons:
 ## 3. Admin portal auth constraints
 
 - Email/password only. No registration endpoint.
-- Admin accounts are **seeded in the database** (`pnpm run seed`); no self-service sign-up.
+- Admin accounts are **seeded in the database** (`npm run seed:dev`); no self-service sign-up.
 - Admin session TTL: same 15-min access / 7-day refresh, but `roles: ["ADMIN"]` is never mixed with BUYER or SELLER.
 - No password reset UI in V1; password changes require direct DB update.
 
@@ -182,7 +201,7 @@ CORS: origin restricted to `BUYER_APP_URL`, `SELLER_APP_URL`, `ADMIN_APP_URL` en
 - Token: `crypto.randomBytes(32).toString('hex')`
 - Storage: table `identity.password_reset_token (user_id, token_hash, expires_at, used_at)`
 - TTL: **60 minutes**, single-use
-- On use: set `used_at = NOW()`, then update `user.password_hash`, revoke all refresh sessions
+- On use: set `used_at = NOW()`, then update `user.password_hash`, soft-revoke every refresh session for the user (§1.2)
 - Token inclusion in email: `${BASE_URL}/reset-password?token=<raw_token>`
 
 ---
@@ -227,7 +246,7 @@ if (revokeTs && payload.iat < Number(revokeTs)) {
 | Admin lifts suspension | Yes | Forces token refresh so fresh `ACTIVE` claim is embedded |
 | KYC approved | Yes | Token refresh embeds `APPROVED` claim immediately |
 | KYC rejected | Yes | Blocks seller routes immediately |
-| Admin force-logout user | Yes | Paired with refresh session hard-delete |
+| Admin force-logout user | Yes | Paired with soft-revoking every refresh session for the user |
 
 ### 10.3 Performance
 
@@ -246,7 +265,8 @@ The Angular `auth` interceptor already handles 401 → `POST /auth/refresh` → 
 <a id="design-decisions"></a>
 ## 11. [DESIGN DECISIONS]
 
-- **[DESIGN DECISION]** `seller_kyc_status` and `seller_suspension_status` are both embedded in the JWT as independent claims, replacing the previous single `seller_status` field. This allows guards to check each independently (e.g. a seller can be KYC-approved but suspended, or KYC-rejected regardless of suspension). Status changes take effect immediately via Redis per-user revocation — see §14.
-- **[DESIGN DECISION]** Refresh token stored as `HttpOnly` cookie on path `/api/v1/auth/refresh`. The Angular `auth` interceptor handles 401 → refresh → retry automatically.
-- **[DESIGN DECISION]** Reuse detection: presenting a previously revoked refresh token triggers full session revocation for the user. Tradeoff: aggressive but safe.
+- **[DESIGN DECISION]** `seller_kyc_status` and `seller_suspension_status` are both embedded in the JWT as independent claims, replacing the previous single `seller_status` field. This allows guards to check each independently (e.g. a seller can be KYC-approved but suspended, or KYC-rejected regardless of suspension). Status changes take effect immediately via Redis per-user revocation — see [§10](#token-revocation).
+- **[DESIGN DECISION]** Refresh token stored as `HttpOnly` cookie on path `/api/v1/auth` — the whole auth namespace, so logout and rotation both receive it, and still narrower than `/`. The Angular `auth` interceptor handles 401 → refresh → retry automatically.
+- **[DESIGN DECISION]** Session rows are soft-revoked (`revoked_at`, `replaced_by_id`) and retained, never deleted on rotation or logout. A deleted row is indistinguishable from a token that never existed, which makes theft undetectable; a retained revoked row makes replay unambiguous. Cost: the table grows until the cleanup job prunes rows past the refresh TTL plus buffer.
+- **[DESIGN DECISION]** Reuse detection: presenting a refresh token whose session is already revoked is treated as theft — the whole family is revoked, `auth:revoke_before:{userId}` is bumped, and both parties must re-login (§1.4). Tradeoff: aggressive but safe.
 - **[DESIGN DECISION]** Token revocation uses a per-user Redis timestamp (`auth:revoke_before:{userId}`) rather than a per-token JTI blocklist. Rationale: status changes (KYC, suspension) affect the user, not a specific token — invalidating all in-flight tokens for that user is the correct semantic. JTI blocklist would require storing one key per issued token; user-timestamp requires one key per revocation event. Redis key TTL matches the access token TTL (≤ 15 min), so no unbounded growth.

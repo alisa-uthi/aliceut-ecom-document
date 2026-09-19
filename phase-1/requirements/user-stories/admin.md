@@ -20,7 +20,7 @@ Priority: Must — trace: FR-A-01, FR-A-03, FR-A-05
 Priority: Must — trace: FR-A-01, NFR-05, NFR-07
 
 **Acceptance criteria**
-- Admin account is seeded directly in the database with `role: ADMIN` and `KYC_STATUS: N/A` (admin accounts bypass the seller KYC flow entirely). Email and hashed password are stored in the database.
+- Admin account is seeded directly in the database with `role: ADMIN` and no `seller.seller_profile` row at all, so no KYC status exists to hold — admin accounts bypass the seller KYC flow entirely rather than carrying a not-applicable value in it. The `seller_kyc_status` and `seller_suspension_status` access-token claims are therefore `null` for an admin, as they are for any non-seller. Email and hashed password are stored in the database.
 - On login, the JWT issued for an admin account includes `roles: ["ADMIN"]` in the payload alongside `sub` and `email_verified`.
 - All NestJS controllers under the `/admin/*` route prefix carry a `@Roles('ADMIN')` guard. Requests without a valid JWT carrying the ADMIN role receive HTTP 403 (not 401, to avoid leaking the existence of admin-only routes to authenticated non-admin users).
 - Buyer and seller routes do not require ADMIN role; the ADMIN role does not grant access to seller-only endpoints unless the admin account also holds a SELLER role (not the case for seeded admin accounts).

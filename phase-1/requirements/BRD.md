@@ -45,7 +45,7 @@ A global multi-vendor e-commerce marketplace inspired by Amazon.com. Serves as a
 
 **Platform**
 - Authentication: email/password + OAuth (Google, Facebook)
-- Per-offer multi-currency pricing (seller sets price + currency per offer); order-time price snapshot preserves historical amounts
+- Per-offer pricing currency (seller sets the offer's currency; prices are per price type); order-time price snapshot preserves historical amounts
 - Global product catalog seeded from a Kaggle-style Amazon dataset
 - Docker + docker-compose local deployment
 
@@ -132,9 +132,9 @@ A global multi-vendor e-commerce marketplace inspired by Amazon.com. Serves as a
 
 | ID | Requirement | Priority |
 |----|-------------|----------|
-| FR-P-01 | A `Product` may have one or more `Offer`s (one per seller). Each `Offer` has one or more `Price`s (one per currency). Sellers set price + currency per offer; no forced canonical currency | Must |
+| FR-P-01 | A `Product` may have one or more `Offer`s (one per seller). Each `Offer` carries exactly one pricing currency and has one or more `Price`s (one per price type: `LIST`, `SALE`, `B2B_TIER`). A second currency means a second `Offer`; no forced canonical currency | Must |
 | FR-P-02 | Optional display conversion: if buyer's preferred currency is not on the offer, system converts using FX rate table for **display only** (with visible "estimated" label) | Should |
-| FR-P-03 | At checkout, system creates a **price snapshot** on `OrderItem` (unit_price_minor, currency, tax, fx_rate_used_at_capture). Historical orders never re-derive amounts from live FX or current offer prices | Must |
+| FR-P-03 | At checkout, system creates a **price snapshot** on `FulfillmentItem` (unit_price `NUMERIC(19,4)`, currency_code, tax, fx_rate_used_at_capture). Historical orders never re-derive amounts from live FX or current offer prices | Must |
 | FR-P-04 | All monetary amounts stored as **Decimal** (Postgres `NUMERIC(19,4)` — 19 total digits, 4 fractional). Currency code stored as ISO 4217 alongside. Precision covers major currencies including 3-decimal (BHD, KWD, OMR) and 4-decimal accounting rounding | Must |
 | FR-P-04a | JS/TS boundary: TypeORM/Prisma maps `NUMERIC` to string; app code uses `decimal.js` or `Big.js` for arithmetic. **Never use JS `number` for monetary math** | Must |
 | FR-P-04b | API responses serialize amounts as string (`"99.99"`), not float, to preserve precision across JSON boundary | Must |
@@ -227,6 +227,8 @@ A global multi-vendor e-commerce marketplace inspired by Amazon.com. Serves as a
 | **Phase 3** | Real Stripe payment, real shipping (EasyPost), commission engine | Post-V2 |
 | **Phase 4** | K8s + Istio, multi-region, observability stack, i18n | Post-V3 |
 
+§10 amended 2026-09-14 (design alignment audit) — observability requirements delegated to `conventions/observability.md`. The Phase 4 entry above covers the hosted observability *stack* (Loki/Prometheus/Grafana, multi-region); structured JSON logging, correlation-ID propagation, and sensitive-key masking are Phase 1 requirements governed by that convention.
+
 ---
 
 ## 11. Acceptance Criteria (V1 done = all true)
@@ -263,6 +265,11 @@ A global multi-vendor e-commerce marketplace inspired by Amazon.com. Serves as a
 
 All prior open questions resolved. Ready for detailed design + backlog decomposition.
 
+### Amendments
+
+- FR-B-03 amended 2026-09-14 (design alignment audit) — rating filter/display removed from V1 scope (reviews out of scope per §3.2).
+- §3.1, FR-P-01 and FR-P-03 amended 2026-09-14 (design alignment audit) — the pricing currency moves from the `Price` row to the `Offer`. FR-P-01 previously read "one or more `Price`s (one per currency)", which made currency a dimension of the price row alongside price type. Design found that shape unenforceable: the `LIST` uniqueness rule and the `SALE` overlap constraint are both keyed on `offer_id` alone, and a per-price currency column made every constraint, index and query carry a dimension that no requirement in this document actually exercises — no story asks for one offer priced in two currencies, only for sellers to choose the currency they price in. The offer now carries exactly one currency, a second currency means a second offer, and the price row has no currency column. Buyer-facing display conversion (FR-P-02) is unaffected and remains display-only. FR-P-03's snapshot entity is renamed to `FulfillmentItem` to match the per-seller fulfillment model resolved in §12 #11, and `unit_price_minor` is corrected to `unit_price NUMERIC(19,4)` to match FR-P-04 — the minor-unit integer form contradicted the decimal storage rule in the row directly below it.
+
 ---
 
-*End of BRD v1.1. All decisions signed off — proceed to design phase.*
+*End of BRD v1.2. All decisions signed off — proceed to design phase.*

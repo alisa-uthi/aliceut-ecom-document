@@ -11,6 +11,7 @@
 - On reinstatement: only listings deactivated by the suspension are restored; independently-removed listings remain REMOVED (US-A-05b)
 - Timed suspensions (7/30/90 days) auto-lift via scheduler (US-P-18); listings reactivated automatically + ET-11 to seller
 - Permanent suspension requires explicit admin confirmation dialog; no auto-lift path
+- The lifecycle below spans **two independent columns**, not one status field: `seller.seller_profile.kyc_status` (`PENDING_KYC`, `APPROVED`, `REJECTED`) and `seller.seller_profile.suspension_status` (`ACTIVE`, `SUSPENDED`). A suspended seller is still KYC-approved — suspension never moves `kyc_status`, and approval never moves `suspension_status`. `SUSPENSION_EXPIRED` is not a stored value: it is the derived condition `suspension_status = SUSPENDED AND suspended_until < now()`, which the US-P-18 scheduler polls and clears.
 
 ## Diagram
 
@@ -18,23 +19,23 @@
 graph TD
     S0([ ]) --> UNREGISTERED
 
-    UNREGISTERED["UNREGISTERED\nVisitor, no account"]
+    UNREGISTERED["UNREGISTERED\nVisitor, no account\nNo seller_profile row exists"]
     REGISTERED["REGISTERED\nSeller account created or linked\nat /seller/register"]
-    KYC_PENDING["KYC_PENDING\nApplication submitted\nAdmin review SLA: 3 days"]
-    KYC_REJECTED["KYC_REJECTED\nRejected — update docs and resubmit"]
-    ACTIVE["ACTIVE\nApproved — can list products and fulfill orders"]
-    SUSPENDED["SUSPENDED\nListings deactivated\n7d / 30d / 90d / permanent\nRead-only pending orders access retained for shipment"]
-    SUSP_EXP["SUSPENSION_EXPIRED\nTimed TTL elapsed\nAwaiting scheduler auto-lift"]
+    K_PENDING["kyc_status = PENDING_KYC\nApplication submitted\nAdmin review SLA: 3 days"]
+    K_REJECTED["kyc_status = REJECTED\nRejected — update docs and resubmit"]
+    S_ACTIVE["kyc_status = APPROVED\nsuspension_status = ACTIVE\nCan list products and fulfill orders"]
+    S_SUSPENDED["suspension_status = SUSPENDED\nkyc_status stays APPROVED\nListings deactivated\n7d / 30d / 90d / permanent\nRead-only pending orders access retained for shipment"]
+    S_EXPIRED["Derived: SUSPENSION_EXPIRED\nsuspended_until < now()\nAwaiting scheduler auto-lift\nNot a stored enum value"]
 
     UNREGISTERED -->|"Create account or link existing buyer\nat /seller/register — email/password"| REGISTERED
-    REGISTERED -->|"Submit KYC application\nET-14 to seller, ET-21 to admin"| KYC_PENDING
-    KYC_PENDING -->|Admin approves — ET-06| ACTIVE
-    KYC_PENDING -->|Admin rejects with reason — ET-07| KYC_REJECTED
-    KYC_REJECTED -->|"Update docs + resubmit\nET-14 to seller, ET-21 to admin"| KYC_PENDING
-    ACTIVE -->|Admin suspends with reason + duration — ET-10| SUSPENDED
-    SUSPENDED -->|Timed TTL expires| SUSP_EXP
-    SUSP_EXP -->|Scheduler auto-lifts US-P-18 — ET-11, listings restored| ACTIVE
-    SUSPENDED -->|Admin lifts early US-A-05b — ET-12, listings restored| ACTIVE
+    REGISTERED -->|"Submit KYC application\nET-14 to seller, ET-21 to admin"| K_PENDING
+    K_PENDING -->|Admin approves — ET-06| S_ACTIVE
+    K_PENDING -->|Admin rejects with reason — ET-07| K_REJECTED
+    K_REJECTED -->|"Update docs + resubmit\nET-14 to seller, ET-21 to admin"| K_PENDING
+    S_ACTIVE -->|Admin suspends with reason + duration — ET-10| S_SUSPENDED
+    S_SUSPENDED -->|Timed suspended_until elapses| S_EXPIRED
+    S_EXPIRED -->|Scheduler auto-lifts US-P-18 — ET-11, listings restored| S_ACTIVE
+    S_SUSPENDED -->|Admin lifts early US-A-05b — ET-12, listings restored| S_ACTIVE
 
     classDef stateActive fill:#E4F5F0,stroke:#0C8A64,color:#0E1C2A,font-weight:600
     classDef stateSuspended fill:#FEF3CD,stroke:#C8960C,color:#0E1C2A,font-weight:600
@@ -42,9 +43,9 @@ graph TD
     classDef stateNeutral fill:#EEF2F6,stroke:#8494A0,color:#0E1C2A
     classDef stateStart fill:#0C8A64,stroke:#0C8A64,color:#FFF
 
-    class ACTIVE stateActive
-    class SUSPENDED,SUSP_EXP stateSuspended
-    class KYC_REJECTED stateRejected
-    class UNREGISTERED,REGISTERED,KYC_PENDING stateNeutral
+    class S_ACTIVE stateActive
+    class S_SUSPENDED,S_EXPIRED stateSuspended
+    class K_REJECTED stateRejected
+    class UNREGISTERED,REGISTERED,K_PENDING stateNeutral
     class S0 stateStart
 ```

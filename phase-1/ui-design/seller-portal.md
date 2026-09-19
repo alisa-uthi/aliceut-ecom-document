@@ -943,7 +943,7 @@ Rendered as `NotificationBell` component in toolbar. Notification types relevant
 
 | Event | Icon | Message pattern |
 |-------|------|-----------------|
-| New order | `receipt_long` | "New order [FUL-xxx] placed" |
+| New order | `receipt_long` | "New order [FUL-000003871] placed" |
 | Low stock | `warning_amber` (warn) | "[SKU name] is running low (N left)" |
 | Listing flagged | `flag` (warn) | "'[Product title]' has been flagged for review" |
 | Listing removed | `block` (warn) | "'[Product title]' was removed by admin" |

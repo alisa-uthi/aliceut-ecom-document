@@ -23,7 +23,7 @@
 | [11. Page Layout Patterns](#11-page-layout-patterns) | Buyer shell vs seller/admin shell; responsive grid |
 | [12. Accessibility Standards](#12-accessibility-standards) | Focus rings, alt text, ARIA, skip links |
 | [13. Loading State Patterns](#13-loading-state-patterns) | Skeleton, spinner, progress bar by context |
-| [14. Component Import Strategy](#14-component-import-strategy) | Import from `@aliceut/shared-ui` barrel, never AM modules directly |
+| [14. Component Import Strategy](#14-component-import-strategy) | Composites from the `@aliceut/shared-ui` barrel, AM primitives imported directly |
 | [15. Custom Pipes](#15-custom-pipes) | TimeAgo, Truncate, CurrencyDisplay, Safe pipes |
 
 <a id="1-design-principles"></a>
@@ -93,7 +93,7 @@ Standard Material red for destructive actions, error states, and validation erro
 | CANCELLED / REMOVED / REJECTED | Red | `#D32F2F` |
 | PARTIALLY_PLACED / FLAGGED | Orange | `#E64A19` |
 | SUSPENDED | Deep-orange | `#BF360C` |
-| DRAFT | Grey | `#757575` |
+| INACTIVE / EXPIRED | Grey | `#757575` |
 | APPROVED / KYC_APPROVED | Green | `#388E3C` |
 | PENDING_KYC | Amber | `#F9A825` |
 
@@ -238,8 +238,6 @@ Use `mat-icon` with the **Outlined** variant (`material-icons-outlined` class) f
 | Store / Seller | `storefront` | Seller name |
 | Category | `category` | Nav / filter |
 | Image | `image` | Upload placeholder |
-| Star | `star` | Rating (from seed data) |
-| Star outline | `star_outline` | Empty rating star |
 | Business | `business` | B2B badge |
 | Lock | `lock` | Auth, KYC locked state |
 | Refresh | `refresh` | Reload, retry |
@@ -269,7 +267,7 @@ Follow Material Design elevation system.
 <a id="8-shared-component-library-libsui"></a>
 ## 8. Shared Component Library — `libs/ui/`
 
-All components live in `libs/ui/src/lib/` as standalone Angular components. They wrap Angular Material; callers never import AM modules directly in feature modules.
+All components live in `libs/ui/src/lib/` as standalone Angular components. Every one of them is a composite — it has its own template and logic. Each imports the Angular Material modules it needs internally and re-exports none of them; feature code imports the composite from `@aliceut/shared-ui` and imports any Material primitive it needs on its own. See [§14](#14-component-import-strategy) for the rule.
 
 ---
 
@@ -287,8 +285,7 @@ mat-card [style: max-width 280px; height: 360px; flex-shrink: 0]
   │   ├── category chip (mat-chip, outlined, caption text)
   │   ├── title — 2 lines max, truncated with ellipsis (body-1, 500 weight)
   │   ├── <aliceut-price-display> component
-  │   ├── seller name line (body-2, secondary text, storefront icon)
-  │   └── rating stars (mat-icon star × N, caption text — tooltip: "Based on third-party data")
+  │   └── seller name line (body-2, secondary text, storefront icon)
   └── mat-card-actions [align: end]
       └── button [mat-flat-button, color accent] "Add to Cart"
           — disabled when out of stock; label changes to "Out of Stock"
@@ -298,12 +295,23 @@ mat-card [style: max-width 280px; height: 360px; flex-shrink: 0]
 
 | Input | Type | Description |
 |-------|------|-------------|
-| `product` | `ProductCardDto` | Product summary (id, title, category, imageUrl, rating, seller) |
+| `product` | `ProductCardDto` | Product summary (id, title, category, imageUrl, seller) |
 | `effectivePrice` | `EffectivePriceDto` | Resolved price display data |
 | `inStock` | `boolean` | Controls CTA state |
 | `loading` | `boolean` | Shows skeleton when true |
 
 **Outputs:** `addToCart: EventEmitter<{productId, offerId}>`, `cardClick: EventEmitter<string>` (navigates to PDP)
+
+**States:**
+
+| State | Trigger | Rendering |
+|-------|---------|-----------|
+| Loading | `loading = true` | Skeleton card (below); no outputs fire |
+| Default | `loading = false`, `inStock = true` | Full card; CTA "Add to Cart" enabled |
+| Out of stock | `inStock = false` | CTA disabled, label "Out of Stock"; `cardClick` still fires |
+| Missing image | `product.imageUrl` absent | `image` placeholder icon on a grey field, `alt` = product title |
+
+The card never renders a price it computed. `effectivePrice` arrives from the server already in the currency it will be shown in; the card passes it straight to `PriceDisplay`.
 
 **Skeleton state:** When `loading=true`, replace card content with CSS shimmer skeleton:
 
@@ -345,11 +353,13 @@ Non-interactive (no click handler); uses `mat-chip` in display-only mode.
 | `DELIVERED`, `COMPLETED`, `ACTIVE`, `APPROVED` | `.badge-success` | Green |
 | `REFUNDED`, `PARTIALLY_REFUNDED` | `.badge-refunded` | Teal |
 | `CANCELLED`, `REMOVED`, `REJECTED` | `.badge-danger` | Red |
-| `CLEARED` | `.badge-success` | Green | Moderation case cleared (false positive) |
+| `CLEARED` | `.badge-success` | Green (moderation case cleared — false positive) |
 | `PARTIALLY_PLACED`, `FLAGGED` | `.badge-warning` | Orange |
 | `SUSPENDED` | `.badge-suspended` | Deep-orange |
-| `DRAFT` | `.badge-draft` | Grey |
+| `INACTIVE`, `EXPIRED` | `.badge-inactive` | Grey |
 | `PARTIALLY_DELIVERED` | `.badge-partial` | Blue-grey |
+
+This map is the single owner of status colour. Any screen rendering a status not listed here is a gap in this table, not a licence to define a local colour: add the status to an existing row. Every status value in every V1 enum — order (derived), `fulfillment_status`, `offer_status` (`ACTIVE`, `INACTIVE`, `REMOVED`, `FLAGGED`), KYC, moderation, suspension, and reservation — resolves to one of the rows above.
 
 **Accessibility:** `role="status"` on the chip element; `aria-label` = full status description (e.g. "Order status: Shipped").
 
@@ -399,9 +409,31 @@ Non-interactive (no click handler); uses `mat-chip` in display-only mode.
 
 **Template:** `mat-form-field` with `matInput` (type="text"), currency code suffix (`matSuffix`), and numeric-only input mask. Emits value as string to parent form.
 
-**Inputs:** `currencyCode: string`, `placeholder: string`, `required: boolean`  
-**Outputs:** `valueChange: EventEmitter<string>` — emits formatted decimal string  
-**Validation:** Rejects non-numeric characters; validates decimal places against `Currency.minor_unit_scale`; shows `mat-error` inline.
+**Inputs:**
+
+| Input | Type | Description |
+|-------|------|-------------|
+| `currencyCode` | `string` | ISO 4217 code; drives the `matSuffix` label and the accepted decimal scale |
+| `label` | `string` | `mat-label` text — required, never placeholder-only (§12) |
+| `placeholder` | `string` | Optional hint shown in addition to the label |
+| `required` | `boolean` | Adds the required validator and the `*` label suffix |
+| `min` / `max` | `string \| null` | Bounds as decimal **strings**, never numbers; used for range inputs such as the price filter |
+| `disabled` | `boolean` | Disables the field |
+
+**Outputs:** `valueChange: EventEmitter<string>` — emits the entered amount as a decimal string (e.g. `"99.99"`). The component never emits a JS `number`, and never performs arithmetic on the value.
+
+**States:**
+
+| State | Rendering |
+|-------|-----------|
+| Empty | Label only; no error until touched or submitted |
+| Valid | Amount plus currency-code suffix |
+| Invalid | `mat-error` inline — "Enter a valid amount" (non-numeric) or "At most N decimal places" (scale violation) |
+| Disabled | Greyed field, suffix retained |
+
+**Validation:** Rejects non-numeric characters on input; validates decimal places against the digit count the platform derives from `currencyCode` (JPY 0, BHD/KWD 3, others 2) — the same ISO 4217 data the display pipe formats with, so the client keeps no currency scale table of its own ([frontend-coding-standards.md § 5](frontend-coding-standards.md#5-money-display-patterns)). Registers as a `ControlValueAccessor` so it works inside a typed `FormGroup`.
+
+Implements the "no `<input type="number">` for money" rule from [frontend-coding-standards.md § 6](frontend-coding-standards.md#6-form-patterns). It is also the control used for both ends of a price-range filter — a numeric `mat-slider` is not permitted for monetary values.
 
 ---
 
@@ -439,13 +471,17 @@ interface ConfirmDialogConfig {
 }
 ```
 
-**Usage:** `MatDialog.open(ConfirmDialogComponent, { data: config })` → returns `Observable<{ confirmed: boolean, reason?: string } | undefined>`.
+**Usage:** `MatDialog.open(ConfirmDialogComponent, { data: config })` → returns `Observable<{ confirmed: boolean, reason?: string } | undefined>` (`undefined` when dismissed by backdrop or Escape).
+
+**Reason capture.** Refund (US-S-07), seller cancel (US-S-11), listing removal (US-A-04) and reinstate (US-A-05b) all send a reason to the API, and this dialog is where it is typed — no flow gets its own bespoke dialog. Those call sites pass `requireReason: true`; the textarea renders with a character counter, `reasonMaxLength` defaults to **500** to match the API field limit, and Confirm stays disabled until a non-whitespace reason is entered. The reason comes back on the result object; when `requireReason` is false the field is absent and `reason` is `undefined`.
 
 ---
 
 ### 8.6 DataTable
 
-**Purpose:** Sortable, filterable, paginated table wrapper over `mat-table`.
+**Purpose:** Sortable, filterable, cursor-paginated table wrapper over `mat-table`.
+
+Columns are supplied by the **caller as projected content**, not declared through a `columns` array. Every portal table needs custom cells — status badges, currency strings, row action menus — which a column-descriptor array cannot express. The caller projects `<ng-container matColumnDef>` blocks and the wrapper owns the shell: toolbar, filter field, scroll container, sticky header, loading overlay, empty state, and pagination.
 
 **Template structure:**
 
@@ -458,13 +494,39 @@ div.table-container
     input matInput [placeholder="Search..."] (input)="applyFilter($event)"
   div.table-scroll-wrapper [overflow-x: auto]
     table mat-table [dataSource] matSort
-      [ng-content for column defs]
-    mat-paginator [pageSizeOptions="[10,25,50]" showFirstLastButtons]
+      ng-content  — caller's <ng-container matColumnDef="…"> blocks and header/row defs
+  div.table-footer
+    button [mat-button] — "Previous"  [disabled]="!hasPrevious || loading"
+    span.row-count — "[N] rows"
+    button [mat-button] — "Next"      [disabled]="!hasMore || loading"
   <aliceut-empty-state *ngIf="isEmpty">
 ```
 
-**Inputs:** `columns: ColumnDef[]`, `dataSource: MatTableDataSource<T>`, `loading: boolean`, `emptyMessage: string`  
-**Features:** sticky header (`position: sticky; top: 0`), loading overlay (`mat-progress-bar` above table), row selection (`SelectionModel<T>`), bulk-action slot.
+**Inputs:**
+
+| Input | Type | Description |
+|-------|------|-------------|
+| `dataSource` | `MatTableDataSource<T>` | The current page's rows |
+| `loading` | `boolean` | Shows the progress overlay; suppresses the empty state |
+| `emptyMessage` | `string` | Passed to `EmptyState` when the page is empty and `loading` is false |
+| `hasMore` | `boolean` | From `meta.hasMore` — enables Next |
+| `hasPrevious` | `boolean` | True once the caller has advanced past the first page — enables Previous |
+
+**Outputs:** `nextPage: EventEmitter<void>`, `previousPage: EventEmitter<void>`, `filterChange: EventEmitter<string>`, `sortChange: EventEmitter<Sort>`, `selectionChange: EventEmitter<T[]>`
+
+**Features:** sticky header (`position: sticky; top: 0`), loading overlay (`mat-progress-bar` above the table), row selection (`SelectionModel<T>`) for bulk actions, bulk-action slot.
+
+**Pagination — Previous/Next only.** All list endpoints are cursor-paginated and return no total ([api-conventions.md § Pagination](api-conventions.md#pagination)), so `MatPaginator` is not used: it cannot render page numbers, a page count, or "N of M" without a `length`. The footer control is Previous / Next plus the row count on the current page. The caller holds the cursor stack — it pushes `meta.nextCursor` on `nextPage` and pops on `previousPage` — because the cursor is opaque and the table must not construct one.
+
+**States:**
+
+| State | Condition | Rendering |
+|-------|-----------|-----------|
+| Loading | `loading = true` | Skeleton rows (5) on first load, progress bar overlay on refresh; both paging buttons disabled |
+| Empty | `dataSource.data.length === 0`, no filter applied | `EmptyState` with `emptyMessage`; footer hidden |
+| No matches | `dataSource.data.length === 0` with a filter or sort applied | `EmptyState` "No rows match this filter" plus a Clear filter action; footer hidden |
+| Populated, more pages | `hasMore = true` | Next enabled |
+| Populated, last page | `hasMore = false` | Next disabled with the caption "End of list" — the user has no page count to infer this from, so it must be stated |
 
 ---
 
@@ -640,7 +702,7 @@ mat-sidenav-container [fullscreen]
 <a id="14-component-import-strategy"></a>
 ## 14. Component Import Strategy
 
-All feature modules import from `libs/ui/` barrel:
+`libs/ui/` exports **composite components only** — things with their own template and logic. Feature code imports those from the `@aliceut/shared-ui` barrel:
 
 ```typescript
 import {
@@ -656,7 +718,13 @@ import {
 } from '@aliceut/shared-ui';
 ```
 
-Feature modules never import `MatCardModule`, `MatTableModule`, etc. directly — they rely on the `libs/ui/` wrappers which re-export the necessary AM modules.
+**`libs/ui/` does not re-export Angular Material modules.** There is no `MatModule`-style catch-all, and no component exists in `libs/ui/` merely to pass a Material primitive through. A composite imports whatever Material modules it needs internally; that is an implementation detail and does not leak to its consumers.
+
+**Feature components import Material primitives directly** — `MatCardModule`, `MatButtonModule`, `MatStepperModule`, `MatSidenavModule`, `MatChipsModule`, `MatSnackBar` and the rest go in the component's own `imports: []`, named individually. This is what keeps tree-shaking effective, and it is the rule in [frontend-coding-standards.md § 8](frontend-coding-standards.md#8-angular-material-usage-rules), which governs import strategy.
+
+**When a screen needs a Material primitive with no composite equivalent** — `MatStepper` in seller onboarding, for example — it imports the primitive. No wrapper is added, and none should be invented to satisfy a barrel rule.
+
+- **[DESIGN DECISION]** A new entry in [§8](#8-shared-component-library-libsui) is earned by a component with its own template and logic that at least two screens use. Below that bar it stays in the feature that needs it. Two thresholds were available: promote on first reuse, or promote on second. Promoting on the first use turns `libs/ui` into a dumping ground of single-caller components whose API is shaped by one screen's accident, and every one of them is a shared-library change to modify. Waiting for the second caller costs one move of a file, and the second caller is what reveals which inputs are really parameters. Recorded here because this rule is new as of the 2026-09-14 design alignment pass — the nine components §8 already defines were chosen before it existed and are not re-litigated by it.
 
 ---
 

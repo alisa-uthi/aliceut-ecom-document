@@ -18,7 +18,7 @@ This is a **design-only repository**. Everything needed to start coding is here;
 - Full data model (PostgreSQL ERD + MongoDB collections)
 - REST API contracts for all endpoints across modules, with sequence diagrams
 - Kafka event catalog — topics, full Avro schemas, consumer groups, DLQ topology
-- Docker Compose topology — 13 services fully specified
+- Docker Compose topology — every V1 service fully specified
 - NestJS module architecture — three tiers, CQRS-lite, transactional outbox pattern
 - UI screen specifications — screens across three Angular portals + shared component library
 - Flow diagrams — buyer journey, seller lifecycle, fulfillment state machine, auth portals
@@ -41,8 +41,8 @@ aliceut-ecom-document/
 │   ├── auth-jwt-design.md             JWT access/refresh token spec, OAuth flows, guard matrix
 │   ├── backend-coding-standards.md    TypeScript config, ESLint, money patterns, DTOs, errors
 │   ├── backend-module-architecture.md Hexagonal tiers, CQRS-lite, outbox integration
-│   ├── data-lifecycle.md              pg_cron cleanup job convention (cross-phase)
-│   ├── database-migrations.md         Raw-SQL migration conventions (golang-migrate)
+│   ├── data-lifecycle.md              Scheduled cleanup and retention convention (cross-phase)
+│   ├── database-migrations.md         Raw-SQL migration conventions (TypeORM CLI)
 │   ├── design-system.md               Angular Material theme, 8px grid, shared component specs
 │   ├── frontend-coding-standards.md   Angular project structure, state, forms, routing, performance
 │   ├── kafka-events.md                Event envelope, Avro BACKWARD compat rules
@@ -62,10 +62,10 @@ aliceut-ecom-document/
 │   │   ├── BRD.md                     Business Requirements Document v1.2 (signed off 2026-08-19)
 │   │   └── user-stories/
 │   │       ├── README.md              Story index, dependency graph, sprint plan
-│   │       ├── buyer.md               US-B-00 – US-B-15 (16 stories)
-│   │       ├── seller.md              US-S-00 – US-S-11 (14 stories)
-│   │       ├── admin.md               US-A-00 – US-A-06 (10 stories)
-│   │       ├── platform.md            US-P-01 – US-P-19 (19 stories)
+│   │       ├── buyer.md               Buyer stories (US-B-*) — counts in the story index
+│   │       ├── seller.md              Seller stories (US-S-*)
+│   │       ├── admin.md               Admin stories (US-A-*)
+│   │       ├── platform.md            Platform / cross-cutting stories (US-P-*)
 │   │       └── email-templates.md     ET-01 – ET-21 transactional email specs
 │   │
 │   ├── diagrams/                      Cross-cutting flow diagrams for Phase 1
@@ -91,17 +91,17 @@ aliceut-ecom-document/
 │   │   │   ├── notifications.md       In-app notification list, mark read
 │   │   │   └── health.md              Liveness/readiness probe
 │   │   ├── backend-module-architecture.md  Phase 1 module inventory and tier assignments
-│   │   ├── cleanup-jobs.md            Phase 1 pg_cron cleanup job implementations
+│   │   ├── cleanup-jobs.md            Phase 1 scheduled cleanup job implementations
 │   │   ├── data-model-erd.md          Full PostgreSQL ERD (module schemas, constraints, indexes)
 │   │   ├── data-model-mongodb.md      MongoDB collections (audit logs, activity events)
-│   │   ├── docker-compose-topology.md 13-service spec, volumes, networks, .env.example
-│   │   └── kafka-events.md            14 topics, Avro schemas, consumer groups, DLQ topology
+│   │   ├── docker-compose-topology.md Service spec, volumes, networks, .env.example
+│   │   └── kafka-events.md            Topics, Avro schemas, consumer groups, DLQ topology
 │   │
 │   └── ui-design/
-│       ├── buyer-portal.md            13 screens (home, search, PDP, cart, checkout, orders, auth)
-│       ├── seller-portal.md           10 screens (dashboard, listings, orders, inventory, KYC)
-│       ├── admin-portal.md            8 screens (dashboard, KYC queue, moderation, seller mgmt)
-│       ├── navigation-routing.md      Route trees, 9 auth guards, guard matrix, TitleStrategy
+│       ├── buyer-portal.md            Storefront screens — home, search, PDP, cart, checkout, orders, auth
+│       ├── seller-portal.md           Seller screens — dashboard, listings, orders, inventory, KYC
+│       ├── admin-portal.md            Admin screens — dashboard, KYC queue, moderation, seller mgmt
+│       ├── navigation-routing.md      Route trees, auth guards, guard matrix, TitleStrategy
 │       └── shared-components.md       libs/ui/ Angular component library spec
 │
 └── phase-2/                           Future — K8s, real payments, reviews, analytics
@@ -131,7 +131,7 @@ All choices are locked in BRD §12. Changes require a BRD amendment.
 | Auth | Passport.js — local + Google + Facebook; JWT with refresh rotation |
 | Object storage | MinIO (S3-compatible) — `product-images`, `kyc-documents`, `user-assets` |
 | Money arithmetic | `decimal.js` — JS `number` is forbidden for monetary values |
-| V1 deployment | Docker Compose (13 services) |
+| V1 deployment | Docker Compose — service count in [`architecture-overview.md` §10](architecture-overview.md#deployment-topology) |
 | V2+ deployment | Kubernetes + Istio; Kafka via Strimzi |
 
 ---

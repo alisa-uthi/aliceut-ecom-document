@@ -14,11 +14,11 @@ Stories split by role. One file per role for scalability.
 | File | Prefix | FR trace | Count |
 |------|--------|----------|-------|
 | [buyer.md](buyer.md) | US-B-* | FR-B | 16 |
-| [seller.md](seller.md) | US-S-* | FR-S | 14 |
+| [seller.md](seller.md) | US-S-* | FR-S | 15 |
 | [admin.md](admin.md) | US-A-* | FR-A | 10 |
 | [platform.md](platform.md) | US-P-* | FR-P | 19 |
 
-**Total: 59 stories.** All V1 Must + Should items covered.
+**Total: 60 stories.** All V1 Must + Should items covered.
 
 ---
 
@@ -80,6 +80,7 @@ Notes: preconditions, edge cases, dependencies
 | US-S-09 | Bulk inventory update via CSV | Should | FR-S-09 |
 | US-S-10 | View listing moderation status | Must | FR-A-03, FR-A-04 |
 | US-S-11 | Cancel unfulfillable PENDING order | Should | FR-S-05, FR-S-07 |
+| US-S-12 | Reset forgotten password (seller portal) | Must | FR-S-01, NFR-05 |
 
 ### Admin ([admin.md](admin.md))
 | ID | Title | Priority | Trace |
@@ -98,7 +99,7 @@ Notes: preconditions, edge cases, dependencies
 ### Platform ([platform.md](platform.md))
 | ID | Title | Priority | Trace |
 |----|-------|----------|-------|
-| US-P-01 | Multi-currency offer model | Must | FR-P-01 |
+| US-P-01 | Per-offer pricing currency model | Must | FR-P-01 |
 | US-P-02 | FX display conversion | Should | FR-P-02 |
 | US-P-03 | Order price snapshot immutability | Must | FR-P-03 |
 | US-P-04 | Decimal money handling end-to-end | Must | FR-P-04 |
@@ -155,7 +156,7 @@ US-B-09, US-B-10, US-B-11, US-B-12, US-P-03, US-P-02, US-P-12, US-P-15, US-P-17
 
 **Sprint 4 — Seller (2 wk)**
 US-S-00, US-S-01, US-S-02, US-S-03, US-S-04, US-S-04b, US-S-05, US-S-05b,
-US-S-06, US-S-07, US-S-08, US-S-09, US-S-10, US-S-11
+US-S-06, US-S-07, US-S-08, US-S-09, US-S-10, US-S-11, US-S-12
 
 **Sprint 5 — Admin + DLQ (1 wk)**
 US-A-00, US-A-00b, US-A-01, US-A-02, US-A-03, US-A-04, US-A-04b,

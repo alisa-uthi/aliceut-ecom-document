@@ -73,11 +73,11 @@ graph TD
     AR -- No --> AI
     AR -- Yes --> AS[Resubmit with confirmed prices]
     AS --> AT
-    AP -- No --> AT[Create Order: ORD-xxxxxxxx]
+    AP -- No --> AT[Create Order: ORD-000001042]
     AT --> AU[Process each seller/currency group independently]
     AU --> AV[Reserve inventory - hold TTL 15 min]
     AV --> AW{Reservation OK?}
-    AW -- Yes --> AX[Snapshot unit_price / currency / tax / fx_rate\nFulfillment: PENDING\nAssign TRK-xxxxxxxx\nClear cart items atomically]
+    AW -- Yes --> AX[Snapshot unit_price / currency / tax / fx_rate\nFulfillment: PENDING\nAssign FUL-000003871 + TRK-000003871\nClear cart items atomically]
     AW -- No --> AY[Group failed\nCart items remain in cart]
     AX --> AZ{More seller/currency\ngroups?}
     AY --> AZ

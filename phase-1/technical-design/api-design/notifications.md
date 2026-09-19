@@ -1,8 +1,11 @@
 # Notifications API
 
+**Status:** Complete  
 **Module:** `Notifications`  
 **Parent:** [API Design Index](../api-design.md)  
-**Source of truth:** [BRD v1.2](../../requirements/BRD.md), [ERD](../data-model-erd.md)
+**Source of truth:** [BRD v1.2](../../requirements/BRD.md), [ERD](../data-model-erd.md)  
+**Conventions:** [api-conventions.md](../../../conventions/api-conventions.md) — `operationId` naming (`<Module>_<verb><Resource>`), response envelope, cursor pagination, error shape  
+**Correlation:** every endpoint accepts an `X-Correlation-ID` request header, generates a UUIDv7 when it is absent, echoes it on the response, and carries the same value into every log line; a consumer carries the `correlation_id` of the event it is processing into the log lines it writes — see [observability.md § Correlation ID](../../../conventions/observability.md#correlation-id).
 
 ---
 
@@ -19,6 +22,7 @@
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | `GET` | [`/notifications`](#list-in-app-notifications) | JWT | List notifications (cursor-paginated, optional unread filter) |
+| `GET` | [`/notifications/unread-count`](#get-unread-count) | JWT | Unread count for the header bell badge |
 | `PATCH` | [`/notifications/:id/read`](#mark-notification-read) | JWT | Mark single notification read |
 | `PATCH` | [`/notifications/read-all`](#mark-all-notifications-read) | JWT | Bulk mark all unread notifications read |
 
@@ -31,11 +35,14 @@ See [Notification Creation (Async)](#notification-creation-async) for the Kafka 
 
 | Endpoint | Primary DB | Tables / Notes |
 |----------|-----------|----------------|
-| `GET /notifications` | Postgres | `notifications.in_app_notification` (filter by `recipient_user_id`; index on `(recipient_user_id, read_at)`) |
+| `GET /notifications` | Postgres | `notifications.in_app_notification` (filter by `recipient_user_id`; partial index on `(recipient_user_id, read_at) WHERE read_at IS NULL`, plus `(recipient_user_id, created_at, id)` for the cursor sort key) |
+| `GET /notifications/unread-count` | Postgres | `notifications.in_app_notification` (`COUNT(*)` over the same partial index) |
 | `PATCH /notifications/:id/read` | Postgres | `notifications.in_app_notification` (set `read_at`) |
 | `PATCH /notifications/read-all` | Postgres | `notifications.in_app_notification` (bulk update `read_at` where `recipient_user_id = ?` and `read_at IS NULL`) |
 
 **Write path (async):** Notification rows are created by Kafka consumers reacting to domain events — never written inline by API handlers. See kafka-events convention for event → notification type mapping.
+
+**Fan-out and uniqueness.** `notifications.in_app_notification` is unique on the composite **`(recipient_user_id, source_event_id)`**, not on `source_event_id` alone. One event legitimately fans out to several recipients — every admin receives `KYC_SUBMITTED` from a single `seller.kyc.submitted` event — and a unique key on the event id by itself would let only the first recipient's row be inserted. The composite key still gives the consumer all the idempotency it needs, because a redelivered event produces the same `(recipient, event)` pair per recipient. `payload` stays `JSONB`.
 
 ---
 
@@ -61,9 +68,10 @@ Pagination: cursor
     "readAt": "ISO8601 | null",
     "createdAt": "ISO8601"
   }],
-  "meta": { "nextCursor": "string | null", "hasMore": false, "unreadCount": 3 }
+  "meta": { "nextCursor": "string | null", "hasMore": false }
 }
 ```
+`meta` carries `nextCursor` and `hasMore` and nothing else — [api-conventions § Pagination](../../../conventions/api-conventions.md#pagination) permits no other key on a list response and no `total`. The sort key is `(created_at, id)` descending; `created_at` alone is not unique, and two notifications written by the same consumer transaction share a timestamp, so a cursor without the id tiebreak can skip or repeat a row.
 
 #### Sequence
 
@@ -82,9 +90,52 @@ sequenceDiagram
     else valid JWT
         JG-->>API: userId
         API->>S: listNotifications(userId, filters, cursor)
-        S->>PG: SELECT in_app_notification WHERE recipient_user_id=? ORDER BY created_at DESC cursor-paginated
-        PG-->>S: rows + unread count
-        S-->>C: 200 { data[], meta: { nextCursor, hasMore, unreadCount } }
+        S->>PG: SELECT in_app_notification<br/>WHERE recipient_user_id = ?<br/>  [AND read_at IS NULL]<br/>  [AND (created_at, id) < (:cursorCreatedAt, :cursorId)]<br/>ORDER BY created_at DESC, id DESC<br/>LIMIT :limit + 1
+        Note over S,PG: Keyset predicate on the unique (created_at, id) tuple. No COUNT(*) — the envelope carries no total
+        PG-->>S: rows
+        S-->>C: 200 { data[], meta: { nextCursor, hasMore } }
+    end
+```
+
+---
+
+<a id="get-unread-count"></a>
+### Get unread count
+
+```
+GET /notifications/unread-count
+Tag: Notifications
+Auth: JWT
+```
+**Response 200** `{ "data": { "unreadCount": 5 } }`
+
+The header bell badge needs a count that is not bounded by the current page, and [api-conventions § Pagination](../../../conventions/api-conventions.md#pagination) permits no extra `meta` key and no total on `GET /notifications`, so the count is its own read rather than a field smuggled onto the list envelope.
+
+The value is computed on every call — `COUNT(*)` over the caller's own rows where `read_at IS NULL`, served by the partial index on `(recipient_user_id, read_at) WHERE read_at IS NULL`. There is **no denormalized counter column and no cached count**: a stored counter is a second source of truth that drifts the moment a mark-read, a bulk mark-read and a consumer insert interleave, and the count it would replace is a single indexed aggregate over one user's unread rows. The clients that render it are the notification bell in all three portals ([shared-components.md § Notification bell](../../ui-design/shared-components.md)), which caps the displayed figure at `99+` without changing the number returned here.
+
+**Errors:** 401 — missing or invalid token. There is no 404: a user with no notifications has an unread count of `0`.
+
+#### Sequence
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant API as API (NestJS)
+    participant JG as JwtAuthGuard
+    participant S as NotificationService
+    participant PG as Postgres
+
+    C->>API: GET /notifications/unread-count
+    API->>JG: verify JWT
+    alt invalid or missing token
+        JG-->>C: 401 Unauthorized
+    else valid JWT
+        JG-->>API: userId
+        API->>S: getUnreadCount(userId)
+        S->>PG: SELECT COUNT(*) FROM in_app_notification<br/>WHERE recipient_user_id = ? AND read_at IS NULL
+        Note over S,PG: Scoped to the caller's own rows, computed per call.<br/>No counter column and no cache — the count is derived state, never stored
+        PG-->>S: count
+        S-->>C: 200 { data: { unreadCount } }
     end
 ```
 
@@ -97,8 +148,11 @@ PATCH /notifications/:notificationId/read
 Tag: Notifications
 Auth: JWT
 ```
-**Response 200** `{ "data": { "readAt": "ISO8601" } }`  
-**Errors:** 404, 403
+**Response 200** `{ "data": { "id": "uuid", "readAt": "ISO8601" } }`
+
+`id` is echoed so a client updating an already-rendered list has a key to match the row against; a bare timestamp identifies nothing.
+
+**Errors:** 404 — not found, or the notification belongs to another user. Ownership is part of the lookup predicate rather than a check after the read, so a foreign notification is indistinguishable from a nonexistent one and the endpoint never confirms that someone else's id exists. There is no `403`.
 
 #### Sequence
 
@@ -117,18 +171,14 @@ sequenceDiagram
     else valid JWT
         JG-->>API: userId
         API->>S: markRead(notificationId, userId)
-        S->>PG: SELECT in_app_notification WHERE id = ?
-        alt not found
-            PG-->>S: 0 rows
+        S->>PG: UPDATE in_app_notification<br/>SET read_at = COALESCE(read_at, NOW())<br/>WHERE id = ? AND recipient_user_id = ?<br/>RETURNING id, read_at
+        Note over S,PG: Ownership is in the WHERE clause, so another user's row simply does not match.<br/>COALESCE makes a repeat call a no-op that returns the original read_at rather than moving it
+        alt no row returned
+            PG-->>S: 0 rows (absent, or owned by someone else)
             S-->>C: 404 Not Found
-        else recipient_user_id != userId
-            PG-->>S: row belongs to different user
-            S-->>C: 403 Forbidden
-        else found and owned
-            PG-->>S: notification row
-            S->>PG: UPDATE in_app_notification SET read_at = NOW() WHERE id = ?
-            PG-->>S: updated row
-            S-->>C: 200 { data: { readAt } }
+        else row returned
+            PG-->>S: { id, read_at }
+            S-->>C: 200 { data: { id, readAt } }
         end
     end
 ```
@@ -201,10 +251,12 @@ sequenceDiagram
     else not yet processed
         PE-->>NC: no row
         NC->>PG: BEGIN TX
-        NC->>PG: INSERT in_app_notification (recipient_user_id, type, payload, source_event_id=event_id)
+        NC->>PG: INSERT in_app_notification (recipient_user_id, type, payload, source_event_id = event_id)<br/>x one row per recipient<br/>ON CONFLICT (recipient_user_id, source_event_id) DO NOTHING
+        Note over NC,PG: One row per recipient, all from a single event. The unique key is the composite<br/>(recipient_user_id, source_event_id) — an event that fans out to every admin inserts one row each,<br/>and a redelivery produces the same pairs, so DO NOTHING makes the write idempotent
         NC->>PE: INSERT processed_event (consumer_group, event_id, processed_at, outcome)
         NC->>PG: COMMIT TX
         NC-)Kafka: commit offset
+        Note over NC,Kafka: Offset committed only after the side effect. At-least-once delivery,<br/>with a DLQ per consumer group for events that keep failing
     end
 ```
 

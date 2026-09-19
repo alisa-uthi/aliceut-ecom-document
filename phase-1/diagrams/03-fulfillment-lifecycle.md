@@ -6,10 +6,10 @@
 ## Key invariants
 
 - One Fulfillment = one seller/currency group within an order; created on successful inventory reservation
-- Tracking number (TRK-xxxxxxxx) assigned at Fulfillment creation — NOT at shipment; must not generate a second one on SHIPPED transition (US-S-06)
-- PENDING refund restores stock; SHIPPED refund does NOT (goods already dispatched) (US-S-07)
+- Tracking number (TRK- + 9 zero-padded digits, e.g. TRK-000003871) assigned at Fulfillment creation — NOT at shipment; must not generate a second one on SHIPPED transition (US-S-06)
+- PENDING refund restores stock; SHIPPED refund does NOT (goods already dispatched) (US-S-07). Restoration is written by the Inventory consumer from the event, never in the Orders transaction
 - Auto-refund triggers when seller suspended AND fulfillment_window_days exceeded without shipment (US-P-16)
-- Cancellation (US-S-11) only valid from PENDING; creates fake payment reversal + restores stock
+- Cancellation (US-S-11) only valid from PENDING; restores stock. No payment-side record is written — payment_attempt logs simulated charge attempts, not reversals
 - Post-delivery returns (DELIVERED → REFUNDED) are out of scope for V1 (BRD §3.2)
 
 ## Diagram
@@ -18,7 +18,7 @@
 graph TD
     CHECKOUT["Checkout: seller/currency group processing"]
     NO_FULFILL["NO FULFILLMENT CREATED\nCart items remain in cart"]
-    PENDING["PENDING\nInventory reserved, TRK-xxxxxxxx assigned"]
+    PENDING["PENDING\nInventory reserved, TRK-000003871 assigned"]
     SHIPPED["SHIPPED\nGoods dispatched"]
     DELIVERED["DELIVERED\nTerminal"]
     REFUNDED["REFUNDED\nTerminal"]
@@ -28,10 +28,10 @@ graph TD
     CHECKOUT -->|Reservation fails| NO_FULFILL
     CHECKOUT -->|Reservation succeeds| PENDING
     PENDING -->|Seller marks shipped — US-S-06\nTracking number preserved, ET-02 to buyer| SHIPPED
-    SHIPPED -->|Scheduler reaches ETA — US-P-15\nETA = placed_at + mock_delivery_days, ET-03 to buyer| DELIVERED
+    SHIPPED -->|Scheduler reaches ETA — US-P-15\nETA = placed_at + fulfillment_window_days, ET-03 to buyer| DELIVERED
     PENDING -->|Seller full refund — US-S-07\nStock restored, ET-04 to buyer| REFUNDED
     SHIPPED -->|Seller full refund — US-S-07\nStock NOT restored goods in transit, ET-04 to buyer| REFUNDED
-    PENDING -->|Seller cancels — US-S-11\nStock restored, fake reversal, ET-16 to buyer| CANCELLED
+    PENDING -->|Seller cancels — US-S-11\nStock restored by Inventory consumer, ET-16 to buyer| CANCELLED
     PENDING -->|Auto-refund: seller suspended — US-P-16\nfulfillment_window_days exceeded, stock restored, ET-13 buyer + ET-13b seller| REFUNDED
     DELIVERED -.->|"❌ out of scope V1"| OOS_NOTE
 

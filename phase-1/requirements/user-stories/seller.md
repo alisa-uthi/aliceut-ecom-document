@@ -87,12 +87,13 @@ Priority: Must — trace: FR-P-01, FR-P-06a, FR-P-06b
 **Acceptance criteria**
 - Pricing panel accessible from the listing detail page, separate from the product edit form.
 - Displays all current Price rows: LIST, SALE (with `starts_at`/`ends_at`), B2B_TIER (with `min_qty`).
-- Seller can add a new Price row (any supported type + currency), edit an existing row, or delete a non-LIST row. At least one LIST price must always remain.
-- SALE price: `starts_at < ends_at` enforced; overlapping SALE periods for the same currency are rejected.
+- The offer's pricing currency is fixed on the offer itself (`catalog.offer.native_currency_code`) and every price row on that offer is denominated in it. A price row carries no currency of its own, so the pricing panel shows the currency once, as a property of the listing, and each row is just an amount plus its type. Selling the same product in a second currency means creating a second offer, not adding a second price row.
+- Seller can add a new Price row (any supported type), edit an existing row, or delete a non-LIST row. At least one LIST price must always remain.
+- SALE price: `starts_at < ends_at` enforced; overlapping SALE periods for the same offer are rejected.
 - B2B_TIER: `min_qty ≥ 2` enforced.
 - Price changes take effect immediately; existing PENDING order snapshots are unaffected (FR-P-03). Seller sees a warning on save.
 - All changes auditable.
-- At most one active LIST price per offer per currency may exist at any time. Attempting to create a second LIST price in the same currency as an existing active LIST price is rejected with: "A LIST price in [currency] already exists for this offer. Edit or delete it before creating a new one."
+- At most one active LIST price per offer may exist at any time. Because an offer has exactly one currency, there is no per-currency qualifier on this rule and none in the message. Attempting to create a second active LIST price for the offer is rejected with: "A LIST price already exists for this offer. Edit or delete it before creating a new one."
 
 ---
 
@@ -104,7 +105,7 @@ Priority: Must — trace: FR-S-05, FR-B-10
 - Tabs: `Pending`, `Shipped`, `Delivered`, `Refunded`, `Cancelled`.
 - Row: order_id, buyer name masked (`J. Doe`), items, total in offer currency, placed_at, action button.
 - Each row is one seller/currency fulfillment and shows its own lifecycle status.
-- List filterable by date range; searchable by order_id. Pagination: offset-based — `page` (1-based), `limit` (default 20, max 100); response envelope `{ data, total, page, limit }`. Default sort: `placed_at DESC`.
+- List filterable by date range; searchable by order_id. Pagination: cursor-based (keyset) — `limit` (default 20, max 100) and an opaque `cursor` param, which after the first request is the previous response's `meta.nextCursor` passed back verbatim. Response envelope is `{ data, meta: { nextCursor, hasMore } }`; there is no `total`, no `page` and no `offset`. A cursor is only valid for the sort and filter set it was issued under, so changing the tab or date range starts a new first page. Default sort: `placed_at DESC`, with the row id as tiebreaker. The table therefore offers Previous/Next navigation only — no page numbers and no result count.
 - Orders for removed or admin-flagged listings still appear in the relevant tab with a "Listing removed" badge so the seller retains fulfillment visibility.
 - Seller notified by email when a new order is created for them (→ ET-17).
 - **Empty state:** if no orders exist in the selected tab, show tab-specific guidance: Pending tab → "No pending orders — new orders appear here"; other tabs → "No orders in this status."

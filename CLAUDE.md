@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Current Project State
 
-**Pre-implementation.** Repo contains `architecture-overview.md`, `phase-1/requirements/BRD.md` (v1.1, signed off 2026-08-19), and `phase-1/requirements/user-stories/` (split by role: buyer/seller/admin/platform). No source code or build system yet. Next phase per BRD §12 (Resolved Decisions): detailed design (→ `phase-1/technical-design/`) + backlog decomposition. Do not scaffold code unless user explicitly asks.
+**Pre-implementation.** Repo contains `architecture-overview.md`, `phase-1/requirements/BRD.md` (v1.2, signed off 2026-08-19; §10 and §12 amended 2026-09-14), and `phase-1/requirements/user-stories/` (split by role: buyer/seller/admin/platform). No source code or build system yet. Next phase per BRD §12 (Resolved Decisions): detailed design (→ `phase-1/technical-design/`) + backlog decomposition. Do not scaffold code unless user explicitly asks.
 
 ## Repo Layout
 
@@ -69,9 +69,9 @@ Redpanda / KRaft mode acceptable substitute if Kafka+Zookeeper too heavy.
 
 ### Pricing model (FR-P-01)
 ```
-Product → Offer (per seller) → Price (per currency, per price_type)
+Product → Offer (per seller, one currency) → Price (per price_type)
 ```
-Cart/FulfillmentItem reference `Offer`, not `Product`. Never store price on `Product`.
+Currency lives on the offer (`catalog.offer.native_currency_code`), not on the price row — a second currency means a second offer. Cart/FulfillmentItem reference `Offer`, not `Product`. Never store price on `Product`.
 
 Price types: `LIST`, `SALE` (time-bounded), `B2B_TIER` (min_qty). PDP resolves effective price by account type + time + qty.
 

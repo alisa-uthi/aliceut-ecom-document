@@ -17,7 +17,7 @@ Angular 22+ Nx monorepo. Three portals: `buyer-app` (mobile-first), `seller-app`
 | UI library | Angular Material |
 | HTTP client | Generated `@aliceut/api-client` (openapi-generator-cli) — never `HttpClient` directly |
 | State | Services + Angular signals / `BehaviorSubject` — no NgRx |
-| Money | `Intl.NumberFormat` via `MoneyPipe` — never JS `number` for monetary display |
+| Money | `Intl.NumberFormat` via `CurrencyDisplayPipe` — never JS `number` for monetary display |
 | Deploy | docker-compose (V1) |
 
 ---
@@ -69,22 +69,22 @@ this.catalogApi.listProducts({ page: 1, limit: 20 });
 Regenerate after any backend OpenAPI spec change:
 
 ```bash
-pnpm run generate:api-client
+npm run generate:api-client
 ```
 
 ### Money display
 
-Never render monetary values with JS number arithmetic. Use the `MoneyPipe` from `@aliceut/shared-ui`:
+Never render monetary values with JS number arithmetic. Use the `CurrencyDisplayPipe` from `@aliceut/shared-ui`:
 
 ```html
 <!-- WRONG -->
-{{ product.price | number:'1.2-2' }}
+{{ offer.price.amount | number:'1.2-2' }}
 
 <!-- RIGHT -->
-{{ product.price | money:product.currency }}
+{{ offer.price.amount | currencyDisplay:offer.price.currencyCode }}
 ```
 
-Currency display scale: JPY=0 decimal places, BHD=3, USD/THB/SGD=2. The pipe handles this via `Currency.minor_unit_scale`.
+Price lives on the offer, never on the product. The pipe passes the currency code to `Intl.NumberFormat` and lets it derive the fraction-digit count (JPY 0, BHD 3, USD/THB/SGD 2) — there is no currency scale table on the client, and no `minimumFractionDigits` override. Adding a currency is a database row, not a frontend change.
 
 Full patterns: `../aliceut-ecom-document/conventions/frontend-coding-standards.md §5`
 
@@ -114,7 +114,7 @@ Full patterns: `../aliceut-ecom-document/conventions/frontend-coding-standards.m
 When the backend OpenAPI spec changes (`libs/contracts/openapi/aliceut-v1.json` in `aliceut-ecom-backend/`), regenerate:
 
 ```bash
-pnpm run generate:api-client
+npm run generate:api-client
 ```
 
 Commit the regenerated `libs/api-client/` files. CI diffs the output and fails the build if the client is stale.
@@ -154,7 +154,7 @@ All paths relative to the sibling `aliceut-ecom-document/` repo:
 |---------|------|
 | Angular structure, state, forms, routing, OnPush | `conventions/frontend-coding-standards.md` |
 | Angular Material palette, tokens, component choices | `conventions/design-system.md` |
-| Money display, MoneyPipe, currency scale | `conventions/frontend-coding-standards.md §5` |
+| Money display, `CurrencyDisplayPipe`, currency scale | `conventions/frontend-coding-standards.md §5` |
 | API client generation pipeline | `conventions/backend-module-architecture.md §8` |
 | Git branching, commits, PR template | `guidelines/git-workflow.md` |
 | Test pyramid, coverage thresholds, Playwright | `guidelines/testing-guidelines.md` |
@@ -173,7 +173,7 @@ Full checklist: `../aliceut-ecom-document/guidelines/development-flow.md §11`
 
 **Money**
 - [ ] No JS number arithmetic on monetary values
-- [ ] `MoneyPipe` used for all currency display
+- [ ] `CurrencyDisplayPipe` used for all currency display
 
 **Architecture**
 - [ ] All components are standalone

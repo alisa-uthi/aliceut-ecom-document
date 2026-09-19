@@ -1,14 +1,18 @@
 # Buyer Portal — UI Design Specification
 ## buyer-app (port 4200)
 
-**Status:** Draft  
-**Stack:** Angular 22+ + Angular Material + `libs/ui/` shared components  
-**Auth:** JWT; guest access allowed on catalog routes; checkout requires authenticated account
+**Status:** Complete  
+**Stack:** Angular 22+ + Angular Material + `libs/ui/` (`@aliceut/shared-ui`) composite components  
+**Auth:** JWT; guest browsing and a guest cart are allowed, checkout requires an authenticated and email-verified account  
+**Conventions:** [frontend-coding-standards.md](../../conventions/frontend-coding-standards.md), [design-system.md](../../conventions/design-system.md), [api-conventions.md](../../conventions/api-conventions.md)  
+**API contracts:** [catalog.md](../technical-design/api-design/catalog.md), [search.md](../technical-design/api-design/search.md), [pricing.md](../technical-design/api-design/pricing.md), [cart.md](../technical-design/api-design/cart.md), [orders.md](../technical-design/api-design/orders.md), [profile.md](../technical-design/api-design/profile.md), [notifications.md](../technical-design/api-design/notifications.md), [auth.md](../technical-design/api-design/auth.md)
 
 ---
 
 ## Summary
 
+- [Cross-cutting rules](#cross-cutting-rules)
+- [Open contract dependencies](#open-contract-dependencies)
 - [Shell Layout](#shell-layout)
 - [Screen 1 — Home Page](#screen-1-home-page)
 - [Screen 2 — Search Results](#screen-2-search-results)
@@ -21,35 +25,103 @@
 - [Screen 9 — Login](#screen-9-login)
 - [Screen 10 — Register](#screen-10-register)
 - [Screen 11 — Account Settings](#screen-11-account-settings)
-- [Screen 12 — Email Verification Pending (State)](#screen-12-email-verification-pending)
+- [Screen 12 — Email Verification Pending](#screen-12-email-verification-pending)
 - [Screen 13 — Forgot Password](#screen-13-forgot-password)
 - [Screen 14 — Reset Password](#screen-14-reset-password)
 - [Screen 15 — Email Verification Callback](#screen-15-email-verification-callback)
 - [Screen 16 — Notifications](#screen-16-notifications)
 - [Appendix — Buyer Notification Types](#appendix-buyer-notifications)
 
+<a id="cross-cutting-rules"></a>
+## Cross-cutting rules
+
+These apply to every screen below and are not repeated per screen.
+
+### Components and imports
+
+Composite components come from the `@aliceut/shared-ui` barrel: `ProductCardComponent`, `PriceDisplayComponent`, `StatusBadgeComponent`, `CurrencyInputComponent`, `DataTableComponent`, `ConfirmDialogComponent`, `NotificationBellComponent`, `FileUploadComponent`, `EmptyStateComponent`, plus the `currencyDisplay`, `timeAgo`, `truncate` and `safe` pipes ([design-system.md § 8](../../conventions/design-system.md#8-shared-component-library-libsui), [§ 15](../../conventions/design-system.md#15-custom-pipes)).
+
+**Angular Material primitives are imported directly by the feature component that uses them** — `MatCardModule`, `MatButtonModule`, `MatFormFieldModule`, `MatStepperModule`, `MatChipsModule`, `MatSnackBar` and the rest go in that component's own `imports: []`, named individually. `libs/ui` re-exports no Material module, and no wrapper exists merely to pass a primitive through; a screen that needs a primitive with no composite equivalent imports the primitive. This is the import rule in [frontend-coding-standards.md § 8](../../conventions/frontend-coding-standards.md#8-angular-material-usage-rules), and it is why the wireframes below name `mat-*` elements directly.
+
+Every component in this portal is **standalone**, uses `ChangeDetectionStrategy.OnPush`, and every feature route is **lazily loaded** with `loadComponent` or `loadChildren`. Every `*ngFor` over a list that can change carries `trackBy` — the wireframes show it once per list rather than restating the handler each time. Smart (page) components inject services and fetch data; the composites above are presentational and inject no domain service.
+
+### Money
+
+Every monetary amount arrives from the API as a **string** and is rendered by `PriceDisplay` or the `currencyDisplay` pipe, which format with `Intl.NumberFormat` at the render boundary only. **No component multiplies, adds, or rounds a monetary value** — line totals, group subtotals, the item subtotal and the grand total are all server-computed fields, and there is no FX conversion anywhere in the client ([frontend-coding-standards.md § 5](../../conventions/frontend-coding-standards.md#5-money-display-patterns), FR-P-04a). Currency scale comes from `Currency.minor_unit_scale` (JPY 0, BHD 3, others 2), so no template hardcodes two decimal places. Monetary input uses `CurrencyInput`, never `<input type="number">` and never a numeric `mat-slider`. Seller pricing currencies in V1 are `USD`, `THB`, `JPY`, `SGD`.
+
+`PriceDisplay` binding from an API `effectivePrice` object: `amount` ← `displayAmount` when it is non-null, otherwise `amount`; `currency` ← the currency the chosen amount is denominated in; `isFxEstimate` ← true when `displayAmount` is a conversion (`fxRate` non-null); `offerCurrency` ← the offer's native `currency`. When `displayAmount` is `null` no rate exists for the pair, and the native amount is shown alone. A `fxStale` rate is still displayed, labelled as indicative. The three-case nullability contract is defined once, in [catalog.md § Get product offers](../technical-design/api-design/catalog.md#get-product-offers).
+
+<a id="pagination"></a>
+### Pagination
+
+Every list is **cursor-paginated**: the request carries `limit` (default 20, max 100) and an opaque `cursor`, and the response carries `{ data, meta: { nextCursor, hasMore } }` with **no total** ([api-conventions.md § Pagination](../../conventions/api-conventions.md#pagination)). Consequences for this portal:
+
+- There is **no `MatPaginator` and no page-number control on any screen.** Tables use the `DataTable` Previous/Next footer; grids and feeds use either a Previous/Next pair or a "Load more" button. The smart component owns the cursor stack — push `meta.nextCursor` on Next, pop on Previous — because the cursor is opaque and no component may construct one.
+- No count of results is ever displayed, and no page count or "N of M". Because the buyer cannot infer position from a page number, every list states its boundaries: an empty result renders `EmptyState`, and the last page disables Next with an "End of list" caption.
+- **Query parameters carry what defines the list, never a position in it.** `q`, filters and `sortBy` are in the URL and are shareable, idempotent and stable. `page` and `pageSize` do not exist, and `limit` is not user-facing — it is the client's fixed request size.
+- **No cursor ever appears in a URL, a bookmark, or a shared link.** A cursor is a server-issued token, it is invalidated by any change to the sort or filter set, and a pasted stale one yields a plain `400` for the recipient rather than a list. A shared link therefore always opens at the **first** page of the named list. That is the accepted cost of cursor pagination; it is not a regression to be fixed by reintroducing `page`.
+
+### Display ids
+
+An order is `ORD-` plus nine zero-padded digits (`ORD-000001042`); a fulfillment is `FUL-000003871`; a tracking number is `TRK-000003871` ([orders.md § The Order Aggregate](../technical-design/api-design/orders.md#the-order-aggregate)). Buyer screens address and label orders with `ORD-`. A fulfillment is always shown as a child of its order and is never called an order.
+
+### Order status
+
+An order's status is **derived on read** from its fulfillments and arrives as `orderStatus`; no row stores it. It may hold values a fulfillment never holds — `COMPLETED`, `IN_PROGRESS`, `PARTIALLY_SHIPPED`, `PARTIALLY_DELIVERED`, `PARTIALLY_REFUNDED` — while `fulfillment.status` is the stored enum `PENDING | SHIPPED | DELIVERED | REFUNDED | CANCELLED`. The two are rendered by the same `StatusBadge` with different `statusType` values (`'order'` / `'fulfillment'`) and are never mixed in one filter ([orders.md § Derived Order Status](../technical-design/api-design/orders.md#derived-order-status)).
+
+### States
+
+Every data-fetching screen defines loading, empty and error states with a discriminated `ViewState<T>` union rather than chained `*ngIf` on `data && !loading && !error`, which produces invisible error states ([frontend-coding-standards.md § 2](../../conventions/frontend-coding-standards.md#2-component-architecture)). Loading uses skeletons for grids and tables, a spinner inside the button for an in-flight action.
+
+### Images
+
+Catalog and search responses carry product images as `images[].storageKey`, not as URLs. The client resolves a key to its object-storage URL through one shared helper (`imageUrl(image)`); no template concatenates a bucket path, and a missing or unresolvable key renders the `image` placeholder icon on a grey field with the product title as `alt` — the `ProductCard` missing-image state.
+
+### Accessibility
+
+Every portal shell opens with `<a class="skip-link" href="#main-content">Skip to main content</a>` as the first focusable element. Every `mat-form-field` carries a `mat-label`; `placeholder` is never the only label. Every icon-only button carries `aria-label`. Every `<img>` carries `alt` — product images use the product title, decorative images use `alt=""`. Status is never conveyed by colour alone. Product images below the fold use `loading="lazy"`.
+
+### Out of scope in V1
+
+No screen, control or empty state in this portal designs for reviews or ratings, a wishlist, recommendations or "related products", dispute mediation, a real payment gateway, real carrier shipping, or internationalisation (BRD § 3.2; the rating filter and rating display were removed from FR-B-03 by the 2026-09-14 amendment recorded in BRD § 12). Shipping and tax are **structural zeroes**: both are always the string `"0.00"`, carried by the cart and order contracts so a later phase changes the value rather than the shape.
+
+<a id="open-contract-dependencies"></a>
+## Open contract dependencies
+
+Two bindings this portal needs are required by a user story but have no field in the API contract that would supply them. They are recorded here rather than bound to an invented field name.
+
+| Need | Required by | Gap |
+|---|---|---|
+| Cart line thumbnail and a link to the product | US-B-06 — "Cart page shows each line item's image, product and seller" | [cart.md § Get cart](../technical-design/api-design/cart.md#get-cart) items carry `offerId`, `productTitle`, `variantLabel`, `sellerId`, `sellerName`, `quantity`, `effectivePrice`, `lineTotal`, `availableQty`, `offerStatus` — no image reference and no product id. Product images cross catalog responses as `images[].storageKey`, which the client resolves; the cart item shape needs the same. Until it has one, the cart line renders the image slot as a placeholder and the product title is plain text rather than a link to the PDP. |
+| List price struck through when a SALE resolves | US-B-05 — "effective price (with strikethrough on SALE)" | `catalog.md` and `pricing.md` return the **resolved** `effectivePrice` only. When the resolved `priceType` is `SALE` no response carries the offer's `LIST` amount beside it, so `PriceDisplay.listAmount` has no source and is bound `null`. The SALE chip and countdown, which come from `saleEndsAt`, still render. |
+
+---
+
 <a id="shell-layout"></a>
 ## Shell Layout
 
 ```
+a.skip-link href="#main-content" — "Skip to main content"   ← first focusable element in the DOM
+
 mat-toolbar [color=primary] [sticky top-0 z-100]
   a routerLink="/"
     img.logo [src=aliceut-logo.svg, alt="AliceUT", height=36]
   div.search-bar [flex: 1; max-width: 640px; margin: 0 24px]
     mat-form-field [appearance=outline; subscriptSizing=dynamic; width=100%]
+      mat-label — Search products
       mat-icon matPrefix — search
-      input matInput placeholder="Search products..." [formControl]="searchCtrl"
-        (keyup.enter)="onSearch()"
+      input matInput [formControl]="searchCtrl" (keyup.enter)="onSearch()"
   div.toolbar-actions
-    button mat-icon-button routerLink="/cart" [matBadge]="cartCount" [matBadgeHidden]="cartCount===0" aria-label="Cart"
+    button mat-icon-button routerLink="/cart" [matBadge]="cartCount()" [matBadgeHidden]="cartCount() === 0" aria-label="Cart"
       mat-icon — shopping_cart
-    <aliceut-notification-bell [unreadCount]="unreadCount">
-      <!-- Visibility: shown only when authenticated. matBadgeHidden = true when unreadCount === 0;
-           badge shows unreadCount capped at 99+ for display. Bell icon always visible when logged in. -->
+      span.cdk-visually-hidden — {{ cartCount() }} items in cart
+    <aliceut-notification-bell *ngIf="isLoggedIn"
+      [notifications]="recentNotifications" [unreadCount]="unreadCount"
+      (markAsRead)="markRead($event)" (markAllRead)="markAllRead()">
     button mat-button [matMenuTriggerFor]="userMenu" *ngIf="isLoggedIn"
       mat-icon — account_circle
       span.user-name — {{ displayName }}
-      span.business-badge *ngIf="isB2B" — Business   ← mat-chip, small, accent color
+      mat-chip.business-badge *ngIf="accountType === 'B2B'" color="accent" — Business
     button mat-flat-button color="primary" routerLink="/login" *ngIf="!isLoggedIn" — Sign In
     button mat-button routerLink="/register" *ngIf="!isLoggedIn" — Register
   mat-menu #userMenu
@@ -58,11 +130,17 @@ mat-toolbar [color=primary] [sticky top-0 z-100]
     mat-divider
     button mat-menu-item (click)="logout()" — logout icon — Sign Out
 
-main.page-content [max-width: 1440px; margin: 0 auto; padding: 24px 16px]
+main#main-content.page-content [max-width: 1440px; margin: 0 auto; padding: 24px 16px]
   router-outlet
 ```
 
-**Mobile (< 600px):** Search bar collapses to a search icon button that expands inline. Logo + search icon + cart icon + hamburger menu icon. User menu becomes a drawer slide-in.
+**Cart badge.** `cartCount` is a `computed()` over `CartService`'s items — the sum of `quantity` across lines, a count and not a monetary value. For a signed-in buyer the lines come from `GET /cart`; for a guest they come from the `localStorage` guest cart (US-B-08).
+
+**Notification bell.** `unreadCount` is bound from `GET /notifications/unread-count`, which returns `{ data: { unreadCount } }` computed per call over the caller's unread rows — there is no counter column and no cached count ([notifications.md § Get unread count](../technical-design/api-design/notifications.md#get-unread-count)). The badge is hidden at zero and displays `99+` above 99 without changing the returned number. `notifications` is the first page of `GET /notifications?limit=…` for the dropdown. The parent polls on page focus and on a 60s interval; there is no WebSocket in V1. The bell renders only when authenticated.
+
+**Business badge.** `accountType` comes from the `accountType` field of `GET /profile/me` (mirroring the `account_type` JWT claim). B2B differentiation in V1 is branding only — the badge, the business name and the logo on invoices. There is no separate B2B navigation, no bulk pricing surface and no invoicing screen.
+
+**Mobile (< 600px):** search bar collapses to a search icon button that expands inline. Logo + search icon + cart icon + hamburger. The user menu becomes a drawer slide-in. The skip link stays first in the DOM at every breakpoint.
 
 ---
 
@@ -76,155 +154,180 @@ main.page-content [max-width: 1440px; margin: 0 auto; padding: 24px 16px]
 
 ```
 section.hero-search [text-align: center; padding: 48px 24px; bg: primary light]
-  h1 mat-display-2 — "Find your next great deal"
+  h1 mat-headline-2 — "Find your next great deal"
   mat-form-field [width: 100%; max-width: 640px; appearance=outline]
+    mat-label — What are you looking for?
     mat-icon matPrefix — search
-    input matInput placeholder="What are you looking for?" [(ngModel)]="heroQuery"
-    button mat-icon-button matSuffix (click)="search(heroQuery)"
+    input matInput [formControl]="heroQueryCtrl" (keyup.enter)="search()"
+    button mat-icon-button matSuffix (click)="search()" aria-label="Search"
       mat-icon — arrow_forward
 
 section.categories [padding: 24px 0]
-  h2 mat-h2 — "Shop by Category"
+  h2 mat-headline-5 — "Shop by Category"
   div.category-grid [display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 16px]
-    mat-card.category-tile *ngFor="let cat of categories" (click)="filterByCategory(cat)" [routerLink]="['/search']" [queryParams]="{category: cat.id}"
+    mat-card.category-tile *ngFor="let cat of categories; trackBy: trackByCategoryId"
+      [routerLink]="['/search']" [queryParams]="{ categoryId: cat.id }"
       mat-icon [font-size: 40px] — [cat.icon]
-      span mat-body-2 — [cat.name]
+      span mat-body-2 — {{ cat.name }}
 
-section.featured-products [padding: 24px 0]
-  h2 mat-h2 — "Featured Products"
+section.latest-products [padding: 24px 0]
+  h2 mat-headline-5 — "Latest Products"
   mat-divider
   div.product-grid [display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; margin-top: 16px]
-    <aliceut-product-card *ngFor="let p of featuredProducts" [product]="p" [loading]="loading">
+    <aliceut-product-card *ngFor="let p of products; trackBy: trackByProductId"
+      [product]="p.product" [effectivePrice]="p.effectivePrice" [inStock]="p.inStock"
+      (addToCart)="addToCart($event)" (cardClick)="openPdp($event)">
+    <aliceut-product-card *ngFor="let s of skeletonSlots" [loading]="true" *ngIf="loading">
   div.load-more *ngIf="!loading && hasMore" [text-align: center; margin-top: 24px]
     button mat-stroked-button color="primary" (click)="loadMore()" — Load more
+  p.end-of-list mat-caption *ngIf="!loading && !hasMore && products.length > 0" [text-align: center]
+    — End of list
 ```
+
+### Data sources
+
+- **Categories** — `GET /catalog/categories`, the full tree. Not paginated: the taxonomy is bounded. The tile grid renders root categories; the tree itself is used by the search sidebar.
+- **Products** — `GET /search/products?sortBy=newest&limit=20`, with no `q`. This endpoint is used rather than `GET /catalog/products` because the catalog list response carries no price, and a `ProductCard` renders one. `lowestOffer` maps to the card's `effectivePrice`, `inStock` to its `inStock` input, and `images[].storageKey` to the card image. Paging appends the next page using `meta.nextCursor` / `meta.hasMore`.
+
+**There is no "featured", "recommended" or "related products" surface.** No endpoint exposes a featured flag, and recommendations are out of V1 scope (BRD § 3.2). The section is the newest listings, and it says so.
 
 ### States
 
-- **Loading:** 8 skeleton `ProductCard` components while API responds.
-- **Empty (no featured products):** `EmptyState` with `icon="category"`, `title="No products yet"`, `message="Check back soon — the catalog is being stocked."` [DESIGN DECISION: Show static category tiles even when product grid is empty so navigation still works.]
-- **Error:** `mat-card.warning-banner` at top — "Could not load featured products. Try refreshing."
+- **Loading:** eight skeleton `ProductCard` components fill the grid while the first page resolves.
+- **Empty (no products):** `EmptyState` with `icon="category"`, `title="No products yet"`, `message="Check back soon — the catalog is being stocked."` The category tiles still render, so navigation works with an empty grid.
+- **End of list:** "Load more" is replaced by the "End of list" caption. The buyer has no page count to infer this from, so it is stated.
+- **Error:** `mat-card.error-banner` above the grid — "Could not load products. Try again." with a Retry action.
 
 ### Interactions
 
-- Hero search submits on Enter or arrow button click → navigates to `/search?q={query}`.
-- Category tile click → `/search?category={categoryId}`.
+- Hero search submits on Enter or the arrow button → `/search?q={query}`.
+- Category tile → `/search?categoryId={id}`.
+- `addToCart` from a card adds the card's offer at quantity 1 — see [Screen 3](#screen-3-pdp) for the add-to-cart contract, which is identical.
 
 ### Mobile
 
-- Categories grid: `minmax(80px, 1fr)` (smaller tiles, icon only visible on XS).
-- Product grid: `minmax(160px, 1fr)` (2-column on XS handset).
+- Category grid `minmax(80px, 1fr)`; product grid `minmax(160px, 1fr)` (two columns on handset).
 
 ---
 
 <a id="screen-2-search-results"></a>
 ## Screen 2 — Search Results
 
-**Route:** `/search?q=&category=&minPrice=&maxPrice=&minRating=&inStock=&sort=&page=`  
+**Route:** `/search?q=&categoryId=&priceMin=&priceMax=&currency=&inStock=&sortBy=`  
 **Auth:** None required
+
+Query-parameter names match [search.md § Product search](../technical-design/api-design/search.md#product-search) exactly: `categoryId`, `priceMin`, `priceMax`, `currency`, `inStock`, `sortBy` with camelCase values (`relevance`, `priceAsc`, `priceDesc`, `newest`). There is **no `page`, no `pageSize` and no cursor in the URL** — see [Pagination](#pagination) above. There is **no `minRating`**: no rating field exists in the search index, the ERD or any result object.
 
 ### Layout
 
 ```
 div.search-layout [display: flex; gap: 24px]
 
-  <!-- Sidebar — Desktop only (hidden on mobile, shown in bottom sheet) -->
+  <!-- Sidebar — desktop only; on mobile the same accordion opens in a MatBottomSheet -->
   aside.filter-sidebar [width: 260px; flex-shrink: 0] *ngIf="isDesktop"
     div.filter-section
-      h3 mat-h5 — "Filters"
-      button mat-stroked-button (click)="clearAllFilters()" [hidden if no active filters] — Clear all
+      h3 mat-headline-6 — "Filters"
+      button mat-stroked-button (click)="clearAllFilters()" *ngIf="activeFilterCount > 0" — Clear all
 
     mat-accordion
       mat-expansion-panel [expanded]
         mat-expansion-panel-header
           mat-panel-title — "Category"
         mat-tree [dataSource]="categoryTree" [treeControl]
-          mat-tree-node *matTreeNodeDef — checkbox + label per category leaf
+          mat-tree-node *matTreeNodeDef — mat-checkbox + label per category leaf, with the facet count
           mat-nested-tree-node *matTreeNodeDef="let node; when: hasChildren" — expandable group
 
       mat-expansion-panel [expanded]
         mat-expansion-panel-header — "Price Range"
-        mat-slider [min]="minBound" [max]="maxBound" [step]="1" discrete [displayWith]="currencyFormat">
         div.price-inputs [display: flex; gap: 8px]
-          mat-form-field [flex: 1]
-            mat-label — Min
-            input matInput type="text" [formControl]="minPriceCtrl"
-          mat-form-field [flex: 1]
-            mat-label — Max
-            input matInput type="text" [formControl]="maxPriceCtrl"
-        p.price-note mat-caption — Prices shown in {{ preferredCurrency }}. Estimates may vary.
-
-      mat-expansion-panel
-        mat-expansion-panel-header — "Rating"
-        p mat-body-2 — Minimum rating
-        div.star-filter
-          button mat-icon-button *ngFor="let s of [1,2,3,4,5]" (click)="setMinRating(s)"
-            mat-icon [class.filled]="s <= selectedMinRating" — [s <= selectedMinRating ? 'star' : 'star_outline']
-        p mat-caption style="color: var(--secondary-text)" — Based on third-party data — reviews not available in V1.
+          <aliceut-currency-input [flex: 1]
+            label="Min" [currencyCode]="displayCurrency"
+            [min]="facets.priceRange.displayMin" [max]="facets.priceRange.displayMax"
+            [formControl]="priceMinCtrl">
+          <aliceut-currency-input [flex: 1]
+            label="Max" [currencyCode]="displayCurrency"
+            [min]="facets.priceRange.displayMin" [max]="facets.priceRange.displayMax"
+            [formControl]="priceMaxCtrl">
+        p.price-note mat-caption — Prices shown in {{ displayCurrency }}. Converted amounts are estimates.
 
       mat-expansion-panel
         mat-expansion-panel-header — "Availability"
-        mat-slide-toggle [formControl]="inStockOnly" — In stock only
+        mat-slide-toggle [formControl]="inStockOnlyCtrl" — In stock only
 
     button mat-flat-button color="primary" [fullWidth] (click)="applyFilters()" — Apply Filters
 
-  <!-- Main Results Area -->
+  <!-- Main results area -->
   main.results-area [flex: 1; min-width: 0]
-    <!-- Results header -->
     div.results-header [display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 16px]
-      p mat-body-2 — "{{ total }} results for '{{ query }}'"
+      p mat-body-2 *ngIf="query" — Results for "{{ query }}"
       div.active-filters [display: flex; gap: 8px; flex-wrap: wrap; flex: 1]
         mat-chip-listbox aria-label="Active filters"
-          mat-chip *ngFor="let f of activeFilters" [removable]="true" (removed)="removeFilter(f)"
-            [f.label]
+          mat-chip *ngFor="let f of activeFilters; trackBy: trackByFilterKey" [removable]="true" (removed)="removeFilter(f)"
+            {{ f.label }}
             mat-icon matChipRemove — cancel
       mat-form-field [appearance=outline; width: 200px; subscriptSizing=dynamic]
         mat-label — Sort by
         mat-select [formControl]="sortCtrl"
           mat-option value="relevance" — Relevance
-          mat-option value="price_asc" — Price: Low to High
-          mat-option value="price_desc" — Price: High to Low
-          mat-option value="newest" — Newest
+          mat-option value="priceAsc"  — Price: Low to High
+          mat-option value="priceDesc" — Price: High to Low
+          mat-option value="newest"    — Newest
 
-    <!-- Mobile filter button -->
+    <!-- Mobile filter trigger -->
     button mat-stroked-button color="primary" (click)="openFilterSheet()" *ngIf="!isDesktop" [margin-bottom: 16px]
       mat-icon — filter_list
       span — Filters {{ activeFilterCount > 0 ? '(' + activeFilterCount + ')' : '' }}
 
     <!-- Product grid -->
     div.product-grid [display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px]
-      <aliceut-product-card *ngFor="let p of results" [product]="p" (addToCart)="addToCart($event)" (cardClick)="navigateToPdp($event)">
-      <aliceut-product-card *ngFor="let _ of [1,2,3,4,5,6]" [loading]="true" *ngIf="loading">
+      <aliceut-product-card *ngFor="let r of results; trackBy: trackByProductId"
+        [product]="r.product" [effectivePrice]="r.effectivePrice" [inStock]="r.inStock"
+        (addToCart)="addToCart($event)" (cardClick)="openPdp($event)">
+      <aliceut-product-card *ngFor="let s of skeletonSlots" [loading]="true" *ngIf="loading">
 
     <!-- No results -->
     <aliceut-empty-state *ngIf="!loading && results.length === 0"
       icon="search_off" title="No matches for '{{ query }}'"
       message="Try different keywords or remove some filters.">
-      div — Suggested categories: [category chip list]
+      div — Suggested categories: [category chip list from facets.categories]
     </aliceut-empty-state>
 
-    <!-- Pagination -->
-    mat-paginator [length]="total" [pageSize]="24" [pageSizeOptions]="[12, 24, 48]" *ngIf="results.length > 0">
+    <!-- Cursor pagination footer — Previous / Next only -->
+    div.results-footer *ngIf="results.length > 0" [display: flex; align-items: center; gap: 16px; justify-content: center]
+      button mat-button (click)="previousPage()" [disabled]="!hasPrevious || loading" — Previous
+      span.row-count mat-caption — {{ results.length }} results on this page
+      button mat-button (click)="nextPage()" [disabled]="!hasMore || loading" — Next
+      span.end-of-list mat-caption *ngIf="!hasMore" — End of list
 
-    <!-- Search unavailable error -->
+    <!-- Search unavailable -->
     mat-card.error-banner *ngIf="searchError" [color=warn-light; margin-bottom: 16px]
       mat-icon — error_outline
       span — Search is temporarily unavailable — try again shortly.
       button mat-button (click)="retry()" — Retry
 ```
 
+### Data source and mapping
+
+`GET /search/products`. Each result carries `productId`, `title`, `brand`, `categoryId`, `categoryPath`, `images[].storageKey`, `lowestOffer`, `inStock` and `score`. `lowestOffer` maps to `ProductCard.effectivePrice`; its `displayAmount` / `displayCurrency` / `fxRate` / `fxAsOf` / `fxStale` fields drive the `≈` prefix and the indicative-rate tooltip inside `PriceDisplay`. `lowestOffer.priceType` is only ever `LIST` or `SALE` — `B2B_TIER` is never indexed, because search is public and no account type is known, so a tier price is resolved on the PDP instead.
+
+`facets.categories` supplies the per-category counts beside the tree checkboxes. `facets.priceRange` supplies `displayMin` / `displayMax`, which bound the two `CurrencyInput` fields; both are `null` together when no FX rate exists for the pair, and the fields then have no bounds.
+
+**The price filter is two `CurrencyInput` fields, not a slider.** A numeric `mat-slider` binds a JS `number` to money, which FR-P-04 forbids, and `CurrencyInput` is the control the design system designates for both ends of a price range. Bounds are passed as decimal **strings** through `min` / `max`. The filter is applied by Elasticsearch against the pre-indexed `display_prices` value for the requested currency, so results may lag an FX-rate change by the index freshness window (NFR-13).
+
+**No rating filter.** The panel is removed, not hidden behind a flag.
+
 ### States
 
-- **Loading:** Sort dropdown disabled; filter sidebar disabled; skeleton product cards fill grid.
-- **Zero results:** `EmptyState` with suggested category chips.
-- **Search service down:** Error banner at top; previously loaded results remain visible if present.
-- **Active filters:** Chip row below results count; each chip has × to remove individually.
+- **Loading:** sort control and filter sidebar disabled; skeleton product cards fill the grid.
+- **Zero results:** `EmptyState` with suggested category chips drawn from `facets.categories`.
+- **Search service down:** error banner above the grid; a previously loaded page stays visible.
+- **Active filters:** a chip row in the results header, each chip removable individually.
+- **First page / last page:** Previous is disabled on the first page (the cursor stack is empty); Next is disabled when `meta.hasMore` is false and the "End of list" caption appears.
 
 ### Mobile
 
-- Filter sidebar hidden; replaced by "Filters (N)" `mat-stroked-button` that opens a `MatBottomSheet` containing the accordion filter panel with an "Apply" button at the bottom.
-- Product grid: `minmax(160px, 1fr)` (2-column on handset).
-- Sort dropdown: full-width below the "Filters" button.
+- Sidebar hidden, replaced by the "Filters (N)" button opening a `MatBottomSheet` with the same accordion and an Apply button pinned at the bottom.
+- Product grid `minmax(160px, 1fr)`; sort control full width below the Filters button.
 
 ---
 
@@ -232,116 +335,145 @@ div.search-layout [display: flex; gap: 24px]
 ## Screen 3 — Product Detail Page (PDP)
 
 **Route:** `/products/:id`  
-**Auth:** None required; Add to Cart requires authenticated account (redirects to login if guest)
+**Auth:** None required. A guest may add to cart — the item goes to the `localStorage` guest cart and is merged on sign-in (US-B-08, [cart.md](../technical-design/api-design/cart.md)). Sign-in is required at checkout, not here.
+
+### Data sources
+
+Two reads, because the display-currency fields and the seller name live on one form of the offer resource and the B2B tiers on the other:
+
+- `GET /catalog/products/:productId?qty=N` — title, brand, description, `attributes`, `variants[]`, `images[]`, and `offers[]` with `effectivePrice` (native currency), `b2bTiers[]`, `availableQty`, `status`.
+- `GET /catalog/products/:productId/offers?currency=&qty=N` — the same offers with `sellerName` and the `displayAmount` / `displayCurrency` / `fxRate` / `fxAsOf` / `fxStale` fields. `currency` defaults to the caller's `preferredCurrency`, then `USD`.
+
+`qty` is re-sent when the quantity selector changes, so a B2B buyer sees the tier that applies to the quantity they intend to buy. Account type comes from the JWT server-side; the client passes no `accountType`.
 
 ### Layout
 
 ```
 div.pdp-layout [display: grid; grid-template-columns: 1fr 380px; gap: 32px; align-items: start] [desktop]
-  <!-- Left: Gallery + Description -->
+  <!-- Left: gallery + description -->
   div.pdp-left
-    nav.breadcrumb [display: flex; gap: 4px; align-items: center; margin-bottom: 16px]
+    nav.breadcrumb [display: flex; gap: 4px; align-items: center; margin-bottom: 16px] aria-label="Breadcrumb"
       a mat-button routerLink="/" — Home
       mat-icon [font-size: 16px] — chevron_right
-      a mat-button *ngFor="let crumb of breadcrumbs" — [crumb.name]
+      a mat-button *ngFor="let crumb of breadcrumbs; trackBy: trackByCategoryId"
+        [routerLink]="['/search']" [queryParams]="{ categoryId: crumb.id }" — {{ crumb.name }}
 
     div.image-gallery
       div.primary-image [aspect-ratio: 1; border-radius: 8px; overflow: hidden; border: 1px solid divider]
-        img [src]="selectedImage" [alt]="product.title" [object-fit: cover; width: 100%; height: 100%]
+        img [src]="imageUrl(selectedImage)" [alt]="product.title" loading="eager"
+          [object-fit: cover; width: 100%; height: 100%]
       div.thumbnail-strip [display: flex; gap: 8px; margin-top: 8px; overflow-x: auto]
-        button.thumb *ngFor="let img of product.images" (click)="selectImage(img)"
-          img [src]="img.url" [alt]="" [class.selected]="img === selectedImage"
+        button.thumb *ngFor="let img of product.images; let i = index; trackBy: trackByStorageKey"
+          (click)="selectImage(img)" [attr.aria-label]="'View image ' + (i + 1)"
+          img [src]="imageUrl(img)" alt="" loading="lazy" [class.selected]="img === selectedImage"
           [width: 64px; height: 64px; border-radius: 4px; border: 2px solid transparent]
 
     mat-tab-group [marginTop: 32px]
       mat-tab label="Description"
         div.product-description [padding: 16px 0] [innerHTML]="sanitizedDescription"
-      mat-tab label="Specifications"
+      mat-tab label="Details"
         mat-list
-          mat-list-item *ngFor="let spec of product.specifications"
-            span mat-list-item-title — [spec.key]
-            span mat-list-item-line — [spec.value]
+          mat-list-item *ngFor="let entry of product.attributes | keyvalue; trackBy: trackByAttributeKey"
+            span mat-list-item-title — {{ entry.key }}
+            span mat-list-item-line — {{ entry.value }}
 
     <!-- Other sellers (FR-P-05) -->
     div.other-sellers *ngIf="otherOffers.length > 0" [margin-top: 32px]
-      h3 mat-h5 — "Other sellers offering this product"
+      h3 mat-headline-6 — "Other sellers offering this product"
       mat-list
-        mat-list-item *ngFor="let offer of otherOffers"
+        mat-list-item *ngFor="let offer of otherOffers; trackBy: trackByOfferId"
           mat-icon matListItemIcon — storefront
-          span mat-list-item-title — [offer.sellerName]
-          <aliceut-price-display matListItemMeta [amount]="offer.price" [currency]="offer.currency" [isFxEstimate]="offer.isFxEstimate">
+          span mat-list-item-title — {{ offer.sellerName }}
+          <aliceut-price-display matListItemMeta
+            [amount]="priceOf(offer)" [currency]="currencyOf(offer)"
+            [isFxEstimate]="isFxEstimate(offer)" [offerCurrency]="offer.effectivePrice.currency">
           button mat-stroked-button (click)="selectOffer(offer)" *ngIf="offer.id !== selectedOffer.id" — Select
           mat-chip *ngIf="offer.id === selectedOffer.id" color="primary" — Selected
 
-  <!-- Right: Buy Box -->
+  <!-- Right: buy box -->
   aside.buy-box [position: sticky; top: 88px]
     mat-card [padding: 24px]
-      h1 mat-h3 [margin-bottom: 8px] — {{ product.title }}
+      h1 mat-headline-3 [margin-bottom: 8px] — {{ product.title }}
 
       div.seller-line [display: flex; align-items: center; gap: 8px; margin-bottom: 16px]
         mat-icon [font-size: 16px] — storefront
         span mat-body-2 — Sold by
-        a mat-button [font-size: 14px] — {{ selectedOffer.sellerName }}
+        span mat-body-2 [font-weight: 500] — {{ selectedOffer.sellerName }}
 
-      div.rating-line [display: flex; align-items: center; gap: 4px; margin-bottom: 16px] *ngIf="product.rating"
-        mat-icon *ngFor="let s of ratingStars(product.rating)" [class.filled]="s.filled" — [s.filled ? 'star' : 'star_outline']
-        span mat-caption — {{ product.rating.toFixed(1) }}
-        mat-icon [matTooltip]="'Based on third-party data — reviews not available in V1'" [font-size: 16px; color: secondary-text] — info_outline
-
-      <aliceut-price-display [amount]="effectivePrice.amount" [currency]="effectivePrice.currency"
-        [listAmount]="effectivePrice.listAmount" [isFxEstimate]="effectivePrice.isFxEstimate"
-        [offerCurrency]="selectedOffer.currency" [saleEndsAt]="effectivePrice.saleEndsAt"
-        [tierMinQty]="effectivePrice.tierMinQty" [tierAmount]="effectivePrice.tierAmount">
+      <aliceut-price-display
+        [amount]="priceOf(selectedOffer)" [currency]="currencyOf(selectedOffer)"
+        [listAmount]="null"
+        [isFxEstimate]="isFxEstimate(selectedOffer)"
+        [offerCurrency]="selectedOffer.effectivePrice.currency"
+        [saleEndsAt]="selectedOffer.effectivePrice.saleEndsAt"
+        [tierMinQty]="nextTier?.minQty ?? null" [tierAmount]="nextTier?.amount ?? null">
 
       <!-- Variant selector -->
-      div.variant-selectors *ngIf="product.variantGroups.length > 0" [margin-top: 16px]
-        div *ngFor="let group of product.variantGroups" [margin-bottom: 12px]
-          p mat-body-2 [margin-bottom: 4px] — {{ group.name }}: <strong>{{ selectedVariants[group.name] }}</strong>
+      div.variant-selectors *ngIf="variantGroups.length > 0" [margin-top: 16px]
+        div *ngFor="let group of variantGroups; trackBy: trackByAttributeKey" [margin-bottom: 12px]
+          p mat-body-2 [margin-bottom: 4px] — {{ group.key }}: <strong>{{ selectedVariantValues[group.key] }}</strong>
           div.variant-options [display: flex; gap: 8px; flex-wrap: wrap]
-            button mat-stroked-button *ngFor="let opt of group.options"
-              (click)="selectVariant(group.name, opt)"
-              [class.selected]="selectedVariants[group.name] === opt.value"
-              [disabled]="!opt.inStock"
-              — {{ opt.value }}
+            button mat-stroked-button *ngFor="let opt of group.values; trackBy: trackByAttributeValue"
+              (click)="selectVariantValue(group.key, opt)"
+              [attr.aria-pressed]="selectedVariantValues[group.key] === opt"
+              [disabled]="!isAvailable(group.key, opt)"
+              — {{ opt }}
 
       <!-- Availability -->
       div.availability-badge [margin-top: 12px; display: flex; align-items: center; gap: 8px]
         mat-icon [color]="stockBadge.color" — {{ stockBadge.icon }}
         span mat-body-2 [color]="stockBadge.color" — {{ stockBadge.label }}
-          ← "In stock", "Only 3 left", "Out of stock"
+          ← "In stock" · "Only N left" · "Out of stock", from selectedOffer.availableQty
 
       <!-- Quantity -->
       div.quantity-selector [display: flex; align-items: center; gap: 16px; margin-top: 16px]
         p mat-body-2 — Quantity
         div [display: flex; align-items: center; gap: 8px]
-          button mat-icon-button [disabled]="qty <= 1" (click)="qty = qty - 1" — remove
-          span mat-h6 [min-width: 32px; text-align: center] — {{ qty }}
-          button mat-icon-button [disabled]="qty >= maxQty" (click)="qty = qty + 1" — add
+          button mat-icon-button [disabled]="qty <= 1" (click)="setQty(qty - 1)" aria-label="Decrease quantity" — remove
+          span mat-headline-6 [min-width: 32px; text-align: center] — {{ qty }}
+          button mat-icon-button [disabled]="qty >= selectedOffer.availableQty" (click)="setQty(qty + 1)" aria-label="Increase quantity" — add
 
-      <!-- Add to Cart CTA -->
-      button mat-flat-button color="accent" [fullWidth] [disabled]="!canAddToCart" (click)="addToCart()" [margin-top: 16px]
+      <!-- Add to Cart -->
+      button mat-flat-button color="accent" [fullWidth] [disabled]="!canAddToCart || addingToCart"
+        (click)="addToCart()" [margin-top: 16px]
         mat-spinner *ngIf="addingToCart" [diameter]="20"
         span *ngIf="!addingToCart" — {{ inStock ? 'Add to Cart' : 'Out of Stock' }}
 
       mat-error *ngIf="addToCartError" — {{ addToCartError }}
 ```
 
+### Variant selector derivation
+
+There is no `variantGroups` field in the catalog contract. The selector is derived: one option group per attribute key found across `product.variants[].attributes`, its values being the distinct values of that key. A variant's availability is the `availableQty` of the offer whose `variantId` matches it; a variant with no eligible offer is disabled. On load the first in-stock variant is selected; when every variant is out of stock the first is shown with the out-of-stock badge and Add to Cart disabled (US-B-05).
+
+### Effective price
+
+Resolution is server-side and reduces to picking a `price_type` — `B2B_TIER` (B2B account and `qty >= min_qty`, highest qualifying tier) → `SALE` (live window) → `LIST`. **There is no currency ambiguity:** an offer has exactly one pricing currency, `effectivePrice.currency`, and a seller wanting a second currency publishes a second offer. `b2bTiers[]` holds the tiers the request did *not* resolve to, and the highest one below the current quantity drives the "Buy N+ at X each" hint through `tierMinQty` / `tierAmount`.
+
+### Add to cart
+
+- **Signed in:** `POST /cart/items { offerId, quantity }`. The request **adds** to the stored quantity for an offer already in the cart; it does not replace it. `422` on a resulting quantity above `availableQty` — the stored quantity is left unchanged and the message is "Only N available." `422` also on the 50-distinct-offer cart limit — "Cart limit reached. Remove an item to continue." `404` when the offer is no longer `ACTIVE`.
+- **Guest:** the offer id and quantity go to the `localStorage` guest cart. On sign-in the client posts them to `POST /cart/merge`, which sums quantities per offer and caps at live stock — see [Screen 4](#screen-4-cart) for the merge report.
+- Success shows a `MatSnackBar` (3s, bottom-center) and the header badge increments.
+
 ### States
 
-- **Loading:** Skeleton layout — grey rectangle for image, skeleton lines for title/price/buttons.
-- **Out of stock variant:** Add to Cart button disabled, label "Out of Stock", badge shows red "Out of stock".
-- **FX estimate:** `PriceDisplay` shows `≈` prefix + info tooltip.
-- **SALE price:** Strikethrough on list price, SALE chip with countdown.
-- **B2B tier:** Tier price hint below main price when `isB2B && tierMinQty != null`.
-- **All OOS:** First variant shown selected with OOS badge; Add to Cart disabled.
+- **Loading:** skeleton layout — grey rectangle for the image, skeleton lines for title, price and buttons.
+- **Out-of-stock variant:** Add to Cart disabled with the label "Out of Stock"; badge red "Out of stock".
+- **All variants out of stock:** first variant selected, out-of-stock badge, CTA disabled.
+- **FX estimate:** `PriceDisplay` renders the `≈` prefix and the info tooltip naming both currencies. A stale rate is still shown, labelled indicative.
+- **No rate for the pair:** `displayAmount` is `null`; the native amount is shown alone with no `≈`.
+- **SALE:** SALE chip with countdown from `saleEndsAt`. The struck-through list price is not rendered — see [Open contract dependencies](#open-contract-dependencies).
+- **B2B tier:** tier hint below the effective price when a tier exists above the current quantity.
+- **Error:** product load failure renders an error banner with a Retry action; a `404` routes to the not-found page.
 
 ### Mobile (< 960px)
 
-- Two-column `grid-template-columns` collapses to single column. Buy box renders below the gallery (not sticky). Image gallery full-width. Variant chips wrap.
+Two columns collapse to one. The buy box renders below the gallery and is not sticky. Gallery is full width; variant buttons wrap.
 
 ### Accessibility
 
-- `<h1>` on product title. Image `alt` = product title. Thumbnail buttons: `aria-label="View image N"`. Variant buttons: `aria-pressed` for selected state. Star icons: `role="img"`, `aria-label="Rating: N out of 5 stars"`.
+`<h1>` on the product title. Image `alt` is the product title; thumbnails are `alt=""` with `aria-label="View image N"` on the button. Variant buttons carry `aria-pressed`. The availability badge pairs colour with text.
 
 ---
 
@@ -349,101 +481,147 @@ div.pdp-layout [display: grid; grid-template-columns: 1fr 380px; gap: 32px; alig
 ## Screen 4 — Cart
 
 **Route:** `/cart`  
-**Auth:** None required (guest cart supported)
+**Auth:** None required. A guest cart is supported and lives in `localStorage`; the checkout CTA sends a guest to sign in.
+
+The route deliberately carries **no `authGuard`**. US-B-08 requires a guest cart to survive reloads and tabs, and `cart.md` puts guest carts in browser storage with `POST /cart/merge` reconciling them at login; a guard on this route would make that story unreachable.
+
+### Data source
+
+`GET /cart` returns fully resolved, server-computed totals and **is the checkout preview** — there is no separate preview endpoint, and none is to be added ([cart.md § Get cart](../technical-design/api-design/cart.md#get-cart)). Prices are re-resolved live on every read, so a seller's price edit or a SALE starting is reflected on entry. `POST /cart/items`, `PATCH /cart/items/:id` and `POST /cart/merge` all return the whole cart in the same shape, so the page never recomputes a total after a quantity change.
+
+For a guest the page renders from `localStorage`; per-line prices and availability are unresolved until sign-in, and the summary shows no totals.
 
 ### Layout
 
 ```
-h1 mat-h3 — "Shopping Cart" ({{ itemCount }} items)
+h1 mat-headline-3 — "Shopping Cart" ({{ itemCount }} items)
 
 div.cart-layout [display: grid; grid-template-columns: 1fr 340px; gap: 24px; align-items: start] [desktop]
 
   <!-- Cart items -->
   div.cart-items
-    <!-- Price-updated banner -->
-    mat-card.warning-banner *ngIf="priceChangedItems.length > 0" [margin-bottom: 16px]
-      mat-icon color="warn" — warning_amber
-      span — Prices have updated for {{ priceChangedItems.length }} item(s). Review before checkout.
-
-    <!-- Stale item warning -->
-    mat-card.error-banner *ngIf="staleItems.length > 0" [margin-bottom: 16px]
+    <!-- Unavailable-line warning -->
+    mat-card.error-banner *ngIf="unavailableItems.length > 0" [margin-bottom: 16px]
       mat-icon color="warn" — error_outline
-      span — {{ staleItems.length }} item(s) are no longer available. Remove them to continue to checkout.
+      span — {{ unavailableItems.length }} item(s) are no longer available. Remove them to continue to checkout.
 
     mat-list [margin-bottom: 16px]
-      div.cart-item *ngFor="let item of cartItems" [display: flex; gap: 16px; padding: 16px 0; border-bottom: 1px solid divider]
-        img [src]="item.imageUrl" [alt]="item.productTitle" [width: 80px; height: 80px; border-radius: 4px; object-fit: cover]
+      div.cart-item *ngFor="let item of cart.items; trackBy: trackByCartItemId"
+        [display: flex; gap: 16px; padding: 16px 0; border-bottom: 1px solid divider]
+
+        div.item-thumb [width: 80px; height: 80px; border-radius: 4px]
+          [product image for the line — see Open contract dependencies; placeholder icon until the field exists]
 
         div.item-details [flex: 1]
-          a mat-button [routerLink]="['/products', item.productId]" — {{ item.productTitle }}
-          p mat-caption — {{ item.variantLabel }}
+          p mat-body-1 [font-weight: 500] — {{ item.productTitle }}
+          p mat-caption *ngIf="item.variantLabel" — {{ item.variantLabel }}
           p mat-body-2 — Sold by: {{ item.sellerName }}
 
-          <!-- Stale item badge -->
-          mat-chip color="warn" *ngIf="item.isStale" — Unavailable
-          p mat-caption color="warn" *ngIf="item.isStale" — This offer is no longer active.
+          <!-- Unavailable line -->
+          mat-chip color="warn" *ngIf="item.offerStatus !== 'ACTIVE'" — Unavailable
+          p mat-caption color="warn" *ngIf="item.offerStatus !== 'ACTIVE'" — This offer is no longer active.
 
-          <!-- Quantity controls (disabled if stale) -->
-          div.qty-controls *ngIf="!item.isStale" [display: flex; align-items: center; gap: 8px; margin-top: 8px]
-            button mat-icon-button [disabled]="item.qty <= 1" (click)="decrementQty(item)" — remove
-            span mat-body-1 — {{ item.qty }}
-            button mat-icon-button [disabled]="item.qty >= item.maxQty" (click)="incrementQty(item)" — add
-            mat-error *ngIf="item.qtyError" — {{ item.qtyError }}
+          <!-- Quantity controls (hidden on an unavailable line) -->
+          div.qty-controls *ngIf="item.offerStatus === 'ACTIVE'" [display: flex; align-items: center; gap: 8px; margin-top: 8px]
+            button mat-icon-button [disabled]="item.quantity <= 1" (click)="setQty(item, item.quantity - 1)" aria-label="Decrease quantity" — remove
+            span mat-body-1 — {{ item.quantity }}
+            button mat-icon-button [disabled]="item.quantity >= item.availableQty" (click)="setQty(item, item.quantity + 1)" aria-label="Increase quantity" — add
+            mat-error *ngIf="item.qtyError" — {{ item.qtyError }}   ← "Only N available."
 
         div.item-price [text-align: right]
-          <aliceut-price-display [amount]="item.lineTotal" [currency]="item.currency" [listAmount]="item.originalLineTotal">
-          p mat-caption *ngIf="item.priceChanged" color="warn" — Price updated
+          <aliceut-price-display
+            [amount]="item.lineTotal.displayAmount ?? item.lineTotal.amount"
+            [currency]="item.lineTotal.displayAmount ? item.lineTotal.displayCurrency : item.lineTotal.currency"
+            [isFxEstimate]="!!item.lineTotal.displayAmount && item.lineTotal.displayCurrency !== item.lineTotal.currency"
+            [offerCurrency]="item.lineTotal.currency">
           button mat-button color="warn" (click)="removeItem(item)" — Remove
 
-  <!-- Order Summary -->
+  <!-- Order summary -->
   aside.order-summary
     mat-card [padding: 24px]
-      h2 mat-h5 [margin-bottom: 16px] — Order Summary
+      h2 mat-headline-6 [margin-bottom: 16px] — Order Summary
       mat-divider [margin-bottom: 16px]
 
+      <!-- Per seller/currency group, exactly as checkout will group them -->
       div.summary-rows
-        div.summary-row *ngFor="let group of currencyGroups" [display: flex; justify-content: space-between; margin-bottom: 8px]
+        div.summary-row *ngFor="let group of cart.groups; trackBy: trackByGroupKey"
+          [display: flex; justify-content: space-between; margin-bottom: 8px]
           span mat-body-2 — {{ group.sellerName }} ({{ group.currency }})
           <aliceut-price-display [amount]="group.subtotal" [currency]="group.currency">
-        div.summary-row [display: flex; justify-content: space-between; margin-top: 8px]
+
+        mat-divider [margin: 12px 0]
+
+        div.summary-row [display: flex; justify-content: space-between; margin-bottom: 8px]
+          span mat-body-2 — Item subtotal
+          <aliceut-price-display [amount]="cart.itemSubtotal.displayAmount" [currency]="cart.itemSubtotal.displayCurrency">
+        div.summary-row [display: flex; justify-content: space-between; margin-bottom: 8px]
           span mat-body-2 — Shipping
-          span mat-body-2 — Calculated at checkout
-        div.summary-row [display: flex; justify-content: space-between; margin-top: 8px]
+          <aliceut-price-display [amount]="cart.shippingTotal.displayAmount" [currency]="cart.shippingTotal.displayCurrency">
+        div.summary-row [display: flex; justify-content: space-between; margin-bottom: 8px]
           span mat-body-2 — Tax
-          span mat-body-2 — Calculated at checkout
+          <aliceut-price-display [amount]="cart.taxTotal.displayAmount" [currency]="cart.taxTotal.displayCurrency">
 
       mat-divider [margin: 16px 0]
 
-      p mat-caption color="secondary" [margin-bottom: 16px]
-        mat-icon [font-size: 14px] — info_outline
-        span — Multi-currency cart. Final totals shown per seller at checkout.
+      div.summary-row.total [display: flex; justify-content: space-between; font-weight: 500]
+        span mat-body-1 — Total
+        <aliceut-price-display [amount]="cart.grandTotal.displayAmount" [currency]="cart.grandTotal.displayCurrency">
 
-      button mat-flat-button color="accent" [fullWidth] [disabled]="!canCheckout" routerLink="/checkout"
+      p mat-caption color="warn" *ngIf="!cart.grandTotal.complete" [margin-top: 8px]
+        mat-icon [font-size: 14px] — warning_amber
+        span — Some items could not be converted to {{ cart.displayCurrency }}. This total covers the rest.
+
+      p mat-caption color="secondary" *ngIf="cart.groups.length > 1" [margin-top: 8px]
+        mat-icon [font-size: 14px] — info_outline
+        span — Your cart spans several sellers. Each is charged separately in its own currency.
+
+      button mat-flat-button color="accent" [fullWidth] [disabled]="!canCheckout" (click)="goToCheckout()"
         — Proceed to Checkout
-      p mat-caption color="warn" [text-align: center; margin-top: 8px] *ngIf="staleItems.length > 0"
+      p mat-caption color="warn" [text-align: center; margin-top: 8px] *ngIf="unavailableItems.length > 0"
         — Remove unavailable items to continue.
-      p mat-caption color="warn" [text-align: center; margin-top: 8px] *ngIf="cartItems.length === 0"
+      p mat-caption color="warn" [text-align: center; margin-top: 8px] *ngIf="cart.items.length === 0"
         — Your cart is empty.
 
       button mat-button [fullWidth] routerLink="/" [margin-top: 8px] — Continue Shopping
 ```
 
+### Totals
+
+Every figure in the summary is a server-computed string. **Nothing on this page is multiplied, added or rounded in the browser** (FR-P-04a):
+
+| Row | Field | Notes |
+|---|---|---|
+| Per-seller row | `groups[].subtotal` in `groups[].currency` | The sum of that group's line totals, in the group's own currency. `displaySubtotal` / `displayCurrency` carry the same figure in the buyer's display currency. `cartItemIds` lets the page group lines without regrouping client-side. |
+| Item subtotal | `itemSubtotal.displayAmount` | The sum of every group's display subtotal, in the display currency — the only currency all groups share. `complete: false` means one group could not be converted, and the caption above says so instead of presenting the figure as the cart total. |
+| Shipping | `shippingTotal.displayAmount` | Always `"0.00"` in V1, seeded from platform configuration. Real shipping is out of scope (BRD § 3.2). |
+| Tax | `taxTotal.displayAmount` | Always `"0.00"` in V1. Phase 1 defines no tax engine, tax-rate table or jurisdiction model. |
+| Total | `grandTotal.displayAmount` | `itemSubtotal + shippingTotal + taxTotal`, summed on the server, and it carries its own `complete` flag. |
+
+`grandTotal` means the **grand total**. The sum of the line items is `itemSubtotal`. While shipping and tax are zero the two figures are numerically equal, which is exactly why every binding is to the field it means rather than to whichever one happens to match today. Neither zero field carries a `complete` flag — a constant needs no conversion.
+
+Shipping and tax are labelled with their `"0.00"` value, not with "Calculated at checkout": there is nothing further to calculate, and the checkout totals are the same fields.
+
+### Unavailable lines
+
+There is no `isStale` flag. A line is unavailable when `offerStatus !== 'ACTIVE'` — the domain is `ACTIVE | INACTIVE | REMOVED | FLAGGED`, and `DRAFT` does not exist because a listing goes live on submit. Such a line is labelled "Unavailable", its quantity controls are withdrawn, and the checkout CTA stays disabled until it is removed (US-B-06). There is no price-changed banner and no per-line "price updated" badge: the cart re-resolves prices on every read and carries no previous-price field, and the buyer's confirmation of a price move belongs to checkout, where `409 PRICE_CHANGED` supplies both the old and the new amount.
+
 ### States
 
-- **Empty cart:** `EmptyState` with `icon="shopping_cart"` and "Continue Shopping" CTA.
-- **Stale items:** Error banner at top; "Remove" button on each stale item; checkout CTA disabled.
-- **Price changed:** Warning banner at top; "Price updated" label on changed items.
-- **Loading:** Skeleton rows (3 rows) with grey rectangles.
-- **Guest cart:** Normal display; checkout CTA redirects to `/login?returnUrl=/checkout`.
-- **Cart merge notification (post-login):** After login redirect, if guest cart items were merged with the logged-in cart, display a `MatSnackBar` at bottom-center for 5 seconds:
-  - Primary message: 'N item(s) from your guest session were added to your cart.'
-  - Optional second line (if quantities were adjusted): 'Some quantities were adjusted to match available stock.'
+- **Empty cart:** `EmptyState` with `icon="shopping_cart"`, `title="Your cart is empty"` and a "Continue Shopping" CTA in the content slot.
+- **Unavailable items:** error banner at the top, "Remove" on each affected line, checkout CTA disabled.
+- **Loading:** three skeleton rows.
+- **Error:** error banner with Retry; the guest cart still renders from `localStorage`.
+- **Guest cart:** lines render from `localStorage` with no resolved price and no totals; the CTA reads "Sign in to check out" and navigates to `/login?returnUrl=/checkout`.
+- **Cart merge (post-login):** when `POST /cart/merge` reports work done, a `MatSnackBar` shows for 5 seconds, bottom-center:
+  - `addedCount > 0` → "N item(s) from your guest session were added to your cart."
+  - `cappedItems` non-empty → append "Some quantities were adjusted to match available stock."
+  - `skippedItems` non-empty → append "N item(s) could not be added." The reason per item is `OFFER_UNAVAILABLE`, `OUT_OF_STOCK` or `CART_LIMIT_REACHED`; nothing is dropped silently.
 
-  Triggered from `CartMergeService.mergeResult$` observable on post-login redirect. Rendered in `BuyerShellComponent`.
+  Rendered by `BuyerShellComponent` from `CartMergeService.mergeResult$` on the post-login redirect.
 
 ### Mobile
 
-- Two-column grid collapses to single column (summary below items). Item image shrinks to 64×64. Quantity controls reduce in size.
+Two columns collapse to one with the summary below the items. Thumbnail shrinks to 64×64; quantity controls reduce in size.
 
 ---
 
@@ -451,138 +629,158 @@ div.cart-layout [display: grid; grid-template-columns: 1fr 340px; gap: 24px; ali
 ## Screen 5 — Checkout
 
 **Route:** `/checkout`  
-**Auth:** Required (redirects to `/login?returnUrl=/checkout` if guest)
+**Auth:** Required, and the account must be email-verified. An unauthenticated buyer is sent to `/login?returnUrl=/checkout`; an unverified one is sent to the verification-pending screen, because `POST /orders` is guarded on `EMAIL_VERIFIED`.
+
+### Three steps, not four
+
+The stepper is **Shipping address → Payment → Review**. There is no shipping-method step: `POST /orders` accepts no `shippingMethodId`, no endpoint lists shipping methods, and V1 has mock shipping only (BRD § 3.2). The mock service name recorded on the fulfillment comes from seeded platform configuration and the shipping cost is a structural `"0.00"`, so there is nothing for the buyer to choose between. The Review step states the shipping line as a zero rather than offering options.
 
 ### Layout
 
 ```
-h1 mat-h3 — "Checkout"
+h1 mat-headline-3 — "Checkout"
 
 div.checkout-layout [display: grid; grid-template-columns: 1fr 340px; gap: 24px; align-items: start] [desktop]
-  <!-- Stepper -->
   mat-stepper [linear] #stepper [flex: 1]
 
-    <!-- Step 1: Shipping Address -->
+    <!-- Step 1: Shipping address -->
     mat-step [label]="'Shipping Address'" [stepControl]="addressForm"
       form [formGroup]="addressForm"
-        mat-form-field [appearance=outline; fullWidth] — mat-label "Full Name" — input formControlName="fullName"
-        div.two-col-grid [display: grid; grid-template-columns: 1fr 1fr; gap: 16px]
-          mat-form-field — mat-label "Address Line 1" — input formControlName="line1"
-          mat-form-field — mat-label "Address Line 2 (optional)" — input formControlName="line2"
-          mat-form-field — mat-label "City" — input formControlName="city"
-          mat-form-field — mat-label "State / Province" — input formControlName="state"
-          mat-form-field — mat-label "Postal Code" — input formControlName="postalCode"
-          mat-form-field — mat-label "Country"
-            mat-select formControlName="country"
-              mat-option *ngFor="let c of countries" [value]="c.code" — {{ c.name }}
-        mat-form-field — mat-label "Phone (optional)" — input formControlName="phone"
+        <!-- Saved addresses are the primary path: POST /orders takes a shippingAddressId -->
+        div.saved-addresses *ngIf="savedAddresses.length > 0"
+          p mat-body-2 — Ship to a saved address:
+          mat-radio-group [formControl]="addressForm.controls.shippingAddressId"
+            mat-radio-button *ngFor="let addr of savedAddresses; trackBy: trackByAddressId" [value]="addr.id"
+              span — {{ addr.label }} — {{ addr.recipientName }}, {{ addr.addressLine1 }}, {{ addr.city }} {{ addr.postalCode }}, {{ addr.countryCode }}
+              mat-chip *ngIf="addr.isDefault" — Default
 
-        div.saved-addresses *ngIf="savedAddresses.length > 0" [margin-bottom: 16px]
-          p mat-body-2 — Or select a saved address:
-          mat-radio-group [formControl]="savedAddressCtrl" (change)="fillSavedAddress($event)"
-            mat-radio-button *ngFor="let addr of savedAddresses" [value]="addr.id"
-              {{ addr.fullName }}, {{ addr.city }}, {{ addr.country }}
+        button mat-stroked-button color="primary" (click)="openAddressDialog()"
+          [disabled]="savedAddresses.length >= 10" — Add a new address
+        mat-error *ngIf="savedAddresses.length >= 10" — Address limit reached (10). Remove one in Account Settings to add another.
 
-        mat-checkbox formControlName="saveAddress" *ngIf="isLoggedIn" — Save this address
         div [text-align: right; margin-top: 16px]
           button mat-flat-button color="primary" matStepperNext [disabled]="addressForm.invalid" — Next
 
-    <!-- Step 2: Shipping Method -->
-    <!-- Data source: GET /checkout/shipping-methods
-         Returns a hardcoded mock list in V1 (real shipping integration is out of scope per BRD §3.2):
-         [{ "id": "standard", "name": "Standard Shipping", "etaLabel": "5–7 business days", "cost": "0.00", "currency": "USD" }] -->
-    mat-step [label]="'Shipping Method'" [stepControl]="shippingForm"
-      form [formGroup]="shippingForm"
-        mat-radio-group formControlName="shippingMethodId" [display: flex; flex-direction: column; gap: 12px]
-          mat-card.shipping-option *ngFor="let method of shippingMethods" (click)="selectShipping(method)"
-            mat-radio-button [value]="method.id"
-              div [display: flex; justify-content: space-between; align-items: center]
-                div
-                  span mat-body-1 — {{ method.name }}
-                  p mat-caption — Estimated delivery: {{ method.etaLabel }}
-                <aliceut-price-display [amount]="method.cost" [currency]="method.currency">
-        div [text-align: right; margin-top: 16px; display: flex; gap: 8px; justify-content: flex-end]
-          button mat-button matStepperPrevious — Back
-          button mat-flat-button color="primary" matStepperNext [disabled]="shippingForm.invalid" — Next
-
-    <!-- Step 3: Payment Method -->
+    <!-- Step 2: Payment -->
     mat-step [label]="'Payment'" [stepControl]="paymentForm"
       form [formGroup]="paymentForm"
         mat-card [padding: 16px; margin-bottom: 16px]
           mat-icon color="primary" [font-size: 32px] — credit_card
           p mat-body-1 — Demo Payment (Mock)
-          p mat-caption color="secondary" — This is a simulated payment. No real transaction will occur.
+          p mat-caption color="secondary" — This is a simulated payment. No real transaction will occur and no card details leave your browser.
         mat-form-field [appearance=outline; fullWidth]
           mat-label — Card Number (demo)
-          input matInput formControlName="cardNumber" placeholder="4111 1111 1111 1111" maxlength="19"
+          input matInput formControlName="cardNumber" placeholder="4111 1111 1111 1111" maxlength="19" autocomplete="off"
         div.two-col-grid [display: grid; grid-template-columns: 1fr 1fr; gap: 16px]
           mat-form-field — mat-label "Expiry (MM/YY)" — input formControlName="expiry" placeholder="12/27"
-          mat-form-field — mat-label "CVV" — input formControlName="cvv" placeholder="123"
+          mat-form-field — mat-label "CVV" — input formControlName="cvv" placeholder="123" autocomplete="off"
         div [text-align: right; margin-top: 16px; display: flex; gap: 8px; justify-content: flex-end]
           button mat-button matStepperPrevious — Back
           button mat-flat-button color="primary" matStepperNext [disabled]="paymentForm.invalid" — Next
 
-    <!-- Step 4: Review & Place Order -->
+    <!-- Step 3: Review & place order -->
     mat-step [label]="'Review'"
       div.review-section
-        h3 mat-h5 — Shipping to
-        p mat-body-2 — {{ addressSummary }}
+        h3 mat-headline-6 — Shipping to
+        p mat-body-2 — {{ selectedAddressSummary }}
         mat-divider [margin: 12px 0]
-        h3 mat-h5 — Shipping
-        p mat-body-2 — {{ selectedShipping.name }} — {{ selectedShipping.etaLabel }}
+        h3 mat-headline-6 — Shipping
+        p mat-body-2 — Standard delivery, no shipping charge in this release.
         mat-divider [margin: 12px 0]
-        h3 mat-h5 — Order Items
+        h3 mat-headline-6 — Order Items
         mat-list
-          mat-list-item *ngFor="let item of cartItems"
-            img [src]="item.imageUrl" [alt]="" matListItemAvatar
+          mat-list-item *ngFor="let item of cart.items; trackBy: trackByCartItemId"
             span mat-list-item-title — {{ item.productTitle }}
-            span mat-list-item-line — {{ item.variantLabel }} × {{ item.qty }}
-            <aliceut-price-display matListItemMeta [amount]="item.lineTotal" [currency]="item.currency">
+            span mat-list-item-line — {{ item.variantLabel }} × {{ item.quantity }}
+            <aliceut-price-display matListItemMeta
+              [amount]="item.lineTotal.displayAmount ?? item.lineTotal.amount"
+              [currency]="item.lineTotal.displayAmount ? item.lineTotal.displayCurrency : item.lineTotal.currency">
 
-        <!-- Price-changed warning at review step -->
-        mat-card.warning-banner *ngIf="priceChangedAtRevalidation.length > 0" [margin-top: 16px; background: warn-100]
+        <!-- Price-changed confirmation (409 PRICE_CHANGED) -->
+        mat-card.warning-banner *ngIf="updatedPrices.length > 0" [margin-top: 16px; background: warn-100]
           mat-icon color="warn" — warning_amber
-          h4 mat-h6 — Prices have changed
-          div *ngFor="let change of priceChangedAtRevalidation"
-            p mat-body-2 — {{ change.title }}: was {{ change.old }}, now {{ change.new }}
+          h4 mat-headline-6 — Prices have changed
+          div *ngFor="let change of updatedPrices; trackBy: trackByOfferId"
+            p mat-body-2
+              — {{ change.productTitle }}: was
+              <aliceut-price-display [amount]="change.shownAmount" [currency]="change.currency">
+              , now
+              <aliceut-price-display [amount]="change.newAmount" [currency]="change.currency">
           mat-checkbox [formControl]="priceChangeConfirmed" — I understand and accept the updated prices
-          p mat-caption — You must confirm the updated prices to proceed.
+          p mat-caption — You must confirm the updated prices to place the order.
 
         div [text-align: right; margin-top: 24px; display: flex; gap: 8px; justify-content: flex-end]
           button mat-button matStepperPrevious — Back
-          button mat-flat-button color="accent" [disabled]="isPlacingOrder || (priceChangedAtRevalidation.length > 0 && !priceChangeConfirmed.value)" (click)="placeOrder()"
+          button mat-flat-button color="accent"
+            [disabled]="isPlacingOrder || (updatedPrices.length > 0 && !priceChangeConfirmed.value)"
+            (click)="placeOrder()"
             mat-spinner *ngIf="isPlacingOrder" [diameter]="20"
             span *ngIf="!isPlacingOrder" — Place Order
 
-  <!-- Right: Order Summary Panel -->
+  <!-- Right: summary panel -->
   aside.checkout-summary [position: sticky; top: 88px]
     mat-card [padding: 24px]
-      h2 mat-h5 — Order Summary
+      h2 mat-headline-6 — Order Summary
       mat-list [dense]
-        mat-list-item *ngFor="let item of cartItems"
-          span mat-list-item-title — {{ item.productTitle }} × {{ item.qty }}
-          <aliceut-price-display matListItemMeta [amount]="item.lineTotal" [currency]="item.currency">
+        mat-list-item *ngFor="let item of cart.items; trackBy: trackByCartItemId"
+          span mat-list-item-title — {{ item.productTitle }} × {{ item.quantity }}
+          <aliceut-price-display matListItemMeta
+            [amount]="item.lineTotal.displayAmount ?? item.lineTotal.amount"
+            [currency]="item.lineTotal.displayAmount ? item.lineTotal.displayCurrency : item.lineTotal.currency">
       mat-divider [margin: 12px 0]
-      div.totals *ngFor="let group of currencyGroups"
-        div [display: flex; justify-content: space-between]
-          span mat-body-2 — Subtotal ({{ group.currency }})
+      div.totals
+        div.summary-row *ngFor="let group of cart.groups; trackBy: trackByGroupKey" [display: flex; justify-content: space-between]
+          span mat-body-2 — {{ group.sellerName }} ({{ group.currency }})
           <aliceut-price-display [amount]="group.subtotal" [currency]="group.currency">
-        div [display: flex; justify-content: space-between] *ngIf="shippingCost"
+        mat-divider [margin: 8px 0]
+        div [display: flex; justify-content: space-between]
+          span mat-body-2 — Item subtotal
+          <aliceut-price-display [amount]="cart.itemSubtotal.displayAmount" [currency]="cart.itemSubtotal.displayCurrency">
+        div [display: flex; justify-content: space-between]
           span mat-body-2 — Shipping
-          <aliceut-price-display [amount]="group.shippingCost" [currency]="group.currency">
+          <aliceut-price-display [amount]="cart.shippingTotal.displayAmount" [currency]="cart.shippingTotal.displayCurrency">
+        div [display: flex; justify-content: space-between]
+          span mat-body-2 — Tax
+          <aliceut-price-display [amount]="cart.taxTotal.displayAmount" [currency]="cart.taxTotal.displayCurrency">
+        mat-divider [margin: 8px 0]
+        div [display: flex; justify-content: space-between; font-weight: 500]
+          span mat-body-1 — Total
+          <aliceut-price-display [amount]="cart.grandTotal.displayAmount" [currency]="cart.grandTotal.displayCurrency">
 ```
+
+### Address step
+
+`POST /orders` takes a `shippingAddressId` that must reference one of the buyer's own `identity.address` rows, so the step **selects** an address rather than typing one into the order. "Add a new address" opens a dialog over `POST /profile/addresses` (fields `label`, `recipientName`, `addressLine1`, `addressLine2`, `city`, `stateRegion`, `postalCode`, `countryCode`; `countryCode` is ISO 3166-1 alpha-2 from the full country list). The created row is returned with its id and is selected. The first address saved on an account becomes the default; the list is capped at 10, and an eleventh attempt is a `422`. Saved addresses come from `GET /profile/addresses`, which is not paginated because of that cap.
+
+The order snapshots the address as JSONB at checkout, so editing or deleting the saved row later does not change a historical order.
+
+### Placing the order
+
+`POST /orders` with a required `Idempotency-Key: <client-uuid>` header and the body `{ shippingAddressId, paymentMethod: "FAKE_CARD", maskedPaymentDetail, cartItems[], confirmedPrices[]? }`.
+
+- **`maskedPaymentDetail` is the only thing the payment step transmits.** The client sends the already-masked display string (`"XXXX-XXXX-XXXX-4242"`); a full card number is never sent, never logged, and the field is named so that an unmasked number cannot reach it.
+- `cartItems[]` are the ids of the lines being purchased. There is **no `currency` field**: the buyer's display currency is resolved server-side from the profile at submission time and snapshotted per fulfillment, so a later preference change does not alter historical order display. The client cannot choose the capture currency.
+- On `201` the response carries the whole order — `orderId`, `displayId`, `placementOutcome`, `fulfillments[]`, `skippedItems[]`, `failedGroups[]` — and the page navigates to `/checkout/confirmation?orderId={orderId}` **carrying that response**, because part of it is available nowhere else (see [Screen 6](#screen-6-order-confirmation)).
+- A replay of the same `Idempotency-Key` with the same body returns `200` with the existing order and creates nothing; the client may safely retry a request whose response it lost. `409` means the same key was presented with a *different* body.
+
+### Price revalidation
+
+`409` with `message: "PRICE_CHANGED"` carries `updatedPrices[]` of `{ offerId, productTitle, shownAmount, newAmount, currency }`, and **no order is created**. The Review step renders each change with both amounts as server strings, requires the confirmation checkbox, and re-submits with the **same** `Idempotency-Key` plus `confirmedPrices[]` of `{ offerId, amount, currency }`.
+
+The confirmation is checked against a fresh resolution: if a price moves again between the confirmation and the re-submission, another `409 PRICE_CHANGED` comes back and the buyer confirms again. There is no bound on the repeats and no "confirm once, accept anything" path — an order is never created at a price the buyer has not seen and confirmed. The checkbox resets on every new `409`.
 
 ### States
 
-- **Step validation:** "Next" button disabled until current step's form is valid.
-- **Price re-validation (submit):** Modal price-changed warning inline in Review step with mandatory checkbox before re-submitting.
-- **Placing order:** Place Order button shows spinner; all inputs disabled.
-- **Network error:** `mat-snack-bar` error — "Failed to place order. Please try again."
+- **Step validation:** Next is disabled until the current step's form is valid.
+- **Placing order:** the CTA shows a spinner and every input is disabled.
+- **Price changed:** the warning card appears inline in Review with the mandatory checkbox; the CTA stays disabled until it is ticked.
+- **Nothing purchasable (`422`):** an error card — "None of the items in your cart can be ordered right now." — with a link back to the cart. No order was created.
+- **Network or server error:** `MatSnackBar`, persistent until dismissed — "Failed to place order. Please try again." The same `Idempotency-Key` is reused on retry, so a retry cannot double-place.
+- **Empty cart on entry:** redirect to `/cart`.
 
 ### Mobile
 
-- Stepper switches to `orientation="horizontal"` with icon-only step labels.
-- Order summary collapses to an expandable `mat-expansion-panel` above the stepper.
+The stepper switches to `orientation="horizontal"` with icon-only step labels. The summary panel collapses into a `mat-expansion-panel` above the stepper.
 
 ---
 
@@ -592,77 +790,126 @@ div.checkout-layout [display: grid; grid-template-columns: 1fr 340px; gap: 24px;
 **Route:** `/checkout/confirmation?orderId=`  
 **Auth:** Required
 
+### Where the data comes from
+
+The screen renders the **`POST /orders` response**, handed over by the checkout page. That response is the only place `skippedItems[]` and `failedGroups[]` ever appear: an order contains what was placed, no table holds the lines a checkout deliberately left out, and `GET /orders/:orderId` therefore does not return them.
+
+On a reload or a direct visit the response is gone, and the page falls back to `GET /orders/:orderId` for the order and its fulfillments. In that state the skipped and failed sections are **not** rendered — the page shows an informational note that any items that could not be ordered are still in the cart, with a link to `/cart`, where they are labelled "Unavailable". This is stated rather than worked around, so that nobody later adds a skipped-items list to the order-detail contract to make a refresh look the same.
+
 ### Layout
 
 ```
-div.confirmation [text-align: center; padding: 48px 24px] *ngIf="placement === 'FULLY_PLACED'"
+div.confirmation [text-align: center; padding: 48px 24px] *ngIf="order.placementOutcome === 'FULLY_PLACED'"
   mat-icon [font-size: 64px; color: success] — check_circle_outline
-  h1 mat-h3 — Order Placed!
+  h1 mat-headline-3 — Order Placed
   p mat-body-1 — Your order {{ order.displayId }} has been confirmed.
 
-div.confirmation [text-align: center; padding: 48px 24px] *ngIf="placement === 'PARTIALLY_PLACED'"
+div.confirmation [text-align: center; padding: 48px 24px] *ngIf="order.placementOutcome === 'PARTIALLY_PLACED'"
   mat-icon [font-size: 64px; color: warn] — warning_amber
-  h1 mat-h3 — Partial Order Placed
-  p mat-body-1 — Some items could not be reserved. See details below.
+  h1 mat-headline-3 — Order Partially Placed
+  p mat-body-1 — Order {{ order.displayId }} was placed for some of your items. The rest are still in your cart — details below.
 
 div.sections [max-width: 800px; margin: 0 auto]
 
-  <!-- Placed items -->
-  mat-card *ngFor="let fulfillment of order.fulfillments" [margin-bottom: 16px]
+  <!-- Order total -->
+  mat-card [margin-bottom: 16px]
+    div [display: flex; justify-content: space-between; font-weight: 500]
+      span — Order total
+      <aliceut-price-display [amount]="order.buyerCurrencyGrandTotal" [currency]="order.buyerDisplayCurrency">
+    div [display: flex; justify-content: space-between]
+      span mat-body-2 — Shipping
+      <aliceut-price-display [amount]="order.shippingTotal" [currency]="order.buyerDisplayCurrency">
+    div [display: flex; justify-content: space-between]
+      span mat-body-2 — Tax
+      <aliceut-price-display [amount]="order.taxTotal" [currency]="order.buyerDisplayCurrency">
+
+  <!-- One card per placed fulfillment -->
+  mat-card *ngFor="let f of order.fulfillments; trackBy: trackByFulfillmentId" [margin-bottom: 16px]
     mat-card-header
       mat-icon mat-card-avatar — local_shipping
-      mat-card-title — {{ fulfillment.sellerName }}
-      mat-card-subtitle — Fulfillment {{ fulfillment.displayId }}
+      mat-card-title — {{ f.sellerName }}
+      mat-card-subtitle — Fulfillment {{ f.displayId }}
     mat-card-content
-      p mat-body-2 — Status: <aliceut-status-badge [status]="'PENDING'" [statusType]="'fulfillment'">
-      p mat-body-2 — Tracking: <strong>{{ fulfillment.trackingNumber }}</strong>
-      p mat-body-2 — Estimated delivery: <strong>{{ fulfillment.eta | date:'mediumDate' }}</strong>
+      p mat-body-2 — Status: <aliceut-status-badge [status]="f.status" [statusType]="'fulfillment'">
+      p mat-body-2 — Tracking: <strong>{{ f.trackingNumber }}</strong>
+      p mat-body-2 — Estimated delivery: <strong>{{ f.estimatedDeliveryAt | date:'mediumDate' }}</strong>
       mat-divider [margin: 12px 0]
       mat-list [dense]
-        mat-list-item *ngFor="let item of fulfillment.items"
-          img matListItemAvatar [src]="item.imageUrl" [alt]=""
-          span mat-list-item-title — {{ item.productTitle }} × {{ item.qty }}
-          <aliceut-price-display matListItemMeta [amount]="item.lineTotal" [currency]="fulfillment.currency">
+        mat-list-item *ngFor="let item of f.items; trackBy: trackByOfferId"
+          span mat-list-item-title — {{ item.productTitle }} × {{ item.quantity }}
+          span mat-list-item-line *ngIf="item.variantLabel" — {{ item.variantLabel }}
+          <aliceut-price-display matListItemMeta
+            [amount]="item.buyerCurrencyLineTotal" [currency]="item.buyerDisplayCurrency">
       mat-divider [margin: 12px 0]
       div [display: flex; justify-content: space-between; font-weight: 500]
         span — Fulfillment total
-        <aliceut-price-display [amount]="fulfillment.total" [currency]="fulfillment.currency">
+        <aliceut-price-display [amount]="f.buyerCurrencyTotal" [currency]="f.buyerDisplayCurrency">
+      p mat-caption color="secondary" *ngIf="f.currency !== f.buyerDisplayCurrency"
+        — Charged as <aliceut-price-display [amount]="f.totalAmount" [currency]="f.currency"> by this seller.
 
-  <!-- Skipped items (if any) -->
-  mat-card.warning-section *ngIf="order.skippedItems.length > 0" [margin-bottom: 16px]
+  <!-- Items excluded before placement -->
+  mat-card.warning-section *ngIf="order.skippedItems?.length > 0" [margin-bottom: 16px]
     mat-card-header
       mat-icon mat-card-avatar color="warn" — info_outline
-      mat-card-title — Items Not Available
+      mat-card-title — Items Not Ordered
     mat-card-content
-      p mat-body-2 — These items were in your cart but could not be ordered. They remain in your cart.
+      p mat-body-2 — These items were in your cart but could not be ordered. They are still in your cart.
       mat-list [dense]
-        mat-list-item *ngFor="let item of order.skippedItems"
+        mat-list-item *ngFor="let item of order.skippedItems; trackBy: trackByOfferId"
           span mat-list-item-title — {{ item.productTitle }}
-          span mat-list-item-line — Reason: No longer available
+          span mat-list-item-line — {{ skippedReasonLabel(item.reason) }}
 
-  <!-- Failed groups (if PARTIALLY_PLACED) -->
-  mat-card.error-section *ngIf="order.failedGroups.length > 0" [margin-bottom: 16px]
+  <!-- Groups that failed reservation -->
+  mat-card.error-section *ngIf="order.failedGroups?.length > 0" [margin-bottom: 16px]
     mat-card-header
       mat-icon mat-card-avatar color="warn" — error_outline
       mat-card-title — Could Not Be Reserved
     mat-card-content
-      p mat-body-2 — These items could not be reserved and remain in your cart.
-      mat-list [dense]
-        mat-list-item *ngFor="let item of order.failedGroups"
-          span mat-list-item-title — {{ item.productTitle }}
-          span mat-list-item-line — Reason: {{ item.reason }}
+      p mat-body-2 — These sellers' items could not be reserved and are still in your cart.
+      div *ngFor="let group of order.failedGroups; trackBy: trackBySellerId"
+        p mat-body-2 [font-weight: 500] — {{ group.sellerName }} — {{ failedReasonLabel(group.reason) }}
+        mat-list [dense]
+          mat-list-item *ngFor="let item of group.items; trackBy: trackByOfferId"
+            span mat-list-item-title — {{ item.productTitle }}
+
+  <!-- Shown instead of the two sections above when the page was reloaded -->
+  mat-card.info-banner *ngIf="reloadedWithoutCheckoutResponse && order.placementOutcome === 'PARTIALLY_PLACED'"
+    mat-icon — info_outline
+    span — Some items could not be ordered. They are still in your cart, labelled "Unavailable".
+    button mat-button routerLink="/cart" — View Cart
 
 div.confirmation-actions [text-align: center; margin-top: 24px; display: flex; gap: 16px; justify-content: center]
   button mat-flat-button color="primary" routerLink="/orders" — View Orders
   button mat-stroked-button routerLink="/" — Continue Shopping
-  button mat-stroked-button color="warn" routerLink="/cart" *ngIf="order.hasFailedOrSkipped" — View Cart
+  button mat-stroked-button color="warn" routerLink="/cart"
+    *ngIf="order.skippedItems?.length > 0 || order.failedGroups?.length > 0" — View Cart
 ```
+
+### Placement outcome and reasons
+
+`placementOutcome` is `FULLY_PLACED` or `PARTIALLY_PLACED`. There is no third value: a checkout in which **every** group failed creates no order and returns `422`, so this screen is never reached in that case.
+
+**No price is shown on a skipped or failed line.** Nothing was captured for them, so there is no amount to show; the lines carry `productTitle` and a reason and nothing else. Reason labels:
+
+| Field | Value | Label |
+|---|---|---|
+| `skippedItems[].reason` | `OFFER_UNAVAILABLE` | "No longer available from this seller" |
+| `failedGroups[].reason` | `OUT_OF_STOCK` | "Not enough stock left" |
+| `failedGroups[].reason` | `OFFER_UNAVAILABLE` | "No longer available from this seller" |
+
+An unrecognised reason renders the generic "Could not be ordered" rather than the raw enum symbol.
+
+### Money on this screen
+
+Buyer-facing amounts are the `buyerCurrency*` snapshots in `buyerDisplayCurrency`, taken at capture and read as-is. The seller-native capture (`totalAmount` in `currency`) is shown as a secondary caption only where the two currencies differ, so the buyer can reconcile a card statement. **Nothing here is converted at read time and nothing is summed** — order-level `shippingTotal` and `taxTotal` are summed over fulfillments by the server, and `buyerCurrencyGrandTotal` is a stored snapshot.
 
 ### States
 
-- **FULLY_PLACED:** Green checkmark hero, all sections green.
-- **PARTIALLY_PLACED:** Orange warning hero, failed/skipped sections shown.
-- **Loading:** Skeleton layout while confirmation data loads (e.g. if navigated with orderId query param).
+- **FULLY_PLACED:** green check hero; no skipped or failed sections.
+- **PARTIALLY_PLACED:** amber hero; the sections that apply are rendered, each naming the reason per line.
+- **Loading (direct visit with `?orderId=`):** skeleton layout while `GET /orders/:orderId` resolves.
+- **Reloaded:** as described above — the order renders, the skipped and failed sections do not, and the info banner points at the cart.
+- **Error / unknown order:** `404` renders an `EmptyState` with `icon="receipt_long"`, `title="Order not found"` and a link to `/orders`. A foreign order id is a `404`, not a `403`.
 
 ---
 
@@ -672,58 +919,79 @@ div.confirmation-actions [text-align: center; margin-top: 24px; display: flex; g
 **Route:** `/orders`  
 **Auth:** Required
 
+### Data source
+
+`GET /orders?status=&limit=&cursor=`. Each row of `data[]` is one **order** (`ORD-…`) carrying its per-seller `fulfillments[]`; it is not a flat list of fulfillments. `status` filters on the derived `orderStatus`. The list deliberately carries **no shipping and no tax figure** — those belong to the detail response, and an order row shows the grand total only.
+
 ### Layout
 
 ```
-h1 mat-h3 — "My Orders"
+h1 mat-headline-3 — "My Orders"
 
-mat-tab-group [color=primary] [margin-bottom: 16px]
-  mat-tab label="All Orders"
-  mat-tab label="Pending"
-  mat-tab label="Shipped"
-  mat-tab label="Delivered"
-  mat-tab label="Refunded"
-  mat-tab label="Cancelled"
+mat-tab-group [color=primary] [margin-bottom: 16px] (selectedTabChange)="applyStatusFilter($event)"
+  mat-tab label="All Orders"     ← no status param
+  mat-tab label="Pending"        ← status=PENDING
+  mat-tab label="Shipped"        ← status=SHIPPED
+  mat-tab label="Completed"      ← status=COMPLETED
+  mat-tab label="Refunded"       ← status=REFUNDED
+  mat-tab label="Cancelled"      ← status=CANCELLED
 
-<aliceut-data-table [dataSource]="orders" [loading]="loading" emptyMessage="No orders in this status.">
-  ng-container matColumnDef="orderId"
-    th mat-header-cell — Order ID
+<aliceut-data-table
+  [dataSource]="ordersDataSource" [loading]="loading"
+  emptyMessage="No orders in this status."
+  [hasMore]="hasMore" [hasPrevious]="hasPrevious"
+  (nextPage)="nextPage()" (previousPage)="previousPage()" (sortChange)="onSort($event)">
+
+  ng-container matColumnDef="displayId"
+    th mat-header-cell scope="col" — Order
     td mat-cell — {{ order.displayId }}
-  ng-container matColumnDef="date"
-    th mat-header-cell mat-sort-header — Date
+  ng-container matColumnDef="placedAt"
+    th mat-header-cell scope="col" mat-sort-header — Date
     td mat-cell — {{ order.placedAt | date:'mediumDate' }}
-  ng-container matColumnDef="status"
-    th mat-header-cell — Status
-    td mat-cell — <aliceut-status-badge [status]="order.status" [statusType]="'order'">
+  ng-container matColumnDef="orderStatus"
+    th mat-header-cell scope="col" — Status
+    td mat-cell — <aliceut-status-badge [status]="order.orderStatus" [statusType]="'order'">
   ng-container matColumnDef="placementOutcome"
-    th mat-header-cell — Placement
+    th mat-header-cell scope="col" — Placement
     td mat-cell
       mat-chip color="warn" *ngIf="order.placementOutcome === 'PARTIALLY_PLACED'" — Partial
-  ng-container matColumnDef="summary"
-    th mat-header-cell — Summary
-    td mat-cell — {{ order.fulfillmentSummary }}  ← e.g. "2 of 3 shipped"
-  ng-container matColumnDef="actions"
-    th mat-header-cell — —
+  ng-container matColumnDef="fulfillments"
+    th mat-header-cell scope="col" — Sellers
+    td mat-cell — {{ fulfillmentSummary(order) }}   ← "2 of 3 shipped", derived from the row's fulfillments[]
+  ng-container matColumnDef="itemCount"
+    th mat-header-cell scope="col" — Items
+    td mat-cell — {{ order.itemCount }}
+  ng-container matColumnDef="total"
+    th mat-header-cell scope="col" — Total
     td mat-cell
-      button mat-icon-button [routerLink]="['/orders', order.id]" — visibility icon
+      <aliceut-price-display [amount]="order.buyerCurrencyGrandTotal" [currency]="order.buyerDisplayCurrency">
+  ng-container matColumnDef="actions"
+    th mat-header-cell scope="col" — <span class="cdk-visually-hidden">Actions</span>
+    td mat-cell
+      button mat-icon-button [routerLink]="['/orders', order.id]" aria-label="View order" — visibility icon
 
-mat-paginator [pageSize]="20" [pageSizeOptions]="[10,20,50]">
-
-<!-- Empty state -->
-<aliceut-empty-state *ngIf="!loading && orders.length === 0"
-  icon="receipt_long" title="No orders yet"
-  message="Browse the catalog to get started.">
-  button mat-flat-button color="primary" routerLink="/" — Browse Products
-</aliceut-empty-state>
+</aliceut-data-table>
 ```
 
-### Mobile
+### Pagination
 
-- Table collapses to card list: each card shows Order ID, date, status badge, fulfillment summary, and "View" button.
+`DataTable` owns the Previous / Next footer and the current page's row count; **there is no separate paginator and no page-number control.** The page component owns the cursor stack: push `meta.nextCursor` on `nextPage`, pop on `previousPage`. Next is disabled with the "End of list" caption when `meta.hasMore` is false. Switching tabs resets the stack, because a cursor is only valid for the filter set it was issued under.
+
+`fulfillmentSummary()` counts statuses in the row's own `fulfillments[]` — a count over data already returned, not a server field and not a monetary computation.
+
+### States
+
+Handled by `DataTable`: skeleton rows on first load, a progress overlay on refresh, `EmptyState` with `emptyMessage` when a page is empty, and the end-of-list caption on the last page. A load failure renders an error banner above the table with a Retry action.
 
 ### Notes
 
-**Partial and in-progress orders:** Orders with derived statuses `IN_PROGRESS`, `PARTIALLY_SHIPPED`, `PARTIALLY_DELIVERED`, `PARTIALLY_REFUNDED` appear under the 'All Orders' tab only. Dedicated tabs are not provided for these intermediate states in V1 — the status badge on each order row is the primary disambiguation mechanism. This is a deliberate V1 simplification.
+**Derived statuses that get no tab.** `IN_PROGRESS`, `PARTIALLY_SHIPPED`, `PARTIALLY_DELIVERED` and `PARTIALLY_REFUNDED` are real `orderStatus` values and appear under "All Orders" only; the status badge on each row is the disambiguation. This is a deliberate V1 simplification, not an omission.
+
+There is deliberately **no "Delivered" tab**: the derived table never yields a bare `DELIVERED` at order level — an order whose every fulfillment is delivered is `COMPLETED` — so a Delivered tab would always be empty.
+
+### Mobile
+
+The table collapses to a card list: each card shows the `ORD-` id, the date, the status badge, the seller summary, the total, and a View action.
 
 ---
 
@@ -733,55 +1001,111 @@ mat-paginator [pageSize]="20" [pageSizeOptions]="[10,20,50]">
 **Route:** `/orders/:id`  
 **Auth:** Required
 
+`:id` addresses an order by UUID or by `ORD-` display id. Fulfillments are nested; there is no top-level fulfillment route on the buyer portal. A foreign order is a `404`, never a `403`.
+
 ### Layout
 
 ```
 div.page-header [display: flex; align-items: center; gap: 16px; margin-bottom: 24px]
-  button mat-icon-button routerLink="/orders" — arrow_back
-  h1 mat-h4 — Order {{ order.displayId }}
-  <aliceut-status-badge [status]="order.status" [statusType]="'order'">
+  button mat-icon-button routerLink="/orders" aria-label="Back to orders" — arrow_back
+  h1 mat-headline-4 — Order {{ order.displayId }}
+  <aliceut-status-badge [status]="order.orderStatus" [statusType]="'order'">
   mat-chip color="warn" *ngIf="order.placementOutcome === 'PARTIALLY_PLACED'" — Partial
 
 p mat-body-2 — Placed on {{ order.placedAt | date:'long' }}
 
-<!-- Note re: no cancel in V1 -->
 mat-card.info-banner [margin-bottom: 16px]
   mat-icon — info_outline
-  span — Need to cancel? Contact the seller directly.
+  span — Need to cancel? Contact the seller directly. Buyer-initiated cancellation is not available in this release.
+
+<!-- Shipping address snapshot -->
+mat-card [margin-bottom: 16px]
+  mat-card-header
+    mat-card-title — Shipping to
+  mat-card-content
+    p mat-body-2 — {{ order.shippingAddress.fullName }}
+    p mat-body-2 — {{ order.shippingAddress.addressLine1 }}
+    p mat-body-2 *ngIf="order.shippingAddress.addressLine2" — {{ order.shippingAddress.addressLine2 }}
+    p mat-body-2 — {{ order.shippingAddress.city }}{{ order.shippingAddress.stateProvince ? ', ' + order.shippingAddress.stateProvince : '' }} {{ order.shippingAddress.postalCode }}
+    p mat-body-2 — {{ countryName(order.shippingAddress.countryCode) }}
+    p mat-body-2 *ngIf="order.shippingAddress.phone" — {{ order.shippingAddress.phone }}
+    p mat-caption color="secondary" — This is the address as it was at checkout.
+
+<!-- Order totals -->
+mat-card [margin-bottom: 16px]
+  div [display: flex; justify-content: space-between]
+    span mat-body-2 — Shipping
+    <aliceut-price-display [amount]="order.shippingTotal" [currency]="order.buyerDisplayCurrency">
+  div [display: flex; justify-content: space-between]
+    span mat-body-2 — Tax
+    <aliceut-price-display [amount]="order.taxTotal" [currency]="order.buyerDisplayCurrency">
+  mat-divider [margin: 8px 0]
+  div [display: flex; justify-content: space-between; font-weight: 500]
+    span mat-body-1 — Order total
+    <aliceut-price-display [amount]="order.buyerCurrencyGrandTotal" [currency]="order.buyerDisplayCurrency">
 
 div.fulfillments
-  mat-card *ngFor="let fulfillment of order.fulfillments" [margin-bottom: 16px]
+  mat-card *ngFor="let f of order.fulfillments; trackBy: trackByFulfillmentId" [margin-bottom: 16px]
     mat-card-header
       mat-icon mat-card-avatar — storefront
-      mat-card-title — {{ fulfillment.sellerName }}
+      mat-card-title — {{ f.sellerName }}
       mat-card-subtitle
-        <aliceut-status-badge [status]="fulfillment.status" [statusType]="'fulfillment'">
+        span — Fulfillment {{ f.displayId }}
+        <aliceut-status-badge [status]="f.status" [statusType]="'fulfillment'">
     mat-card-content
-      <!-- Status timeline -->
+      <!-- Timeline derived from the fulfillment's own timestamps -->
       div.timeline [margin-bottom: 16px]
-        div.timeline-step *ngFor="let step of fulfillment.timeline" [display: flex; align-items: center; gap: 8px]
+        div.timeline-step *ngFor="let step of timelineOf(f); trackBy: trackByStepKey" [display: flex; align-items: center; gap: 8px]
           mat-icon [color]="step.reached ? 'primary' : 'disabled'" — [step.reached ? 'check_circle' : 'radio_button_unchecked']
           span mat-body-2 [color]="step.reached ? 'primary-text' : 'disabled-text'" — {{ step.label }}
-          span mat-caption color="secondary" *ngIf="step.date" — {{ step.date | date:'medium' }}
+          span mat-caption color="secondary" *ngIf="step.at" — {{ step.at | date:'medium' }}
 
-      p mat-body-2 *ngIf="fulfillment.trackingNumber" — Tracking: <strong>{{ fulfillment.trackingNumber }}</strong>
-      p mat-body-2 *ngIf="fulfillment.eta" — Estimated delivery: <strong>{{ fulfillment.eta | date:'mediumDate' }}</strong>
+      p mat-body-2 — Shipping method: {{ f.shippingMethod }}
+      p mat-body-2 *ngIf="f.trackingNumber" — Tracking: <strong>{{ f.trackingNumber }}</strong>
+      p mat-body-2 *ngIf="f.estimatedDeliveryAt" — Estimated delivery: <strong>{{ f.estimatedDeliveryAt | date:'mediumDate' }}</strong>
 
       mat-divider [margin: 12px 0]
       mat-list [dense]
-        mat-list-item *ngFor="let item of fulfillment.items"
-          img matListItemAvatar [src]="item.imageUrl" [alt]=""
+        mat-list-item *ngFor="let item of f.items; trackBy: trackByOfferId"
           span mat-list-item-title — {{ item.productTitle }}
-          span mat-list-item-line — {{ item.variantLabel }} × {{ item.qty }} · {{ item.unitPrice | currencyDisplay:item.currency }} each
-          <aliceut-price-display matListItemMeta [amount]="item.lineTotal" [currency]="fulfillment.currency">
+          span mat-list-item-line
+            — {{ item.variantLabel }} × {{ item.quantity }} · {{ item.buyerCurrencyUnitPrice | currencyDisplay:item.buyerDisplayCurrency }} each
+          <aliceut-price-display matListItemMeta
+            [amount]="item.buyerCurrencyLineTotal" [currency]="item.buyerDisplayCurrency">
       mat-divider [margin: 12px 0]
-      div [display: flex; justify-content: flex-end]
-        <aliceut-price-display [amount]="fulfillment.total" [currency]="fulfillment.currency">
+      div [display: flex; justify-content: space-between]
+        span mat-body-2 — Shipping
+        <aliceut-price-display [amount]="f.shippingCost" [currency]="f.currency">
+      div [display: flex; justify-content: space-between]
+        span mat-body-2 — Tax
+        <aliceut-price-display [amount]="f.taxTotal" [currency]="f.currency">
+      div [display: flex; justify-content: flex-end; font-weight: 500]
+        <aliceut-price-display [amount]="f.buyerCurrencyTotal" [currency]="f.buyerDisplayCurrency">
+      p mat-caption color="secondary" *ngIf="f.currency !== f.buyerDisplayCurrency"
+        — Captured as <aliceut-price-display [amount]="f.totalAmount" [currency]="f.currency">
+          at a rate of {{ f.items[0].fxRateUsedAtCapture }} on the order date.
 ```
 
-### Status Timeline
+### Status timeline
 
-Steps: Ordered → Shipped → Delivered (→ Refunded if applicable). Reached steps shown in primary colour; future steps in disabled grey.
+Steps are **Ordered → Shipped → Delivered**, with **Refunded** or **Cancelled** appended when the fulfillment reached that state. Each step's reached flag and timestamp come from the fulfillment's own `placedAt`, `shippedAt`, `deliveredAt`, `refundedAt` and `cancelledAt` fields, all of which the detail response carries; nothing is inferred from the status string alone and there is no server-supplied timeline object. Reached steps render in primary colour, future steps in disabled grey, and each pairs its colour with a label.
+
+### Amounts
+
+Every amount on this screen is read from an immutable snapshot. `fxRateUsedAtCapture` is always present and is `"1.00000000"` when the seller's native currency equals the buyer's display currency, so no template branches on a null rate. **No amount is re-derived from live pricing or a live FX rate** (FR-P-03), and the per-fulfillment `shippingCost` and `taxTotal`, the line `tax`, and the order-level pair are all the `"0.00"` structural zeroes.
+
+**Skipped items are not shown here.** An order contains what was placed; the lines a checkout left out are reported once, in the checkout response, and remain in the cart.
+
+### States
+
+- **Loading:** skeleton page header plus two skeleton fulfillment cards.
+- **Not found / foreign order:** `EmptyState` with `icon="receipt_long"`, `title="Order not found"`, `message="This order does not exist or is not yours."` and a link back to `/orders`.
+- **Error:** error banner with a Retry action; the page header stays visible.
+- There is no empty state for fulfillments: an order always has at least one, because a checkout in which every group failed creates no order.
+
+### Mobile
+
+Cards stack full width. The timeline stays vertical. Line items wrap the unit-price caption below the title.
 
 ---
 
@@ -789,7 +1113,7 @@ Steps: Ordered → Shipped → Delivered (→ Refunded if applicable). Reached s
 ## Screen 9 — Login
 
 **Route:** `/login`  
-**Auth:** None (redirect to home if already authenticated)
+**Auth:** None (an already-authenticated visitor is redirected home)
 
 ### Layout
 
@@ -797,42 +1121,35 @@ Steps: Ordered → Shipped → Delivered (→ Refunded if applicable). Reached s
 div.auth-page [display: flex; justify-content: center; align-items: flex-start; padding: 48px 16px]
   mat-card [width: 100%; max-width: 440px; padding: 32px]
     mat-card-header [text-align: center; margin-bottom: 24px]
-      img [src=aliceut-logo.svg; height=48px]
+      img [src=aliceut-logo.svg; alt="AliceUT"; height=48px]
       mat-card-title — Sign in to AliceUT
     mat-card-content
-      <!-- Shown when route has returnUrl containing '/checkout' -->
-      <mat-card class="info-banner" *ngIf="hasCheckoutIntent">
-        <mat-icon>shopping_cart</mat-icon>
-        Sign in to complete your purchase
-      </mat-card>
-      form [formGroup]="loginForm" (ngSubmit)="login()">
-        mat-form-field [appearance=outline; fullWidth; margin-bottom: 16px]
+      <!-- Shown when ?returnUrl contains '/checkout' -->
+      mat-card.info-banner *ngIf="hasCheckoutIntent"
+        mat-icon — shopping_cart
+        span — Sign in to complete your purchase
+
+      form [formGroup]="loginForm" (ngSubmit)="login()"
+        mat-form-field [appearance=outline; fullWidth; subscriptSizing=dynamic; margin-bottom: 16px]
           mat-label — Email address
           input matInput type="email" formControlName="email" autocomplete="email"
-          mat-error *ngIf="email.hasError('required')" — Email is required
-          mat-error *ngIf="email.hasError('email')" — Enter a valid email
+          mat-error *ngIf="email.touched && email.hasError('required')" — Email is required
+          mat-error *ngIf="email.touched && email.hasError('email')" — Enter a valid email
 
-        mat-form-field [appearance=outline; fullWidth]
+        mat-form-field [appearance=outline; fullWidth; subscriptSizing=dynamic]
           mat-label — Password
           input matInput [type]="showPassword ? 'text' : 'password'" formControlName="password" autocomplete="current-password"
           button mat-icon-button matSuffix type="button" (click)="showPassword = !showPassword"
+            [attr.aria-label]="showPassword ? 'Hide password' : 'Show password'"
             mat-icon — {{ showPassword ? 'visibility_off' : 'visibility' }}
-          mat-error *ngIf="password.hasError('required')" — Password is required
+          mat-error *ngIf="password.touched && password.hasError('required')" — Password is required
 
         div [display: flex; justify-content: flex-end; margin: 4px 0 16px]
           a mat-button routerLink="/forgot-password" — Forgot password?
 
-        <!-- Server error -->
         mat-card.error-banner *ngIf="loginError" [margin-bottom: 16px]
           mat-icon — error_outline
-          span — {{ loginError }}   ← always "Incorrect email or password."
-
-        <!-- Email not verified warning -->
-        mat-card.warning-banner *ngIf="emailNotVerified" [margin-bottom: 16px]
-          mat-icon — warning_amber
-          span — Please verify your email to place orders.
-          button mat-button (click)="resendVerification()" [disabled]="resendDisabled" — Resend verification email
-          p mat-caption *ngIf="resendCooldown" — Resend available in {{ resendCooldown }}
+          span — {{ loginError }}
 
         button mat-flat-button color="primary" [fullWidth] type="submit" [disabled]="loginForm.invalid || isLoading"
           mat-spinner *ngIf="isLoading" [diameter]="20"
@@ -843,10 +1160,10 @@ div.auth-page [display: flex; justify-content: center; align-items: flex-start; 
 
       div [display: flex; gap: 12px; margin-bottom: 24px]
         button mat-stroked-button [flex: 1] (click)="loginWithGoogle()"
-          img [src=google-icon.svg; height=18px; margin-right: 8px]
+          img [src=google-icon.svg; alt=""; height=18px; margin-right: 8px]
           span — Google
         button mat-stroked-button [flex: 1] (click)="loginWithFacebook()"
-          img [src=facebook-icon.svg; height=18px; margin-right: 8px]
+          img [src=facebook-icon.svg; alt=""; height=18px; margin-right: 8px]
           span — Facebook
 
     mat-card-footer [text-align: center; padding: 16px]
@@ -854,12 +1171,31 @@ div.auth-page [display: flex; justify-content: center; align-items: flex-start; 
       a mat-button color="primary" routerLink="/register" — Register
 ```
 
+### Request and outcomes
+
+`POST /auth/login` with `{ email, password, portal: "BUYER" }`. **`portal` is required** and names the portal the credentials were entered at; separation between the buyer, seller and admin portals is enforced server-side, not by hiding a button. Rate limit 10 attempts per IP per 15 minutes; there is no account lockout in V1.
+
+| Outcome | Handling |
+|---|---|
+| `200` | Access token held **in memory only** by `AuthService`; the refresh token arrives as an HttpOnly cookie the client never reads. If `user.emailVerified` is `false`, navigate to the verification-pending screen; otherwise honour `?returnUrl=` (validated to be a relative path, to prevent open redirects) or go home. |
+| `401` | Generic "Incorrect email or password." — no field-level enumeration of which half was wrong. |
+| `403` role/portal mismatch | "This account cannot sign in from this portal." A correct password at the wrong portal is a `403`, not a `401`, because retrying the password cannot help. |
+| `403` suspended | "This account is suspended." |
+| `429` | "Too many attempts. Try again shortly." with the `Retry-After` interval. |
+
+**There is no resend-verification control on this page.** `POST /auth/resend-verification` is JWT-guarded, and an unverified account that has just signed in is routed to the verification-pending screen, which holds the resend action.
+
+### OAuth
+
+The Google and Facebook buttons navigate to `GET /auth/google` / `GET /auth/facebook`. The provider returns to `/auth/callback?code=<one-time-code>`, and the SPA immediately exchanges that code with `POST /auth/oauth/exchange` for the session. **No access token, and no refresh token, ever appears in a URL** — the code is opaque, single-use and expires in 60 seconds. OAuth is buyer-only; the seller and admin portals are email and password exclusively.
+
 ### States
 
-- **Submitting:** Button spinner; form disabled.
-- **Error:** Inline `mat-card.error-banner` with generic "Incorrect email or password." message (no field-level enumeration).
-- **Email not verified:** Warning banner with resend button; resend cooldown countdown.
-- **Checkout intent:** Info banner shown above the form when `hasCheckoutIntent` is true (route's `?returnUrl` param contains `/checkout`). Purely contextual — does not change form behavior. `hasCheckoutIntent = this.route.snapshot.queryParams['returnUrl']?.includes('/checkout')`.
+- **Submitting:** button spinner; the form is disabled.
+- **Error:** inline `error-banner` with the generic message.
+- **Rate limited:** the banner names the retry interval and the submit button stays disabled until it elapses.
+- **Checkout intent:** the info banner appears when `?returnUrl` contains `/checkout`. Purely contextual — it changes no form behaviour.
+- **Guest cart present:** after a successful sign-in the client calls `POST /cart/merge` and shows the merge toast described in [Screen 4](#screen-4-cart).
 
 ---
 
@@ -869,43 +1205,61 @@ div.auth-page [display: flex; justify-content: center; align-items: flex-start; 
 **Route:** `/register`  
 **Auth:** None
 
-### Layout (similar shell to Login)
+### Layout (same card shell as Login)
 
 ```
 mat-card [max-width: 440px]
   mat-card-title — Create your AliceUT account
-  form [formGroup]="registerForm"
-    mat-form-field — mat-label "Full Name" — input formControlName="fullName"
-    mat-form-field — mat-label "Email address" — input type="email" formControlName="email"
-    mat-form-field — mat-label "Password" — input type="password" formControlName="password"
+  form [formGroup]="registerForm" (ngSubmit)="register()"
+    mat-form-field [appearance=outline; fullWidth; subscriptSizing=dynamic]
+      mat-label — Full Name
+      input matInput formControlName="fullName" autocomplete="name"
+    mat-form-field [appearance=outline; fullWidth; subscriptSizing=dynamic]
+      mat-label — Email address
+      input matInput type="email" formControlName="email" autocomplete="email"
+      mat-error *ngIf="email.hasError('emailTaken')" — This email is already registered
+    mat-form-field [appearance=outline; fullWidth; subscriptSizing=dynamic]
+      mat-label — Password
+      input matInput type="password" formControlName="password" autocomplete="new-password"
       mat-hint — At least 8 characters, 1 letter, 1 number
     mat-checkbox formControlName="isBusinessAccount" — This is a business account
-      mat-icon [matTooltip]="'Branding only — same shopping experience as personal accounts'" — info_outline
-    button mat-flat-button color="primary" [fullWidth] — Create Account
+      mat-icon [matTooltip]="'Branding only — the same shopping experience as a personal account'" — info_outline
+    button mat-flat-button color="primary" [fullWidth] type="submit" [disabled]="registerForm.invalid || isLoading"
+      mat-spinner *ngIf="isLoading" [diameter]="20"
+      span *ngIf="!isLoading" — Create Account
   mat-divider — or
-  div [OAuth buttons identical to login]
+  div [Google / Facebook buttons, identical to Login]
   mat-card-footer — Already have an account? <a routerLink="/login">Sign in</a>
 ```
 
-### Password Policy
+`POST /auth/register` with `{ email, password, fullName, accountType }`, where `accountType` is `"B2B"` when the business checkbox is ticked and `"B2C"` otherwise. B2B differentiation in V1 is branding only — a badge, the business name and the logo on invoices; there is no bulk pricing, no invoicing screen and no separate B2B catalogue. `409` maps to the `emailTaken` error on the email field.
 
-Applied identically on registration, change-password, and reset-password forms across all portals.
+### Password policy
+
+Applied identically on registration, change-password and reset-password across all portals.
 
 ```
 Pattern: /^(?=.*[a-zA-Z])(?=.*\d).{8,128}$/
-- Minimum 8 characters, maximum 128 characters
-- Must contain at least one letter (upper or lowercase) and at least one digit
-- Validator error messages:
-  - Too short:  "Password must be at least 8 characters."
-  - Too long:   "Password must not exceed 128 characters."
+- Minimum 8 characters, maximum 128
+- At least one letter (either case) and at least one digit
+- Validator messages:
+  - Too short:               "Password must be at least 8 characters."
+  - Too long:                "Password must not exceed 128 characters."
   - Missing letter or digit: "Password must contain at least one letter and one digit."
 ```
 
-> The same regex is enforced on the backend (NestJS zod/class-validator). See `conventions/coding-standards` for the backend validator definition.
+The same rule is enforced server-side; see [backend coding standards](../../conventions/backend-coding-standards.md) for the validator definition.
 
 ### Post-registration
 
-Redirects to `/email-verification-pending` showing: "Check your inbox — we sent a verification link to `{email}`." with Resend button and rate-limit messaging. OAuth registrations bypass this and go directly to home.
+`201` **opens a session** — it returns an access token and sets the refresh cookie — because the account must be created *and* signed in, and because the resend-verification endpoint is JWT-guarded and would otherwise be unreachable. The client then navigates to the verification-pending screen. The account may browse and hold a cart while unverified; only `POST /orders` is blocked. An OAuth registration is verified by the provider and goes straight home.
+
+### States
+
+- **Submitting:** button spinner; form disabled.
+- **Email taken (`409`):** field-level error on the email input.
+- **Validation:** `mat-error` shown only after a field is touched or the form is submitted.
+- **Rate limited (`429`):** banner naming the retry interval — 5 registrations per IP per 15 minutes.
 
 ---
 
@@ -918,159 +1272,234 @@ Redirects to `/email-verification-pending` showing: "Check your inbox — we sen
 ### Layout
 
 ```
-h1 mat-h3 — Account Settings
+h1 mat-headline-3 — Account Settings
 
-mat-tab-group [orientation=vertical] [on desktop; horizontal on mobile]
+mat-tab-group [vertical on desktop; horizontal on mobile]
+
   mat-tab label="Profile"
-    form [formGroup]="profileForm" [max-width: 560px]
-      mat-form-field — mat-label "Display Name" — input formControlName="displayName"
-      mat-form-field [appearance=outline; fullWidth; disabled]
+    form [formGroup]="profileForm" [max-width: 560px] (ngSubmit)="saveProfile()"
+      mat-form-field [appearance=outline; fullWidth] — mat-label "Full Name" — input formControlName="fullName"
+      mat-form-field [appearance=outline; fullWidth]
         mat-label — Email address
-        input [value]="user.email" [disabled]
-        mat-hint — Email change — coming soon
-      mat-form-field — mat-label "Account Type" — input [value]="accountTypeBadge" [disabled]
-      mat-form-field — mat-label "Preferred Display Currency"
+        input matInput [value]="user.email" disabled
+        mat-hint — Email change is not available in this release.
+      mat-form-field [appearance=outline; fullWidth]
+        mat-label — Account Type
+        input matInput [value]="user.accountType" disabled
+      mat-form-field [appearance=outline; fullWidth]
+        mat-label — Preferred Display Currency
         mat-select formControlName="preferredCurrency"
-          mat-option value="Auto" — Auto (browser locale)
+          mat-option [value]="null" — Automatic (from browser language)
           mat-option value="USD" — USD — US Dollar
           mat-option value="THB" — THB — Thai Baht
           mat-option value="JPY" — JPY — Japanese Yen
           mat-option value="SGD" — SGD — Singapore Dollar
-      mat-form-field *ngIf="user.isBusinessAccount" — mat-label "Business Name" — input formControlName="businessName"
-      <!-- B2B only: shown when accountType === 'B2B' -->
-      <div *ngIf="user.isBusinessAccount" class="business-logo-section">
-        <label>Business Logo (optional)</label>
-        <div *ngIf="currentLogoUrl" class="logo-preview">
-          <img [src]="currentLogoUrl" alt="Business logo" style="max-height:64px">
-          <button mat-icon-button (click)="removeLogo()"><mat-icon>delete</mat-icon></button>
-        </div>
+        mat-hint — Converted prices are estimates. Orders are charged in the seller's currency.
+      mat-form-field *ngIf="user.accountType === 'B2B'" [appearance=outline; fullWidth]
+        mat-label — Business Name
+        input matInput formControlName="businessName"
+
+      <!-- B2B only -->
+      div.business-logo-section *ngIf="user.accountType === 'B2B'"
+        h3 mat-headline-6 — Business Logo (optional)
+        div.logo-preview *ngIf="user.businessLogoUrl"
+          img [src]="user.businessLogoUrl" alt="Your business logo" [max-height: 64px]
         <aliceut-file-upload
           accept="image/jpeg,image/png,image/webp"
-          [maxSizeMb]="2"
-          [multiple]="false"
-          (fileSelected)="onLogoSelected($event)"
-          label="Upload logo (JPG/PNG/WebP, max 2MB)">
-        </aliceut-file-upload>
-      </div>
+          [maxSizeMb]="2" [multiple]="false" [maxFiles]="1"
+          (filesChange)="onLogoSelected($event)">
+        p mat-caption — JPG, PNG or WebP, up to 2 MB. Larger images are resized to fit 800 × 800.
+
       p mat-caption — Member since {{ user.createdAt | date:'mediumDate' }}
-      button mat-flat-button color="primary" [disabled]="profileForm.pristine || profileForm.invalid" — Save Changes
+      button mat-flat-button color="primary" type="submit"
+        [disabled]="profileForm.pristine || profileForm.invalid" — Save Changes
 
   mat-tab label="Addresses"
     div [max-width: 560px]
       mat-list
-        mat-list-item *ngFor="let addr of addresses"
+        mat-list-item *ngFor="let addr of addresses; trackBy: trackByAddressId"
           mat-icon matListItemIcon — home
-          span mat-list-item-title — {{ addr.fullName }}, {{ addr.city }}, {{ addr.country }}
+          span mat-list-item-title — {{ addr.label }} — {{ addr.recipientName }}
+          span mat-list-item-line — {{ addr.addressLine1 }}, {{ addr.city }} {{ addr.postalCode }}, {{ addr.countryCode }}
           mat-chip *ngIf="addr.isDefault" — Default
           div matListItemMeta
-            button mat-icon-button (click)="editAddress(addr)" — edit
-            button mat-icon-button (click)="deleteAddress(addr)" color="warn" — delete_outline
+            button mat-button (click)="setDefault(addr)" *ngIf="!addr.isDefault" — Make default
+            button mat-icon-button (click)="editAddress(addr)" aria-label="Edit address" — edit
+            button mat-icon-button (click)="deleteAddress(addr)" color="warn" aria-label="Delete address" — delete_outline
       button mat-stroked-button color="primary" (click)="addAddress()" *ngIf="addresses.length < 10" — Add Address
-      mat-error *ngIf="addresses.length >= 10" — Address limit reached (10). Remove one to add a new address.
+      mat-error *ngIf="addresses.length >= 10" — Address limit reached (10). Remove one to add another.
 
   mat-tab label="Security"
     div [max-width: 560px]
-      h3 mat-h5 — Change Password
-      form [formGroup]="passwordForm"
-        mat-form-field *ngIf="user.hasLocalPassword" — mat-label "Current Password"
-        mat-form-field — mat-label "{{ user.hasLocalPassword ? 'New Password' : 'Set Password' }}"
-        mat-form-field — mat-label "Confirm New Password"
-        button mat-flat-button color="primary" [disabled]="passwordForm.invalid" — {{ user.hasLocalPassword ? 'Change Password' : 'Set Password' }}
+      h3 mat-headline-6 — {{ user.hasLocalPassword ? 'Change Password' : 'Set a Password' }}
+      form [formGroup]="passwordForm" (ngSubmit)="submitPassword()"
+        mat-form-field *ngIf="user.hasLocalPassword" [appearance=outline; fullWidth]
+          mat-label — Current Password
+          input matInput type="password" formControlName="currentPassword" autocomplete="current-password"
+        mat-form-field [appearance=outline; fullWidth]
+          mat-label — {{ user.hasLocalPassword ? 'New Password' : 'Password' }}
+          input matInput type="password" formControlName="newPassword" autocomplete="new-password"
+          mat-hint — At least 8 characters, 1 letter, 1 number
+        mat-form-field [appearance=outline; fullWidth]
+          mat-label — Confirm Password
+          input matInput type="password" formControlName="confirmPassword" autocomplete="new-password"
+        mat-error *ngIf="passwordForm.hasError('passwordMismatch')" — Passwords do not match
+        button mat-flat-button color="primary" type="submit" [disabled]="passwordForm.invalid"
+          — {{ user.hasLocalPassword ? 'Change Password' : 'Set Password' }}
+        p mat-caption — Changing your password signs you out of every other device.
+
       mat-divider [margin: 24px 0]
-      h3 mat-h5 — Sessions
-      button mat-stroked-button color="warn" (click)="logoutAllSessions()" — Sign out all other devices
+      h3 mat-headline-6 — Sessions
+      button mat-stroked-button color="warn" (click)="signOutEverywhere()" — Sign out of all devices
+      p mat-caption — This signs out every device, including this one. You will need to sign in again.
 ```
 
-### Notes
+### Endpoints
 
-**Profile tab — Business logo upload:** Logo upload calls `POST /profile/me/logo` (multipart) or similar; returned storage key stored in `profileForm.businessLogoStorageKey`. Displayed in order confirmation emails (ET-01) and invoices per US-P-07.
+| Control | Endpoint | Notes |
+|---|---|---|
+| Profile read | `GET /profile/me` | Returns `preferredCurrency`, `accountType`, `businessName`, `businessLogoUrl`, `emailVerified`, `sellerKycStatus`, `sellerSuspensionStatus`. |
+| Save profile | `PATCH /profile/me` | `{ fullName?, preferredCurrency?, businessName? }`. `422` when a business field is sent on a non-B2B account. |
+| Logo upload | `POST /profile/me/logo` | `multipart/form-data`, single file field `logo`. JPEG/PNG/WebP, ≤ 2 MB. Oversized **dimensions** are not an error: the server resizes down to fit 800 × 800, preserving aspect ratio. `422` on a non-B2B account. The response carries a presigned `businessLogoUrl` with a 1-hour TTL, so the preview is refreshed from `GET /profile/me` rather than cached indefinitely. The logo appears on order-confirmation email and invoices (US-P-07). |
+| Address list | `GET /profile/addresses` | **Not paginated** — capped at 10 rows, default first. |
+| Add / edit | `POST /profile/addresses`, `PATCH /profile/addresses/:addressId` | `422` at the 10-address cap. The first address on an account is created as the default. |
+| Make default | `PATCH /profile/addresses/:addressId/default` | Demotes the previous default in the same transaction. |
+| Delete | `DELETE /profile/addresses/:addressId` | `409` when the row is the default and other addresses exist — "Set another address as default before deleting this one." Deleting the only address is allowed and leaves the account with no default. Confirmed through `ConfirmDialog`. |
+| Change password | `PATCH /auth/change-password` | `{ currentPassword, newPassword }`. The caller's own session is identified server-side from the refresh cookie, which the client cannot read; **every other** session is revoked. `401` on a wrong current password. |
+| Set password (OAuth-only account) | `POST /auth/set-password` | Shown when the account has no local password. |
+| Sign out everywhere | `POST /auth/logout-all` | Revokes **all** sessions including the caller's, and returns `{ sessionsRevoked }`. The label and caption say so, and the client clears its in-memory token and routes to `/login`. |
+
+**Preferred currency.** The "Automatic" option sends `preferredCurrency: null`, which is the Auto setting: the display currency is then resolved from `Accept-Language` per request, falling back to `USD`. **There is no `"AUTO"` value** — the column is an ISO 4217 code with a foreign key to the currency table, and `AUTO` is not a currency. The choice affects display only; a placed order keeps the currency snapshotted at checkout.
+
+### States
+
+- **Loading:** skeleton form rows per tab.
+- **Saving:** submit button spinner; the form is disabled and stays disabled until the response.
+- **Saved:** `MatSnackBar` success toast (3s, bottom-center).
+- **Validation / conflict:** `mat-error` on the offending field; `409` and `422` render as an inline banner naming the reason.
+- **Empty addresses:** `EmptyState` with `icon="home"`, `title="No saved addresses"` and the Add Address CTA in the content slot.
+- **Upload in progress / failed:** per-file progress bar and inline error inside `FileUpload`, with its Retry action.
 
 ---
 
 <a id="screen-12-email-verification-pending"></a>
-## Screen 12 — Email Verification Pending (State)
+## Screen 12 — Email Verification Pending
 
-**Route:** `/email-verification-pending`
+**Route:** `/email-verification-pending`  
+**Auth:** Required — registration opens a session, and the resend endpoint is JWT-guarded
 
 ```
 div [text-align: center; padding: 64px 24px; max-width: 480px; margin: 0 auto]
   mat-icon [font-size: 64px; color: accent] — mark_email_unread
-  h1 mat-h4 — Check your email
-  p mat-body-1 — We sent a verification link to <strong>{{ email }}</strong>. Click the link to activate your account.
-  p mat-body-2 — You can browse the catalog and add items to your cart while you wait — but you'll need to verify before placing an order.
+  h1 mat-headline-4 — Check your email
+  p mat-body-1 — We sent a verification link to <strong>{{ email }}</strong>. Open it to activate your account.
+  p mat-body-2 — You can browse the catalog and fill your cart while you wait, but you will need to verify before placing an order.
   button mat-flat-button color="primary" (click)="resend()" [disabled]="resendDisabled || resendLoading" [margin-top: 24px]
     mat-spinner *ngIf="resendLoading" [diameter]="20"
     span *ngIf="!resendLoading" — Resend verification email
   p mat-caption *ngIf="resendCooldown" — You can request another email in {{ resendCooldown }}.
   p mat-caption *ngIf="resendLimitReached" color="warn" — Resend limit reached. Try again after {{ limitResetTime }}.
-  button mat-button routerLink="/login" [margin-top: 16px] — Back to sign in
+  button mat-button routerLink="/" [margin-top: 16px] — Continue browsing
 ```
+
+`POST /auth/resend-verification` takes no body — the recipient is the authenticated user — and answers `202`. Rate limit is **3 per hour per user**; `429` sets the limit-reached caption from `Retry-After`. `409` means the address is already verified, and the screen then routes home with a success toast. The verification link itself has a 24-hour TTL and is single-use.
+
+### States
+
+- **Idle:** resend enabled.
+- **Sending:** button spinner.
+- **Cooldown:** button disabled with the countdown caption.
+- **Limit reached (`429`):** warning caption naming the reset time; button disabled.
+- **Already verified (`409`):** navigate home with "Your email is already verified."
 
 ---
 
 <a id="screen-13-forgot-password"></a>
 ## Screen 13 — Forgot Password
 
-**Route:** `/forgot-password`
+**Route:** `/forgot-password`  
+**Auth:** Public
 
 ```
 mat-card [max-width: 440px; margin: 48px auto]
   mat-card-title — Reset your password
   p mat-body-2 — Enter the email you registered with. If an account exists, we'll send a reset link.
-  form (ngSubmit)="requestReset()"
-    mat-form-field [appearance=outline; fullWidth] — mat-label "Email address" — input type="email"
-    button mat-flat-button color="primary" [fullWidth] — Send reset link
-  <!-- Success state (always shown after submit, regardless of whether email exists) -->
+  form [formGroup]="forgotForm" (ngSubmit)="requestReset()"
+    mat-form-field [appearance=outline; fullWidth; subscriptSizing=dynamic]
+      mat-label — Email address
+      input matInput type="email" formControlName="email" autocomplete="email"
+    button mat-flat-button color="primary" [fullWidth] type="submit" [disabled]="forgotForm.invalid || isLoading"
+      mat-spinner *ngIf="isLoading" [diameter]="20"
+      span *ngIf="!isLoading" — Send reset link
   mat-card.success-banner *ngIf="submitted"
     mat-icon color="primary" — check_circle_outline
     span — If an account with that email exists, we sent a reset link. Check your inbox.
   a mat-button routerLink="/login" — Back to sign in
 ```
 
+`POST /auth/forgot-password` with `{ email, portal: "BUYER" }`. The `202` response is **byte-identical** whether the email is unregistered, registered without the buyer role, or registered with it — the three cases must not be distinguishable, so the success banner is shown after every submission and the form is not re-armed with a different message. Rate limit 3 per hour per email; `429` renders the retry interval.
+
+The emailed link points at `/reset-password?token=<raw>&mode=reset|set`, and the token is scoped to the buyer portal: it opens the buyer reset form only and is rejected at the seller one.
+
+### States
+
+- **Idle / submitting / submitted:** as above; the submitted state is terminal for the page.
+- **Rate limited:** banner naming the retry interval; the button stays disabled.
+
 ---
 
 <a id="screen-14-reset-password"></a>
 ## Screen 14 — Reset Password
 
-**Route:** `/reset-password` (reads `?token=` query param)  
+**Route:** `/reset-password?token=&mode=reset|set`  
 **Component:** `ResetPasswordComponent`  
 **Auth:** Public
 
 ### Layout
 
 ```html
-<div [ngSwitch]="tokenState">
-  <mat-spinner *ngSwitchCase="'loading'"></mat-spinner>
-  <form *ngSwitchCase="'valid'" [formGroup]="resetForm">
-    <mat-form-field>
-      <input matInput type="password" formControlName="password" [placeholder]="passwordLabel">
+<div [ngSwitch]="viewState">
+  <form *ngSwitchCase="'form'" [formGroup]="resetForm" (ngSubmit)="submit()">
+    <h1>{{ mode === 'set' ? 'Set a password for your account' : 'Choose a new password' }}</h1>
+    <mat-form-field appearance="outline" subscriptSizing="dynamic">
+      <mat-label>{{ mode === 'set' ? 'Password' : 'New password' }}</mat-label>
+      <input matInput type="password" formControlName="password" autocomplete="new-password">
+      <mat-hint>At least 8 characters, 1 letter, 1 number</mat-hint>
     </mat-form-field>
-    <mat-form-field>
-      <input matInput type="password" formControlName="confirmPassword" placeholder="Confirm password">
+    <mat-form-field appearance="outline" subscriptSizing="dynamic">
+      <mat-label>Confirm password</mat-label>
+      <input matInput type="password" formControlName="confirmPassword" autocomplete="new-password">
     </mat-form-field>
     <mat-error *ngIf="resetForm.hasError('passwordMismatch')">Passwords do not match</mat-error>
-    <button mat-raised-button color="primary" [disabled]="resetForm.invalid">Set New Password</button>
+    <button mat-flat-button color="primary" type="submit" [disabled]="resetForm.invalid || isLoading">
+      <mat-spinner *ngIf="isLoading" diameter="20"></mat-spinner>
+      <span *ngIf="!isLoading">{{ mode === 'set' ? 'Set Password' : 'Set New Password' }}</span>
+    </button>
   </form>
-  <div *ngSwitchCase="'expired'">
-    <p>This reset link has expired or already been used.</p>
+  <div *ngSwitchCase="'invalid'">
+    <p>This reset link has expired, has already been used, or is not valid for this portal.</p>
     <button mat-button routerLink="/forgot-password">Request a new reset link</button>
   </div>
 </div>
 ```
 
+`POST /auth/reset-password` with `{ token, newPassword, portal: "BUYER" }`. On success every session for the account is revoked and the page navigates to `/login?passwordReset=true`.
+
+`mode` is a **display hint only**, carried on the link so the SPA can render the "Set a password" wording for an OAuth-only account without a round trip. The server validates the token and applies the same update either way, so a tampered `mode` changes nothing.
+
 ### States
 
-- **Loading:** On mount, shows form optimistically. Token validity is determined by the `POST /auth/reset-password` response on submit (400 = expired/used). No separate pre-validation endpoint exists.
-- **Valid token — standard:** Show "Enter new password" + "Confirm password" fields. Password requirements hint. Submit button "Set New Password". On success: redirect to `/login?passwordReset=true`.
-- **Valid token — OAuth-only account:** Same form but `passwordLabel` changes to "Set a password for your account" (user previously had no password hash). Note: shown when account has no existing password hash.
-- **Expired/used token:** Error message "This reset link has expired or already been used." with a "Request a new reset link" action that navigates to `/forgot-password`.
+- **Form (initial):** the form is shown optimistically. There is no token pre-validation endpoint — validity is decided by the `POST /auth/reset-password` response.
+- **Invalid (`400`):** one message covers expired, already used, and wrong-portal tokens. They are deliberately indistinguishable: telling them apart would confirm that an account exists at another portal.
+- **Rate limited (`429`):** 5 attempts per token per hour; the banner names the retry interval.
+- **Success:** redirect to `/login?passwordReset=true`, where a success banner is shown.
 
 ---
 
 <a id="screen-15-email-verification-callback"></a>
 ## Screen 15 — Email Verification Callback
 
-**Route:** `/verify-email` (reads `?token=` query param)  
+**Route:** `/verify-email?token=`  
 **Component:** `EmailVerificationCallbackComponent`  
 **Auth:** Public
 
@@ -1079,54 +1508,69 @@ mat-card [max-width: 440px; margin: 48px auto]
 ```html
 <div [ngSwitch]="verifyState">
   <mat-spinner *ngSwitchCase="'loading'"></mat-spinner>
-  <div *ngSwitchCase="'success'">Email verified! Redirecting...</div>
-  <div *ngSwitchCase="'expired'">
-    <p>This verification link has expired.</p>
-    <button mat-button (click)="resendVerification()">Resend verification email</button>
+  <div *ngSwitchCase="'success'">Email verified. Taking you to sign in…</div>
+  <div *ngSwitchCase="'alreadyVerified'">
+    <p>This email is already verified.</p>
+    <button mat-button routerLink="/login">Sign in</button>
+  </div>
+  <div *ngSwitchCase="'invalid'">
+    <p>This verification link has expired or has already been used.</p>
+    <!-- Signed in: the resend endpoint is reachable -->
+    <button mat-flat-button color="primary" *ngIf="isLoggedIn" (click)="resendVerification()">
+      Resend verification email
+    </button>
+    <!-- Not signed in: it is not -->
+    <ng-container *ngIf="!isLoggedIn">
+      <p>Sign in to send yourself a new link.</p>
+      <button mat-flat-button color="primary" routerLink="/login">Sign in</button>
+    </ng-container>
   </div>
 </div>
 ```
 
+`POST /auth/verify-email { token }` is **public** — the buyer may open the link in a browser where they are not signed in. `POST /auth/resend-verification` is **JWT-guarded**, so the resend button can only be offered to a visitor who has a session. An unauthenticated visitor with a dead link is sent to sign in, and the verification-pending screen holds the resend action once they are in.
+
 ### States
 
-- **Loading:** Spinner while calling `POST /auth/verify-email { token }`.
-- **Success:** "Email verified! Redirecting to login..." then auto-redirect to `/login?verified=true` after 2s.
-- **Expired/used token:** "This verification link has expired." with a "Resend verification email" button that calls `POST /auth/resend-verification` (JWT-authenticated, no request body; uses the `sub` claim from the session token).
+- **Loading:** spinner while `POST /auth/verify-email` resolves.
+- **Success (`200`):** confirmation message, then an automatic redirect to `/login?verified=true` after 2 seconds.
+- **Already verified (`409`):** its own state with a sign-in link, not an error.
+- **Invalid or expired (`400`):** as above, branching on whether a session exists.
 
 ---
 
 <a id="screen-16-notifications"></a>
 ## Screen 16 — Notifications
 
-**Route:** `/notifications`
-**Guard:** AuthGuard
+**Route:** `/notifications`  
+**Guard:** authenticated  
 **Component:** `BuyerNotificationsComponent`
 
 ### Layout
 
 ```
-h1 mat-h4 — "Notifications"
-
 div.notifications-header [display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px]
-  h1 mat-h4 — Notifications
-  button mat-stroked-button [disabled]="allRead" (click)="markAllRead()" — Mark all as read
+  h1 mat-headline-4 — Notifications
+  button mat-stroked-button [disabled]="unreadCount === 0 || markingAll" (click)="markAllRead()" — Mark all as read
 
 div.notifications-list [max-width: 800px]
-  mat-card.notification-card *ngFor="let n of notifications"
+  mat-card.notification-card *ngFor="let n of notifications; trackBy: trackByNotificationId"
     [class.unread]="!n.readAt"
-    [cursor: pointer] (click)="handleClick(n)"
-    [display: flex; align-items: flex-start; gap: 16px; padding: 16px]
+    (click)="handleClick(n)" [attr.role]="'button'" [attr.tabindex]="0" (keydown.enter)="handleClick(n)"
+    [display: flex; align-items: flex-start; gap: 16px; padding: 16px; cursor: pointer]
     mat-icon [color]="typeIconColor(n.type)" [font-size: 24px] — {{ typeIcon(n.type) }}
     div [flex: 1]
-      p mat-body-1 [font-weight]="!n.readAt ? '600' : '400'" — {{ n.title }}
-      p mat-body-2 *ngIf="n.body" color="secondary" — {{ n.body }}
+      p mat-body-1 [font-weight]="!n.readAt ? '600' : '400'" — {{ titleFor(n) }}
+      p mat-body-2 color="secondary" — {{ bodyFor(n) }}
       p mat-caption color="secondary" — {{ n.createdAt | timeAgo }}
     div.unread-dot *ngIf="!n.readAt" [width: 8px; height: 8px; border-radius: 50%; background: var(--mat-primary); flex-shrink: 0; margin-top: 6px]
+      span.cdk-visually-hidden — Unread
 
   div.load-more *ngIf="hasMore" [text-align: center; margin-top: 16px]
     button mat-stroked-button (click)="loadMore()" [disabled]="loadingMore"
       mat-spinner *ngIf="loadingMore" [diameter]="16"
       span *ngIf="!loadingMore" — Load more
+  p.end-of-list mat-caption *ngIf="!hasMore && notifications.length > 0" [text-align: center] — End of list
 
 <aliceut-empty-state *ngIf="!loading && notifications.length === 0"
   icon="notifications_none"
@@ -1135,44 +1579,57 @@ div.notifications-list [max-width: 800px]
 </aliceut-empty-state>
 ```
 
-### Notification types displayed
+### Rendering a notification
 
-`ORDER_PLACED`, `ORDER_COMPLETED`, `SHIPMENT_UPDATE`, `DELIVERY_UPDATE`, `REFUND_ISSUED`
-(buyer-relevant types per `notifications.md`)
+The API returns `{ id, type, payload, readAt, createdAt }` and **no title, body or link**: `payload` is an opaque JSON object whose keys follow the source event's payload. The title and body are therefore composed **client-side** from `type`, using the message-pattern table in the [appendix](#appendix-buyer-notifications) with substitutions taken from `payload`; the icon comes from the same table. A `type` the client does not recognise renders a generic title and no body rather than an empty card, so a newly added notification type degrades instead of disappearing.
 
-### Interaction
+Any monetary value substituted into a message — the refund amount, for instance — is a string from `payload` and is rendered with the `currencyDisplay` pipe against its own currency code. No amount is parsed to a number or arithmetically combined.
 
-- Click on a notification with a `link` field: navigate to `link` and mark as read.
-- Click on a notification without `link`: mark as read only.
-- "Mark all as read": calls `PATCH /notifications/read-all`; button disabled after.
+The navigation target is likewise derived from `type` plus the ids in `payload` — an order notification opens `/orders/{orderId}` — because no `link` field exists. A type with no destination marks the notification read and navigates nowhere.
 
 ### API calls
 
-- `GET /notifications?page=1&limit=20` — initial load
-- `GET /notifications?page=N&limit=20` — load more (offset pagination)
-- `PATCH /notifications/read-all` — mark all as read
-- `PATCH /notifications/:id/read` — mark one as read on click
+| Action | Call |
+|---|---|
+| Initial load | `GET /notifications?limit=20` |
+| Load more | `GET /notifications?limit=20&cursor={meta.nextCursor}` — cursor pagination; there is no `page` parameter and no total |
+| Unread filter (bell dropdown) | `GET /notifications?unreadOnly=true&limit=20` |
+| Badge count | `GET /notifications/unread-count` → `{ data: { unreadCount } }` |
+| Mark one read | `PATCH /notifications/:notificationId/read` → `{ data: { id, readAt } }`; the echoed `id` is the key the rendered row is matched against. A repeat call is a no-op that returns the original `readAt` |
+| Mark all read | `PATCH /notifications/read-all` → `{ data: { markedCount } }` |
+
+A `404` on mark-read means the notification does not exist **or** belongs to another user; the two are indistinguishable by design, and the client removes the row and refreshes the page.
+
+### Notification types displayed
+
+`ORDER_PLACED`, `ORDER_COMPLETED`, `SHIPMENT_UPDATE`, `DELIVERY_UPDATE`, `FULFILLMENT_CANCELLED`, `REFUND_ISSUED` — the buyer-relevant subset of the `type` enum in [notifications.md](../technical-design/api-design/notifications.md). This list and the appendix table below are the same six types. Seller- and admin-only types (`KYC_*`, `LOW_STOCK`, `LISTING_*`, `SELLER_*`, `SUSPENSION_EXPIRED`) never reach a buyer account and are not rendered here.
+
+### States
+
+- **Loading:** three skeleton cards.
+- **Empty:** `EmptyState` as above.
+- **End of list:** "Load more" is replaced by the "End of list" caption.
+- **Error:** error banner with a Retry action; already-loaded pages stay visible.
+- **All read:** "Mark all as read" is disabled when `unreadCount` is `0`.
 
 ### Mobile
 
-Full-width cards. "Mark all as read" button moves below the heading on narrow viewports.
+Full-width cards. "Mark all as read" moves below the heading on narrow viewports.
 
 ---
 
 <a id="appendix-buyer-notifications"></a>
 ## Appendix — Buyer Notification Types
 
-In-app notification event types consumed by `<aliceut-notification-bell>` and the `/notifications` page.
+The in-app types a buyer account receives, rendered by `<aliceut-notification-bell>` and the `/notifications` page. The API supplies `type` and an opaque `payload`; the icon and the message are composed client-side from this table, with each bracketed value taken from `payload`.
 
 | Type | Icon | Message pattern |
 |---|---|---|
-| `ORDER_PLACED` | `receipt` | "Your order #[display_id] has been placed." |
-| `ORDER_COMPLETED` | `check_circle` | "Your order #[display_id] is complete." |
-| `SHIPMENT_UPDATE` | `local_shipping` | "Your item from [seller_name] has shipped. Tracking: [tracking_number]" |
-| `DELIVERY_UPDATE` | `done_all` | "Your order from [seller_name] has been delivered." |
-| `FULFILLMENT_CANCELLED` | `cancel` | "A fulfillment in your order has been cancelled." |
-| `REFUND_ISSUED` | `currency_exchange` | "A refund of [amount] [currency] has been processed." (covers both standard refunds and auto-refunds triggered by seller suspension) |
+| `ORDER_PLACED` | `receipt` | "Your order [order display id] has been placed." |
+| `ORDER_COMPLETED` | `check_circle` | "Your order [order display id] is complete." |
+| `SHIPMENT_UPDATE` | `local_shipping` | "Your item from [seller name] has shipped. Tracking: [tracking number]" |
+| `DELIVERY_UPDATE` | `done_all` | "Your order from [seller name] has been delivered." |
+| `FULFILLMENT_CANCELLED` | `cancel` | "A seller cancelled part of your order [order display id]." |
+| `REFUND_ISSUED` | `currency_exchange` | "A refund of [amount] has been processed." — covers both a seller-issued refund and an automatic refund triggered by seller suspension. The amount is a string rendered with `currencyDisplay` against its own currency code. |
 
----
-
-*Last updated: phase-1 design*
+Order display ids render in the `ORD-` form and fulfillment display ids in the `FUL-` form; a message about one seller's shipment names the order it belongs to, never a fulfillment id in place of an order id.

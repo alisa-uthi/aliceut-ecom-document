@@ -89,10 +89,10 @@ Full spec: `../aliceut-ecom-document/conventions/auth-jwt-design.md`
 ### Pricing model
 
 ```
-Product → Offer (per seller) → Price (per currency, per price_type)
+Product → Offer (per seller, one currency) → Price (per price_type)
 ```
 
-Cart and `FulfillmentItem` reference `Offer`, not `Product`. Never store price on `Product`.
+Currency lives on the offer (`catalog.offer.native_currency_code`), not on the price row — a second currency means a second offer. Cart and `FulfillmentItem` reference `Offer`, not `Product`. Never store price on `Product`.
 
 ### Prohibited categories
 
@@ -102,11 +102,11 @@ No weapons, drugs, adult content. Moderation keyword blocklist enforced at listi
 
 ## Database migrations
 
-- All schema changes are raw SQL files in `migrations/phase-N/`.
-- Naming: `{4-digit-seq}_{description}.up.sql` + `.down.sql`.
-- Never use TypeORM `synchronize: true`.
-- Test locally: `migrate up`, verify, `migrate down 1`.
-- Applied via GitHub Actions `workflow_dispatch` in `aliceut-ecom-utility-pipeline` — never auto-run on deploy.
+- All schema changes are raw SQL files in `migrations/phase-N/`, sequenced by the TypeORM CLI.
+- Three files per migration: `{4-digit-seq}_{description}.ts` (a thin `MigrationInterface` shell) + `.up.sql` + `.down.sql`. The SQL is never expressed as schema-builder calls.
+- Never use TypeORM `synchronize: true` — it is `false` in every environment, without exception.
+- Test locally: `npm run migration:run`, verify, `npm run migration:revert` (one migration per invocation — there is no jump-to-version).
+- Applied via the `db-migrate.yml` GitHub Actions `workflow_dispatch` in this repo — never auto-run on deploy, and never from a container entrypoint.
 
 Full rules: `../aliceut-ecom-document/conventions/database-migrations.md`
 
@@ -140,7 +140,7 @@ All paths relative to the sibling `aliceut-ecom-document/` repo:
 | TypeScript config, ESLint, money patterns, DTOs, errors | `conventions/backend-coding-standards.md` |
 | Kafka event envelope, Avro, consumer idempotency, DLQ | `conventions/kafka-events.md` |
 | JWT claims, refresh token storage, TTLs | `conventions/auth-jwt-design.md` |
-| Raw-SQL migrations, golang-migrate, rollback rules | `conventions/database-migrations.md` |
+| Raw-SQL migrations via TypeORM CLI, rollback rules | `conventions/database-migrations.md` |
 | REST naming, response shapes, pagination, auth guards | `conventions/api-conventions.md` |
 | Structured logging, correlation ID | `conventions/observability.md` |
 | MongoDB usage rules | `guidelines/development-flow.md §8` |

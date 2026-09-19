@@ -478,13 +478,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm run build
-      - run: pnpm run test
-      - run: pnpm run lint
+          cache: 'npm'
+      - run: npm ci
+      - run: npm run build
+      - run: npm run test
+      - run: npm run lint
 
   claude-design-review:
     runs-on: ubuntu-latest
@@ -584,8 +582,8 @@ File: `.gitignore` (checked in)
 ```gitignore
 # Dependencies
 node_modules/
-# Do NOT add lock files here — package-lock.json / yarn.lock / pnpm-lock.yaml must be committed
-# for reproducible installs across dev, CI, and production.
+# Do NOT add package-lock.json here — it must be committed, because `npm ci`
+# reads it and it is what makes dev, CI, and production installs identical.
 
 # Build and dist
 dist/
@@ -630,7 +628,7 @@ Thumbs.db
 
 - All source code (`.ts`, `.html`, `.css`)
 - Configuration files (`.eslintrc`, `tsconfig.json`, `nest-cli.json`)
-- Package manifest (`package.json`, though not lock files)
+- Package manifest and lockfile (`package.json` **and** `package-lock.json`)
 - CI workflows (`.github/workflows/`)
 - Documentation and diagrams (`*.md`, `*.drawio`)
 - Docker Compose files (`docker-compose.yml`)

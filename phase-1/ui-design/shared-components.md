@@ -1,336 +1,275 @@
 # Shared UI Components — AliceUT Phase 1
-## `libs/ui/` component library
+## Phase 1 usage registry for `libs/ui/`
 
-**Status:** Draft  
+**Status:** Complete  
 **Stack:** Angular 22+ + Angular Material  
-**Scope:** Components, directives, and pipes shared across buyer-app (4200), seller-app (4201), and admin-app (4202).
+**Contract owner:** [conventions/design-system.md § 8](../../conventions/design-system.md#8-shared-component-library-libsui) and [§ 15](../../conventions/design-system.md#15-custom-pipes)  
+**Scope:** Which shared components the Phase 1 screens use, and what each one is fed on those screens. buyer-app (4200), seller-app (4201), admin-app (4202).
 
 ---
 
-## Table of Contents
+## Summary
 
-1. [NotificationBellComponent](#1-notificationbellcomponent)
-2. [StatusBadgeComponent](#2-statusbadgecomponent)
-3. [PriceDisplayComponent](#3-pricedisplaycomponent)
-4. [EmptyStateComponent](#4-emptystatecomponent)
-5. [DataTableComponent](#5-datatablecomponent)
-6. [FileUploadComponent](#6-fileuploadcomponent)
-7. [ConfirmDialogComponent](#7-confirmdialogcomponent)
-8. [Pipes: timeAgo | truncate | currencyDisplay](#8-pipes)
+1. [How to read this document](#1-how-to-read)
+2. [Where a component comes from](#2-where-a-component-comes-from)
+3. [Component registry](#3-component-registry)
+4. [Per-component phase-1 usage](#4-per-component-phase-1-usage)
+5. [Status vocabulary by `statusType`](#5-status-vocabulary)
+6. [Pipes](#6-pipes)
+7. [Rules every screen follows](#7-rules-every-screen-follows)
 
 ---
 
-<a id="1-notificationbellcomponent"></a>
-## 1. NotificationBellComponent
+<a id="1-how-to-read"></a>
+## 1. How to read this document
 
-**Selector:** `<aliceut-notification-bell>`  
-**Module:** `LibsUiModule`
+`conventions/design-system.md § 8` is the single owner of every shared component's contract — inputs, outputs, template structure, states and colour. This document does not restate those contracts. It records the *phase-1 facts* the convention deliberately leaves out: which screens use each component, which API response fields are bound to which input, and which enum values each screen actually passes.
 
-### Inputs
+Two earlier copies of these contracts lived here and drifted from the convention — a second `StatusBadge` colour map, a `columns`/`data` `DataTable` API that no screen used, and a `ConfirmDialog` that discarded the reason three flows need. `conventions/` outranks `phase-1/ui-design/`, so the convention's version is the one that survives and this document points at it rather than paraphrasing it. If a screen needs behaviour the convention does not describe, the fix is a change to `design-system.md § 8`, not a local contract here.
 
-| Input | Type | Default | Description |
-|---|---|---|---|
-| `unreadCount` | `number` | `0` | Count of unread notifications |
-| `maxDisplay` | `number` | `99` | Cap for badge display (shows "99+" above this) |
+---
 
-### Outputs
+<a id="2-where-a-component-comes-from"></a>
+## 2. Where a component comes from
 
-| Output | Type | Description |
+Two import paths, and they are not interchangeable ([frontend-coding-standards.md § 8](../../conventions/frontend-coding-standards.md#8-angular-material-usage-rules), [design-system.md § 14](../../conventions/design-system.md#14-component-import-strategy)):
+
+| Kind | Where from | How it is imported |
 |---|---|---|
-| `(bellClick)` | `EventEmitter<void>` | Emitted when bell button is clicked; host navigates to /notifications |
+| **Composite** — own template and logic (`<aliceut-*>`) | `libs/ui`, exported from `@aliceut/shared-ui` | Named import from the barrel, listed in the feature component's `imports: []` |
+| **Angular Material primitive** — `MatButtonModule`, `MatTableModule`, `MatStepperModule`, `MatSidenavModule`, `MatChipsModule`, `MatDatepickerModule`, `MatSnackBar`, … | `@angular/material/*` | Named import **directly in the feature component** that uses it |
 
-### Behavior
+`libs/ui` re-exports no Angular Material module. There is no `MatModule` catch-all and no wrapper whose only job is to pass a primitive through. A composite imports whatever Material modules it needs internally; that is an implementation detail its consumers never see. A screen that needs a primitive with no composite equivalent imports the primitive — the wireframes below name Material primitives directly wherever that is the case, and doing so is correct rather than a shortcut.
 
-- Renders a `mat-icon-button` with `notifications` icon.
-- `matBadge` shown when `unreadCount > 0`; `matBadgeHidden` when `unreadCount === 0`.
-- Badge label: `unreadCount <= maxDisplay ? unreadCount : maxDisplay + '+'`.
-- Badge color: `mat-badge-warn`.
-- Bell icon always visible when rendered — host is responsible for `*ngIf="isLoggedIn"`.
+There is no `LibsUiModule`. Every shared component is a **standalone** component; `NgModule` packaging appears nowhere in the frontend.
 
-### Example
+---
+
+<a id="3-component-registry"></a>
+## 3. Component registry
+
+The nine composites `libs/ui` exports, and where Phase 1 uses them.
+
+| Composite | Selector | Used by |
+|---|---|---|
+| `ProductCardComponent` | `<aliceut-product-card>` | buyer: home featured grid, search results grid |
+| `StatusBadgeComponent` | `<aliceut-status-badge>` | buyer: order history, order detail · seller: listings, order queue, order detail, listing editor · admin: KYC queue, KYC detail, seller list, seller detail |
+| `PriceDisplayComponent` | `<aliceut-price-display>` | buyer: product card, PDP, cart, checkout, order detail · seller: listings, order queue, order detail, offer pricing |
+| `CurrencyInputComponent` | `<aliceut-currency-input>` | buyer: search price-range filter · seller: listing editor pricing rows, offer pricing form |
+| `ConfirmDialogComponent` | opened via `MatDialog` | buyer: cancel order, remove address · seller: mark shipped, refund, cancel, delete listing, delete price row · admin: KYC approve/reject, listing remove, bulk remove, suspend, reinstate |
+| `DataTableComponent` | `<aliceut-data-table>` | seller: listings, order queue, inventory, offer pricing · admin: KYC queue, moderation queue, seller list · buyer: order history |
+| `NotificationBellComponent` | `<aliceut-notification-bell>` | all three portal shells |
+| `FileUploadComponent` | `<aliceut-file-upload>` | seller: KYC documents, product images, inventory CSV · buyer: business logo |
+| `EmptyStateComponent` | `<aliceut-empty-state>` | every list, table and notification surface |
+
+A tenth entry is earned by a component with its own template and logic that at least two screens use ([design-system.md § 14](../../conventions/design-system.md#14-component-import-strategy)). Nothing in Phase 1 clears that bar beyond the nine above.
+
+---
+
+<a id="4-per-component-phase-1-usage"></a>
+## 4. Per-component phase-1 usage
+
+### 4.1 NotificationBell
+
+Contract: [design-system.md § 8.7](../../conventions/design-system.md#8-shared-component-library-libsui). Inputs `notifications`, `unreadCount`; outputs `markAsRead`, `markAllRead`.
+
+Every portal shell binds the same two reads:
+
+| Input | Source |
+|---|---|
+| `notifications` | `GET /notifications?limit=20` — the `data[]` rows, each `{ id, type, payload, readAt, createdAt }` |
+| `unreadCount` | `GET /notifications/unread-count` — `data.unreadCount` |
+
+`unreadCount` is its own endpoint because `GET /notifications` carries no total and `meta` permits no extra key ([api-conventions.md § Pagination](../../conventions/api-conventions.md#pagination), [notifications.md § Get unread count](../technical-design/api-design/notifications.md#get-unread-count)). The badge caps the *displayed* figure at `99+`; the returned number is not clamped. The dropdown's "View all" link targets the portal's notifications page.
+
+`markAsRead` calls `PATCH /notifications/:notificationId/read`; `markAllRead` calls `PATCH /notifications/read-all`. Parent components poll on page focus and on a 60 s interval — there is no WebSocket in V1.
+
+**A notification row has no `title` and no `body`.** The API returns a `type` and an opaque `payload` object; the human-readable line is composed in the client from the two. Each portal's notifications screen carries the type-to-copy table for the types it renders.
+
+---
+
+### 4.2 StatusBadge
+
+Contract: [design-system.md § 8.2](../../conventions/design-system.md#8-shared-component-library-libsui). Inputs `status`, `statusType`. Colour is owned by the map in that section and defined nowhere else; a status a screen renders but the map omits is a gap in the map, closed there.
+
+`role="status"` and an `aria-label` carrying the full description ("Order status: Shipped") are part of the component, so no call site adds them.
+
+The `statusType` union is `'order' | 'fulfillment' | 'kyc' | 'listing' | 'seller'`. See [§ 5](#5-status-vocabulary) for the values each one receives in V1.
+
+---
+
+### 4.3 PriceDisplay
+
+Contract: [design-system.md § 8.3](../../conventions/design-system.md#8-shared-component-library-libsui).
+
+Every amount reaching this component is a **string** already denominated in the currency it will be shown in, with its currency code beside it. The component formats with `Intl.NumberFormat` at the render boundary and performs no arithmetic. Decimal places follow `Currency.minor_unit_scale` — JPY 0, BHD/KWD 3, USD/THB/SGD 2.
+
+Phase-1 binding sources per input:
+
+| Input | Where the value comes from |
+|---|---|
+| `amount`, `currency` | Browse surfaces: `lowestOffer.displayAmount` / `displayCurrency` from `GET /search/products`, or `effectivePrice` from `GET /catalog/products/:id/offers`. Seller surfaces: the offer's `prices[].amount` with the offer's `nativeCurrencyCode`. Order surfaces: the snapshotted `unitPrice` / `lineTotal` / `totalAmount` with the fulfillment's `currencyCode` |
+| `listAmount` | The `LIST` row's amount when a `SALE` row is the effective price. Present on seller pricing screens, which hold every price row for the offer; browse surfaces pass `null` unless the response supplies both |
+| `isFxEstimate` | `true` when the response converted the amount — a non-null `fxRate` on `search`/`catalog` responses. Drives the `≈` prefix and the info tooltip |
+| `offerCurrency` | The offer's `nativeCurrencyCode` when it differs from the displayed currency |
+| `saleEndsAt` | The `SALE` price row's `endsAt` |
+| `tierMinQty`, `tierAmount` | The `B2B_TIER` row's `minQty` and `amount`. Set only where the response carries a tier row — the PDP for a B2B account, and the seller's own pricing screens. `B2B_TIER` is never indexed for search, so search results never set these |
+
+**No screen computes a monetary value.** Line totals, subtotals and converted amounts arrive from the server as strings. There is no multiplication, addition or rounding of money in any template or component, and there is no FX service in a portal app ([frontend-coding-standards.md § 5](../../conventions/frontend-coding-standards.md#5-money-display-patterns)).
+
+---
+
+### 4.4 CurrencyInput
+
+Contract: [design-system.md § 8.4](../../conventions/design-system.md#8-shared-component-library-libsui). A `ControlValueAccessor` emitting a decimal **string**, with a `mat-label` (never placeholder-only) and the currency code as `matSuffix`.
+
+Used for every monetary input in Phase 1: the seller's price amount on the listing editor and the offer-pricing form, and both ends of the buyer's price-range filter. `<input type="number">` is never used for money, and a `mat-slider` is not permitted for a monetary range — a slider is bound to a JS `number`, which is the one thing money may not be.
+
+`currencyCode` on the seller's price inputs is the parent **offer's** `nativeCurrencyCode`, not a per-row choice: an offer has exactly one pricing currency and every price row inherits it ([seller.md § Add/update offer price](../technical-design/api-design/seller.md#addupdate-offer-price)).
+
+---
+
+### 4.5 EmptyState
+
+Contract: [design-system.md § 8.9](../../conventions/design-system.md#8-shared-component-library-libsui). Inputs `icon`, `title`, `message`; the CTA is **projected content**, not an input.
 
 ```html
-<aliceut-notification-bell
-  [unreadCount]="unreadCount"
-  (bellClick)="router.navigate(['/notifications'])">
-</aliceut-notification-bell>
+<aliceut-empty-state icon="receipt_long" title="No orders yet"
+                     message="Browse the catalog to get started">
+  <button mat-flat-button color="primary" routerLink="/">Browse products</button>
+</aliceut-empty-state>
 ```
 
----
-
-<a id="2-statusbadgecomponent"></a>
-## 2. StatusBadgeComponent
-
-**Selector:** `<aliceut-status-badge>`  
-**Module:** `LibsUiModule`
-
-### Inputs
-
-| Input | Type | Required | Description |
-|---|---|---|---|
-| `status` | `string` | Yes | Status value to display |
-| `statusType` | `'order' \| 'fulfillment' \| 'kyc' \| 'listing' \| 'seller'` | Yes | Context for color/label mapping |
-
-### Status → color mapping
-
-**listing** (`statusType='listing'`)
-
-| Status | Color | Label |
-|---|---|---|
-| `ACTIVE` | green (primary) | Active |
-| `DRAFT` | grey | Draft |
-| `FLAGGED` | orange (warn) | Flagged |
-| `REMOVED` | red (error) | Removed |
-| `UNDER_REVIEW` | yellow (accent) | Under Review |
-
-**order** (`statusType='order'`)
-
-| Status | Color | Label |
-|---|---|---|
-| `PENDING` | grey | Pending |
-| `PROCESSING` | blue | Processing |
-| `COMPLETED` | green | Completed |
-| `CANCELLED` | red | Cancelled |
-
-**fulfillment** (`statusType='fulfillment'`)
-
-| Status | Color | Label |
-|---|---|---|
-| `PENDING` | grey | Pending |
-| `SHIPPED` | cyan | Shipped |
-| `DELIVERED` | green | Delivered |
-| `REFUNDED` | orange | Refunded |
-| `CANCELLED` | red | Cancelled |
-
-**kyc** (`statusType='kyc'`)
-
-| Status | Color | Label |
-|---|---|---|
-| `PENDING_KYC` | grey | Pending |
-| `UNDER_REVIEW` | yellow | Under Review |
-| `APPROVED` | green | Approved |
-| `REJECTED` | red | Rejected |
-| `RESUBMITTED` | blue | Resubmitted |
-
-**seller account** (`statusType='seller'`)
-
-| Status | Color | Label |
-|---|---|---|
-| `ACTIVE` | green | Active |
-| `PENDING_KYC` | yellow | KYC Pending |
-| `SUSPENDED` | red | Suspended |
-| `SUSP_EXP` | orange | Suspension Expiring |
-
-### Implementation
-
-Renders a styled `<span>` or `<mat-chip>`. Unknown status values fall back to grey with the raw status string.
+There is no `actionLabel` and no `actionRoute`. A CTA that needs a `routerLink`, a click handler or a disabled state cannot be expressed as two string inputs, and every Phase 1 call site projects a button.
 
 ---
 
-<a id="3-pricedisplaycomponent"></a>
-## 3. PriceDisplayComponent
+### 4.6 DataTable
 
-**Selector:** `<aliceut-price-display>`  
-**Module:** `LibsUiModule`
+Contract: [design-system.md § 8.6](../../conventions/design-system.md#8-shared-component-library-libsui). Inputs `dataSource`, `loading`, `emptyMessage`, `hasMore`, `hasPrevious`; outputs `nextPage`, `previousPage`, `filterChange`, `sortChange`, `selectionChange`.
 
-All amounts arrive as strings from the API and are never parsed into floats by this component.
+**Columns are projected by the caller**, not declared through a `columns` array. Every table in Phase 1 needs custom cells — status badges, price strings, row action menus, selection checkboxes — so the caller projects `<ng-container matColumnDef="…">` blocks and the wrapper owns the shell: toolbar with the `[table-actions]` slot, search field, scroll wrapper, sticky header, loading overlay, empty state and the pagination footer.
 
-### Inputs
+**Pagination is Previous/Next, and there is no `MatPaginator`.** Every list endpoint is cursor-paginated and returns no total, so there is no `length` from which page numbers, a page count or "N of M" could be rendered ([api-conventions.md § Pagination](../../conventions/api-conventions.md#pagination), [frontend-coding-standards.md § 8](../../conventions/frontend-coding-standards.md#8-angular-material-usage-rules)). There is no `page`, `pageSize`, `total` or `pageChange` anywhere in the contract or at any call site.
 
-| Input | Type | Default | Description |
-|---|---|---|---|
-| `amount` | `string` | required | Offer-native (or display-currency) price amount string (e.g. `"99.99"`) |
-| `currency` | `string` | required | ISO 4217 display currency code |
-| `listAmount` | `string \| null` | `null` | Pre-sale LIST price; shows strikethrough when set |
-| `isFxEstimate` | `boolean` | `false` | `true` = display price is an FX estimate (may be stale); shows stale indicator |
-| `offerCurrency` | `string \| null` | `null` | Offer-native currency when it differs from `currency`; shown as secondary line |
-| `saleEndsAt` | `Date \| null` | `null` | Shows countdown badge when within 24h of now |
-| `tierMinQty` | `number \| null` | `null` | B2B tier minimum quantity; when set, shows "Business price" label |
-| `tierAmount` | `string \| null` | `null` | B2B tier price amount string; displayed instead of `amount` when set |
+The **smart component owns the cursor stack**: it pushes `meta.nextCursor` on `nextPage` and pops on `previousPage`, and passes `hasMore` straight from `meta.hasMore` and `hasPrevious` as "the stack is non-empty". The table never constructs or inspects a cursor — the token is opaque and its shape may change without an API version bump.
 
-### Display rules
+Because the user has no page count to infer position from, both boundaries are stated rather than implied: an empty page renders `EmptyState`, and the last page disables Next with the caption "End of list". A row count is never presented as a total.
 
-- **SALE:** show `listAmount` struck through, `amount` in accent color, optional sale countdown badge if `saleEndsAt` within 24h.
-- **B2B_TIER:** show `tierAmount` (or `amount` if null) with "Business price" label and minimum quantity (`tierMinQty`) requirement.
-- **FX conversion:** if `offerCurrency` is set and differs from `currency`: show `amount currency` as primary, `offerCurrency` native amount as smaller secondary. If `isFxEstimate` is `true`, show stale indicator.
-- **No conversion:** show `amount currency` only.
-- All display formatting uses `currencyDisplay` pipe internally (see §8).
+Sorting emits `sortChange`; the smart component maps it to the endpoint's own sort parameter and **discards the cursor stack**, because a cursor is only valid for the sort and filter set it was issued under and presenting it against a different one is a plain `400`.
+
+A short, non-paginated array — the `moderationHistory[]` on the admin seller-detail response, for instance — is rendered with a plain `mat-table` rather than this composite. Wrapping a fixed array in a paginated shell produces a footer whose controls can never do anything.
 
 ---
 
-<a id="4-emptystatecomponent"></a>
-## 4. EmptyStateComponent
+### 4.7 ConfirmDialog
 
-**Selector:** `<aliceut-empty-state>`  
-**Module:** `LibsUiModule`
-
-### Inputs
-
-| Input | Type | Default | Description |
-|---|---|---|---|
-| `icon` | `string` | `'inbox'` | `mat-icon` ligature name |
-| `title` | `string` | `'Nothing here'` | Heading text |
-| `message` | `string` | `''` | Body text |
-| `actionLabel` | `string \| null` | `null` | CTA button label; button hidden when null |
-| `actionRoute` | `string \| null` | `null` | `routerLink` path for CTA |
-
-Centered layout — `text-align: center; padding: 48px 24px`. Suitable for list pages, search results, and notification pages.
-
----
-
-<a id="5-datatablecomponent"></a>
-## 5. DataTableComponent
-
-**Selector:** `<aliceut-data-table>`  
-**Module:** `LibsUiModule`  
-Wraps `MatTable` + `MatPaginator` + `MatSort`.
-
-### Inputs
-
-| Input | Type | Description |
-|---|---|---|
-| `columns` | `ColumnDef[]` | Column definitions |
-| `data` | `any[]` | Row data |
-| `total` | `number` | Total item count for server-side pagination |
-| `page` | `number` | Current page (1-based) |
-| `limit` | `number` | Page size (default 20) |
-| `loading` | `boolean` | Shows skeleton rows when `true` |
-| `emptyMessage` | `string` | Text shown when `data` is empty and `loading` is false |
-| `sortActive` | `string` | Active sort column `key` |
-| `sortDirection` | `'asc' \| 'desc'` | Sort direction |
-
-### ColumnDef interface
+Contract: [design-system.md § 8.5](../../conventions/design-system.md#8-shared-component-library-libsui).
 
 ```typescript
-interface ColumnDef {
-  key: string;       // row property name
-  header: string;    // column header label
-  sortable?: boolean;
-  pipe?: 'timeAgo' | 'truncate' | 'currencyDisplay' | 'statusBadge';
-  width?: string;    // CSS e.g. '120px'
-}
+MatDialog.open(ConfirmDialogComponent, { data: config })
+// → Observable<{ confirmed: boolean; reason?: string } | undefined>
 ```
 
-### Outputs
+`undefined` means dismissed by backdrop or Escape. Config: `title`, `message`, `confirmLabel`, `cancelLabel`, `requireReason`, `reasonLabel`, `reasonMaxLength` (default **500**), `danger`.
 
-| Output | Type | Description |
-|---|---|---|
-| `(pageChange)` | `EventEmitter<{ page: number; limit: number }>` | Emitted on paginator page change |
-| `(sortChange)` | `EventEmitter<{ column: string; direction: 'asc' \| 'desc' }>` | Emitted on sort header click |
+**The reason comes back on the result object.** Four flows send a reason to the API and this dialog is where it is typed — seller refund (US-S-07), seller cancel (US-S-11), admin listing removal (US-A-04) and admin reinstate (US-A-05b). Each passes `requireReason: true`; Confirm stays disabled until a non-whitespace reason is entered, the textarea shows a character counter, and `reasonMaxLength` defaults to 500 to match the API field limit on every one of those endpoints. When `requireReason` is false the field is absent and `reason` is `undefined`.
 
----
-
-<a id="6-fileuploadcomponent"></a>
-## 6. FileUploadComponent
-
-**Selector:** `<aliceut-file-upload>`  
-**Module:** `LibsUiModule`
-
-### Inputs
-
-| Input | Type | Default | Description |
-|---|---|---|---|
-| `accept` | `string` | `'image/*'` | MIME types or file extensions |
-| `maxSizeMb` | `number` | `5` | Maximum file size in MB |
-| `multiple` | `boolean` | `false` | Allow multiple file selection |
-| `maxFiles` | `number` | `1` | Maximum file count when `multiple=true` |
-| `uploadUrl` | `string` | required | Backend API endpoint to obtain presigned URL |
-| `uploadHeaders` | `Record<string, string>` | `{}` | Additional request headers (e.g. `Authorization`) |
-
-### Outputs
-
-| Output | Type | Description |
-|---|---|---|
-| `(filesChange)` | `EventEmitter<UploadedFile[]>` | Emitted on successful upload(s); `UploadedFile = { url: string; key: string }` |
-| `(uploadError)` | `EventEmitter<string>` | Emitted on upload failure with error message |
-
-### Behavior
-
-- Drag-and-drop zone + "Browse files" button.
-- Shows progress bar per file during upload.
-- Error messages: `"File too large (max {N}MB)"` or `"Invalid file type"`.
-- **Upload pattern:** calls backend for presigned URL → PUT direct to MinIO.
+No flow gets a bespoke dialog, and there is no type-a-value-to-confirm input in the config. A confirmation that needs extra emphasis says so in `message` and sets `danger: true`.
 
 ---
 
-<a id="7-confirmdialogcomponent"></a>
-## 7. ConfirmDialogComponent
+### 4.8 FileUpload
 
-Opened via: `MatDialog.open(ConfirmDialogComponent, { data: ConfirmDialogData })`  
-**Module:** `LibsUiModule`
+Contract: [design-system.md § 8.8](../../conventions/design-system.md#8-shared-component-library-libsui). Inputs `accept`, `maxSizeMb`, `multiple`, `maxFiles`; output `filesChange`.
 
-### ConfirmDialogData
+The component does not hold an upload URL. It is a picker with validation and per-file progress; the owning screen decides where the bytes go and names the endpoint. Per-file state is part of the contract: progress bar while uploading, success tick, and an inline error with a **Retry** action per file, plus a summary line when every file fails.
+
+Phase-1 call sites:
+
+| Screen | `accept` | `maxSizeMb` | `multiple` / `maxFiles` | Destination |
+|---|---|---|---|---|
+| Seller KYC documents | `application/pdf,image/jpeg,image/png` | 10 | yes / 5 | Sent as `documents[]` in the `POST /seller/kyc` (or `/seller/kyc/resubmit`) multipart body |
+| Seller product images | `image/jpeg,image/png,image/webp` | 5 | yes / 10 | Uploaded ahead of `POST /seller/products`, which references the resulting storage keys |
+| Seller inventory CSV | `.csv` | 5 | no / 1 | Sent as `file` in the `POST /seller/inventory/bulk` multipart body |
+| Buyer business logo | `image/jpeg,image/png` | 5 | no / 1 | The profile logo endpoint in `api-design/profile.md` |
+
+KYC uploads are additionally validated server-side on extension, **sniffed** MIME type and size; a type failure is `415` and an oversize file is `413`, and a rejected file fails the whole request rather than being dropped silently. Client-side `accept` and `maxSizeMb` are a courtesy, never the check that matters.
+
+---
+
+<a id="5-status-vocabulary"></a>
+## 5. Status vocabulary by `statusType`
+
+Which values each `statusType` receives in V1. Colour for every value below is resolved by the one map in [design-system.md § 8.2](../../conventions/design-system.md#8-shared-component-library-libsui).
+
+| `statusType` | Values passed | Source |
+|---|---|---|
+| `order` | The derived order status — never stored, computed from the order's fulfillment statuses on read | `user-stories/buyer.md` derived-status table, surfaced as `orderStatus` |
+| `fulfillment` | `PENDING`, `SHIPPED`, `DELIVERED`, `REFUNDED`, `CANCELLED` | `fulfillment_status` enum, complete |
+| `listing` | `ACTIVE`, `INACTIVE`, `REMOVED`, `FLAGGED` | `offer_status` enum, complete |
+| `kyc` | `PENDING`, `UNDER_REVIEW`, `APPROVED`, `REJECTED` — one KYC **application**'s outcome | `kyc_status` enum, `seller.kyc_application.status` |
+| `kyc` | `PENDING_KYC`, `APPROVED`, `REJECTED` — the seller **profile**'s current standing | `seller_kyc_status` enum, `seller.seller_profile.kyc_status` |
+| `seller` | `ACTIVE`, `SUSPENDED` | `seller.seller_profile.suspension_status` |
+
+Four things this table is deliberate about:
+
+- **There is no `DRAFT` listing status.** A listing goes live on submit; `offer_status` has four values and `DRAFT` is not one of them.
+- **The two KYC vocabularies are different enums and both are real.** The application's `status` records one submission's outcome and is immutable once decided; the profile's `kyc_status` is the seller's current standing and moves back to `PENDING_KYC` on a resubmission. A KYC screen may legitimately show both, and neither is derivable from the other.
+- **Seller standing is two independent columns, not one chain.** `kyc_status` and `suspension_status` are separate: a suspended seller can be KYC-approved, and an unsuspended one can be KYC-rejected. No screen renders them as a single status field or a single wizard track.
+- **`SUSPENSION_EXPIRED` is not a stored value.** It is the derived condition `suspended_until < now()`, and no column, claim or response field holds it. Nothing passes it to a badge. (`SUSPENSION_EXPIRED` does exist as an in-app *notification type*, which is a different vocabulary — see [notifications.md](../technical-design/api-design/notifications.md).)
+
+Moderation case status (`OPEN`, `RESOLVED`, `DISMISSED`) is **not** in the `statusType` union and is not rendered through `StatusBadge`. The admin moderation screens render it as a labelled `mat-chip` — see [admin-portal.md](admin-portal.md).
+
+---
+
+<a id="6-pipes"></a>
+## 6. Pipes
+
+Four pipes, all defined in [design-system.md § 15](../../conventions/design-system.md#15-custom-pipes) and exported from `@aliceut/shared-ui`. Each is standalone and listed individually in the importing component's `imports: []`.
+
+| Pipe | Usage | Phase-1 notes |
+|---|---|---|
+| `timeAgo` | `{{ n.createdAt \| timeAgo }}` | Pure, and it does **not** auto-update. A relative label refreshes only when its host component re-runs change detection; nothing in Phase 1 needs a ticking clock, so no host schedules one |
+| `truncate` | `{{ row.reason \| truncate:60 }}` | Used on moderation reasons and product titles inside table cells |
+| `currencyDisplay` | `{{ item.unitPrice \| currencyDisplay:item.currencyCode }}` | Input is always a string amount. `Number()` is applied once, inside the pipe, at the `Intl.NumberFormat` boundary and never for arithmetic. Scale from `Currency.minor_unit_scale` |
+| `safe` | `[href]="url \| safe:'url'"` | Only for URLs the platform itself issued. No user-supplied value is ever passed through it, and no Phase 1 screen passes a document or description through `safe:'html'` or `safe:'resourceUrl'` |
+
+`PriceDisplay` uses `currencyDisplay` internally, so a screen rendering money through the composite does not import the pipe as well.
+
+---
+
+<a id="7-rules-every-screen-follows"></a>
+## 7. Rules every screen follows
+
+These hold on every wireframe in `buyer-portal.md`, `seller-portal.md` and `admin-portal.md`, so the individual screens do not repeat them.
+
+**Standalone and OnPush.** Every component is standalone with `ChangeDetectionStrategy.OnPush`; an exception carries a comment saying why. Every feature route is lazily loaded with `loadComponent` or `loadChildren`.
+
+**Three states, always.** Every data-fetching component defines loading, empty and error, using the discriminated union from [frontend-coding-standards.md § 2](../../conventions/frontend-coding-standards.md#2-component-architecture):
 
 ```typescript
-interface ConfirmDialogData {
-  title: string;
-  message: string;
-  confirmLabel?: string;      // default: "Confirm"
-  cancelLabel?: string;       // default: "Cancel"
-  danger?: boolean;           // true: confirm button uses mat-warn color
-  requireReason?: boolean;    // true: shows free-text reason textarea; confirm disabled until filled
-  requireNameMatch?: string;  // if set, shows text input with this label as prompt;
-                              // confirm button disabled until user types the exact string value
-                              // used for permanent seller suspension confirmation
-}
+type ViewState<T> =
+  | { status: 'loading' }
+  | { status: 'empty' }
+  | { status: 'error'; message: string }
+  | { status: 'loaded'; data: T };
 ```
 
-**Return type:** `MatDialogRef<ConfirmDialogComponent, boolean | undefined>`
-- `true`: user confirmed
-- `false` / `undefined`: user cancelled
+Rendered with `@switch` on `viewState.status` — never an `*ngIf="data && !loading && !error"` chain, which makes the error state invisible. Each screen's **States** section names what the three look like there; the loading treatments themselves are in [design-system.md § 13](../../conventions/design-system.md#13-loading-state-patterns).
 
-### Notes
+**Reactive forms only.** No `[(ngModel)]` anywhere, including inline table edits and search boxes — those are `FormControl`s. `mat-form-field` always carries a `mat-label`, `appearance="outline"` and `subscriptSizing="dynamic"`, and `mat-error` shows only after touch or submit.
 
-- `requireReason` and `requireNameMatch` are mutually exclusive; if both set, `requireNameMatch` takes precedence.
-- `requireReason` result is not returned — caller re-reads form state after dialog closes. If the reason value is needed, pass a reference object via `data` or use a custom dialog.
+**Money.** Amounts arrive as strings and are rendered through `PriceDisplay` or `currencyDisplay`; monetary input goes through `CurrencyInput`. No template performs arithmetic on an amount, and no monetary field is ever typed `number`.
 
----
+**Pagination.** Cursor only: `limit` (20 by default) plus an opaque `cursor`, Previous/Next from the cursor stack, no total and no page numbers. A bad cursor is a `400`, so the stack is discarded whenever the sort or filter set changes.
 
-<a id="8-pipes"></a>
-## 8. Pipes
+**Accessibility.** Every portal shell opens with `<a class="skip-link" href="#main-content">Skip to main content</a>` as its first focusable element, and the shell's `<main>` carries `id="main-content"`. Every `mat-icon-button` without visible text has an `aria-label`. Every `<img>` has `alt` — product images use the product title, decorative images use `alt=""`. Colour is never the only carrier of state.
 
-### timeAgo
+**Lists.** Every `*ngFor` over data that can change supplies `trackBy` returning the row's `id`; static lists such as enum option sets may omit it. Observables are consumed with the `async` pipe, or with `takeUntilDestroyed(this.destroyRef)` where an imperative subscription is unavoidable.
 
-Transforms an ISO8601 timestamp to a human-readable relative string.
-
-| Age | Output |
-|---|---|
-| < 1 min | "just now" |
-| < 60 min | "X minutes ago" |
-| < 24 h | "X hours ago" |
-| < 7 days | "X days ago" |
-| ≥ 7 days | formatted date, e.g. "Sep 3, 2026" |
-
-**Usage:** `{{ notification.createdAt | timeAgo }}`
-
-Pure pipe. Transforms on every change detection cycle — use `async` pipe + `OnPush` on the host to avoid performance issues in large lists.
+**Auth.** The access token lives in an in-memory field on `AuthService` — never `localStorage`, never `sessionStorage`. The refresh token is an HttpOnly cookie the frontend never reads. No token appears in a URL, a query string, or a rendered response.
 
 ---
 
-### truncate
-
-Truncates a string to a maximum character length, appending ellipsis.
-
-**Usage:** `{{ product.description | truncate:120 }}`  
-**Default max:** 100 characters.  
-Truncates at the last word boundary within max to avoid mid-word cuts.
-
----
-
-### currencyDisplay
-
-Formats a price amount string with currency symbol or code for display.
-
-**Usage:** `{{ "99.99" | currencyDisplay:"THB" }}` → `"฿99.99"` or `"THB 99.99"`  
-Uses `Intl.NumberFormat` with `style: 'currency'`.
-
-Decimal places follow `Currency.minor_unit_scale`:
-- JPY: 0 decimal places
-- BHD: 3 decimal places
-- All others (USD, THB, SGD): 2 decimal places
-
-Input `amount` is always a string from the API — the pipe converts to `Number` for formatting only. Never used for arithmetic.
-
----
-
-*Last updated: phase-1 design*
+*Last updated: 2026-09-14 (design alignment)*

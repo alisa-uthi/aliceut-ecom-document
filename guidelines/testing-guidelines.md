@@ -57,9 +57,9 @@ Coverage is measured per module tier (see [module-architecture §2](../conventio
 npx jest --coverage --collectCoverageFrom="libs/catalog/src/**/*.ts"
 
 # Frontend (run per portal)
-npx jest --coverage --projects=apps/buyer-portal
-npx jest --coverage --projects=apps/seller-portal
-npx jest --coverage --projects=apps/admin-portal
+npx jest --coverage --projects=apps/buyer-app
+npx jest --coverage --projects=apps/seller-app
+npx jest --coverage --projects=apps/admin-app
 ```
 
 **CI enforcement:** Jest `coverageThreshold` in each project's `jest.config.ts` enforces the threshold. A PR that drops any metric below its tier floor fails the build. Coverage reports upload to Codecov (or equivalent) on every push. See [§11 CI test gates](#ci-test-gates).
@@ -250,9 +250,9 @@ afterAll(async () => {
 
 ### 4.2 Real Postgres via testcontainers
 
-Use `testcontainers-node` to spin up a real Postgres instance per test suite. Run migrations with `golang-migrate` before the suite starts.
+Use `testcontainers-node` to spin up a real Postgres instance per test suite. Run the TypeORM migrations against it before the suite starts — the same raw-SQL migrations production gets, never `synchronize: true`. A schema built by entity decorators would test a schema no environment actually runs.
 
-Migrations live in the backend repo under `migrations/phase-1/`. Override `MIGRATIONS_PATH` when running from a non-standard working directory.
+Migrations live in the backend repo under `migrations/phase-1/`. Override `MIGRATIONS_DATASOURCE` when running from a non-standard working directory.
 
 ```typescript
 import { PostgreSqlContainer, StartedPostgreSqlContainer } from '@testcontainers/postgresql';
@@ -263,11 +263,11 @@ let pg: StartedPostgreSqlContainer;
 beforeAll(async () => {
   pg = await new PostgreSqlContainer('postgres:16-alpine').start();
 
-  const migrationsPath = process.env.MIGRATIONS_PATH ?? './migrations/phase-1';
-  execSync(
-    `migrate -path ${migrationsPath} -table schema_migrations_phase1 -database "${pg.getConnectionUri()}" up`,
-    { stdio: 'inherit' },
-  );
+  const dataSource = process.env.MIGRATIONS_DATASOURCE ?? './migrations/phase-1/datasource.ts';
+  execSync(`npx typeorm-ts-node-commonjs migration:run -d ${dataSource}`, {
+    stdio: 'inherit',
+    env: { ...process.env, DATABASE_URL: pg.getConnectionUri() },
+  });
 });
 
 afterAll(async () => {
@@ -391,16 +391,16 @@ Use `jest-preset-angular`. All tests run in jsdom ─ no real browser.
 Shallow-test presentational components. Use `NO_ERRORS_SCHEMA` only for integration-tested components; prefer importing real child components or stubs in unit tests.
 
 ```typescript
-// apps/buyer-portal/src/app/features/product/product-card.component.spec.ts
+// apps/buyer-app/src/app/features/product/product-card.component.spec.ts
 import { TestBed } from '@angular/core/testing';
 import { ProductCardComponent } from './product-card.component';
-import { MoneyPipe } from '../../shared/pipes/money.pipe';
+import { CurrencyDisplayPipe } from '@aliceut/shared-ui';
 
 describe('ProductCardComponent', () => {
   describe('display', () => {
     it('should show SALE badge when offer has active sale price', async () => {
       await TestBed.configureTestingModule({
-        imports: [ProductCardComponent, MoneyPipe],
+        imports: [ProductCardComponent, CurrencyDisplayPipe],
       }).compileComponents();
 
       const fixture = TestBed.createComponent(ProductCardComponent);
@@ -483,22 +483,22 @@ describe('ListingFormComponent', () => {
 
 ### 6.5 Money formatting pipe
 
-The `MoneyPipe` transforms string amounts using `decimal.js`. Cover currency-specific scale, including JPY (0 decimals) and THB (2 decimals).
+The `CurrencyDisplayPipe` ([frontend-coding-standards.md § 5](../conventions/frontend-coding-standards.md#5-money-display-patterns)) formats a monetary **string** through `Intl.NumberFormat`. It performs no arithmetic — the single `Number()` call sits at the `Intl` boundary — so these tests assert formatting only, and any test that expects the pipe to add, multiply or round is testing the wrong unit. Cover currency-specific scale, including JPY (0 decimals) and THB (2 decimals). The pipe passes no locale, so **assert on digits, not on the currency symbol** — `Intl` renders THB as `฿` under a Thai locale and as `THB` under an English one, and a test that pins the symbol passes on a developer's machine and fails on CI.
 
 ```typescript
-describe('MoneyPipe', () => {
-  const pipe = new MoneyPipe();
+describe('CurrencyDisplayPipe', () => {
+  const pipe = new CurrencyDisplayPipe();
 
   it('should format USD to 2 decimal places', () => {
-    expect(pipe.transform('99.9', 'USD')).toBe('$99.90');
+    expect(pipe.transform('99.9', 'USD')).toMatch(/99[.,]90/);
   });
 
   it('should format JPY with no decimal places', () => {
-    expect(pipe.transform('1500', 'JPY')).toBe('¥1,500');
+    expect(pipe.transform('1500', 'JPY')).not.toMatch(/[.,]\d\d$/);
   });
 
-  it('should format THB with symbol and 2 decimal places', () => {
-    expect(pipe.transform('350.50', 'THB')).toBe('฿350.50');
+  it('should format THB to 2 decimal places', () => {
+    expect(pipe.transform('350.50', 'THB')).toMatch(/350[.,]50/);
   });
 });
 ```
@@ -675,7 +675,7 @@ tests/
     └── identity-integration.seed.sql  Users and roles for identity suite
 ```
 
-Run fixtures after `migrate up` in the `beforeAll` hook. Roll them back as part of each test's transaction rollback or via `afterAll` truncate.
+Run fixtures after `npm run migration:run` in the `beforeAll` hook. Roll them back as part of each test's transaction rollback or via `afterAll` truncate.
 
 ### 9.3 Kaggle data exclusion
 
@@ -706,9 +706,9 @@ Do not add tests just to hit coverage thresholds. A test that asserts `expect(ob
 | Suite | Command | Failure action |
 |-------|---------|----------------|
 | Backend unit tests | `jest --projects=libs --testPathPattern=".spec.ts$" --passWithNoTests` | Block merge |
-| Angular unit tests | `jest --projects=apps/buyer-portal,apps/seller-portal,apps/admin-portal --passWithNoTests` | Block merge |
+| Angular unit tests | `jest --projects=apps/buyer-app,apps/seller-app,apps/admin-app --passWithNoTests` | Block merge |
 | Coverage check | `jest --coverage` (thresholds enforced by config) | Block merge |
-| TypeScript compile | `tsc --noEmit` (both `api` and `buyer-portal`) | Block merge |
+| TypeScript compile | `tsc --noEmit` (both `api` and `buyer-app`) | Block merge |
 | Lint | `eslint` with money-field lint rule | Block merge |
 
 ### 11.2 On merge to main

@@ -14,7 +14,7 @@
 | [Log Envelope](#log-envelope) | Mandatory fields on every log line |
 | [Correlation ID](#correlation-id) | Propagation across HTTP → Kafka → async context |
 | [Alloy Config](#alloy-config) | Grafana Alloy collector configuration |
-| [docker-compose](#docker-compose) | Service definitions |
+| [Metrics](#metrics) | Prometheus exposition contract, cardinality, observability service definitions and mounted config |
 | [E2E Testing](#e2e-testing) | Playwright CI/CD correlation strategy |
 
 ---
@@ -23,17 +23,20 @@
 ## 1. Stack
 
 ```
-NestJS services (structured JSON → stdout)
-         ↓
-  Grafana Alloy           — unified collector: logs + metrics + traces
-    ├──→ Loki             — log aggregation
-    ├──→ Prometheus        — metrics scrape
-    └──→ Grafana Tempo     — distributed traces (wire up in Phase 2; reserve fields now)
-         ↓
-     Grafana              — dashboards: LogQL + PromQL + TraceQL
+NestJS services — api · workers
+   │ structured JSON → stdout                 │ Prometheus text on METRICS_PATH
+   ↓                                          ↓
+Grafana Alloy   — log collector            Prometheus   — scrapes both directly
+   ↓                                          │
+Loki            — log aggregation             │
+   └──────────────────┬───────────────────────┘
+                      ↓
+                   Grafana   — dashboards: LogQL + PromQL
 ```
 
-Single query plane: correlate a Loki log line to a Tempo trace to a Prometheus metric in one Grafana Explore session.
+Two pipelines, one query plane: correlate a Loki log line to a Prometheus metric in one Grafana Explore session, joined on `service`. Logs go through Alloy because container stdout has to be discovered, tailed and parsed before it means anything; metrics do not, because a scrape target is already structured — see §6. Grafana Tempo and distributed traces arrive in Phase 2, adding TraceQL to the same plane; the log envelope reserves fields for it now.
+
+**All four services — Alloy, Loki, Prometheus, Grafana — are in the Phase 1 compose file.** They are not a later addition and not optional: the log envelope in §3 and the correlation contract in §4 exist so that these services can answer a question, and a structured log nobody collects answers nothing. Service definitions, pinned images and volumes are in [docker-compose-topology.md](../phase-1/technical-design/docker-compose-topology.md), which owns them; §6 below owns the configuration files they mount.
 
 ---
 
@@ -57,12 +60,16 @@ Sensitive keys and body size limit come from environment variables — no code c
 import { registerAs } from '@nestjs/config';
 
 // Fallback list used when LOG_SENSITIVE_KEYS is not set.
-// All lowercase — sanitizer normalizes with key.toLowerCase().
+// Lowercase, no separators — the sanitizer normalizes with
+// key.toLowerCase().replace(/[_-]/g, ''), so 'tax_id', 'taxId' and
+// 'TAX-ID' all match the single entry 'taxid'.
 const DEFAULT_SENSITIVE_KEYS = [
   'password', 'newpassword', 'currentpassword', 'passwordhash',
   'token', 'accesstoken', 'refreshtoken', 'idtoken',
+  'verificationtoken', 'resettoken',
   'secret', 'apikey', 'privatekey', 'clientsecret',
-  'authorization', 'ssn', 'cardnumber', 'cvv',
+  'authorization', 'cookie', 'ssn', 'cardnumber', 'cvv',
+  'taxid',
 ];
 
 export default registerAs('log', () => ({
@@ -76,11 +83,18 @@ export default registerAs('log', () => ({
 **`.env` / docker-compose env:**
 
 ```dotenv
-# Comma-separated, case-insensitive. Overrides the built-in default list entirely.
-LOG_SENSITIVE_KEYS=password,newpassword,currentpassword,passwordhash,token,accesstoken,refreshtoken,idtoken,secret,apikey,privatekey,clientsecret,authorization,ssn,cardnumber,cvv
+# Comma-separated, case- and separator-insensitive. Overrides the built-in default list entirely.
+LOG_SENSITIVE_KEYS=password,newpassword,currentpassword,passwordhash,token,accesstoken,refreshtoken,idtoken,verificationtoken,resettoken,secret,apikey,privatekey,clientsecret,authorization,cookie,ssn,cardnumber,cvv,taxid
 
 LOG_MAX_BODY_BYTES=10000
 ```
+
+`DEFAULT_SENSITIVE_KEYS` is the project-wide masking list, not a logging-only concern. Two other paths cite it:
+
+- The **audit consumer** masks before insert: any Kafka payload key matching this list is written to MongoDB `audit_logs` as `"***"`. This is mandatory — `user.email_verification_requested` and `user.password_reset_requested` carry a raw single-use token so the notification consumer can build the email link, and the audit copy must not retain it.
+- **`tax_id`** is on the list because seller KYC payloads carry it and MongoDB audit retention is measured in years.
+
+Any override via `LOG_SENSITIVE_KEYS` must keep at minimum `password`, `token`, `authorization`, `cookie`, `taxid`, `secret` and `refreshtoken` — removing one of those is a security regression, not a configuration choice.
 
 **To add a new key without rebuilding:**
 
@@ -191,9 +205,13 @@ Two-layer approach:
 
 /**
  * Returns a sanitize function bound to the provided key set and size limit.
- * Keys in sensitiveKeys must be lowercase — matching is case-insensitive via
- * key.toLowerCase(), so 'Password', 'PASSWORD', and 'password' all redact.
+ * Keys in sensitiveKeys must be lowercase with no separators — matching
+ * normalizes with normalizeKey(), so 'Password', 'PASSWORD', 'refresh_token'
+ * and 'Refresh-Token' all redact.
  */
+const normalizeKey = (key: string): string =>
+  key.toLowerCase().replace(/[_-]/g, '');
+
 export function buildSanitizer(
   sensitiveKeys: Set<string>,
   maxBodyLogBytes: number,
@@ -207,14 +225,14 @@ export function buildSanitizer(
     }
 
     return JSON.parse(serialized, (key, value) => {
-      if (key !== '' && sensitiveKeys.has(key.toLowerCase())) return '[Redacted]';
+      if (key !== '' && sensitiveKeys.has(normalizeKey(key))) return '[Redacted]';
       return value;
     });
   };
 }
 ```
 
-- **Case-insensitive:** `key.toLowerCase()` normalizes before lookup — `Password`, `PASSWORD`, `accessToken`, `AccessToken` all redact if the lowercase form is in the config set.
+- **Case- and separator-insensitive:** `normalizeKey()` lowercases and strips `_` and `-` before lookup, so `Password`, `PASSWORD`, `accessToken`, `access_token` and `Access-Token` all redact against the single entry `accesstoken`. This matters because HTTP bodies are camelCase while Kafka payloads and DB rows are snake_case, and both pass through this sanitizer.
 - **Recursive:** JSON replacer visits every node at every depth — no nested object escapes.
 - **Size guard:** bodies over `maxBodyLogBytes` replaced with `{ _truncated: true, _bytes: N }` — protects against logging multipart uploads or large payloads.
 - **Root key guard:** `key !== ''` skips the root `''` key emitted by `JSON.parse` for the top-level value.
@@ -438,6 +456,20 @@ Every log line emitted to stdout must be valid JSON containing these fields. `ne
 
 `correlationId` is the primary key for tracing a user action end-to-end across HTTP, Kafka events, async jobs, and logs.
 
+### Contract
+
+Every API endpoint, without exception:
+
+1. **Accepts** an `X-Correlation-ID` request header.
+2. **Generates** one (UUIDv7) at the request boundary when the header is absent or empty. A request is never processed without a correlation id.
+3. **Propagates** it — through `AsyncLocalStorage` for the whole request, onto outbound HTTP calls as `X-Correlation-ID`, and into the `correlation_id` field of every Kafka event envelope and `platform.outbox_event` row written during that request.
+4. **Echoes** it on the response as `X-Correlation-ID`, on success and error responses alike.
+5. **Logs** it as `correlationId` on every log line emitted in that request's context (§3).
+
+Consumers continue the chain: a consumer reads `correlation_id` from the event it is processing and uses it as the `correlationId` of its own log lines and of any event it publishes downstream. A side effect triggered by an HTTP request is therefore traceable from the request through to the message sitting in the Mailpit inbox.
+
+This document governs Phase 1 in full — the correlation contract, the log envelope, the masking rules and the collection stack alike. Each `phase-1/technical-design/api-design/*` document cites this contract rather than restating it.
+
 ### HTTP flow
 
 ```
@@ -476,8 +508,9 @@ export class CorrelationMiddleware implements NestMiddleware {
 
 ### Kafka flow
 
-`correlationId` is a mandatory field in the Kafka event envelope (see [kafka-events.md](./kafka-events.md)). Consumers that write their own logs must propagate this field from the consumed event.  
-Kafka event bodies should follow the same structured logging and sensitive-field handling conventions when logged.
+`correlation_id` is a mandatory field in the Kafka event envelope, alongside `event_id`, `event_type`, `event_version`, `occurred_at` and `payload` (see [kafka-events.md](./kafka-events.md)). The producer writes the current request's correlation id into the outbox row in the same transaction as the domain change, so the envelope carries it without the relay having to reconstruct anything. Consumers that write their own logs propagate the field from the consumed event.
+
+Kafka event bodies follow the same structured logging and sensitive-field handling conventions when logged, and payload keys are masked against `DEFAULT_SENSITIVE_KEYS` before any event is persisted to MongoDB `audit_logs` (§2).
 
 ### Async context
 
@@ -488,7 +521,7 @@ Use `AsyncLocalStorage` to carry `correlationId` through non-HTTP async code (sc
 <a id="alloy-config"></a>
 ## 5. Grafana Alloy Config
 
-`config/alloy/config.alloy` — minimal V1 config (logs only; metrics and traces added incrementally).
+`config/alloy/config.alloy` — the V1 config. Alloy's job here is logs: discover every compose container, parse the JSON envelope, label it, ship it to Loki. Metrics do not pass through Alloy — Prometheus scrapes the API and workers directly using `config/prometheus/prometheus.yml`. Traces arrive with Tempo in Phase 2 (§1); nothing in this config anticipates them.
 
 ```alloy
 // Discover all Docker containers
@@ -557,65 +590,67 @@ loki.write "local" {
 
 ---
 
+<a id="metrics"></a>
 <a id="docker-compose"></a>
-## 6. docker-compose
+## 6. Metrics
+
+**Exposition contract.** Both `api` and `workers` serve Prometheus text-format metrics on `METRICS_PATH` (default `/metrics`), read from the environment like every other path in this document. `workers` has no API surface but serves this route anyway, on its unpublished `PORT_WORKERS` listener alongside its health endpoint — a process whose only job is relaying the outbox and running consumers is precisely the process whose internals are invisible without metrics.
+
+**Prometheus scrapes both services directly.** Metrics do not pass through Alloy: the collector in §5 is logs-only in V1, and putting a metrics pipeline in front of a two-target scrape would add a hop that can fail without adding anything. Alert thresholds over these gauges — the outbox-relay lag rule among them — are owned by [docker-compose-topology.md](../phase-1/technical-design/docker-compose-topology.md), which states the alerts; this document states how the numbers get exposed.
+
+**The metric names are not defined here.** The gauge inventory — names, types and meanings — belongs to [api-design/health.md](../phase-1/technical-design/api-design/health.md), which defines them alongside the health probe that reads the same values. Duplicating the list here would create a second copy to drift, and a metric named in two documents is a metric that will eventually be named differently in two documents. All of them carry the `aliceut_` prefix.
+
+**Cardinality is bounded, and that is a contract rather than a guideline.** A Prometheus time series is created per distinct label combination and retained for the storage window, so a label whose value space is unbounded does not degrade the metric — it degrades the server. No metric is labelled by user id, order id, offer id, product id or correlation id. The only label in V1 is consumer group, whose value set is fixed by the event catalogue and changes only when a consumer group is added. This is the same rule §5 applies to Loki labels, for the same reason: identifiers belong in the log line or in structured metadata, never in an index key.
+
+### Service definitions and mounted config
+
+The `alloy`, `loki`, `prometheus` and `grafana` service definitions — pinned images, ports, volumes, healthchecks, network membership and `depends_on` conditions — live in [docker-compose-topology.md § 6](../phase-1/technical-design/docker-compose-topology.md), which owns them. They are deliberately not reproduced here: two compose fragments for the same four services are two fragments that will disagree, and the one in the topology is the one Docker reads.
+
+What this document owns is the content of the three configuration files those services bind-mount. All three are committed files, not generated ones, and each fails quietly when absent — Docker creates a *directory* where a missing bind-mounted file was expected, so Alloy exits on a parse error, Prometheus reports healthy while scraping nothing, and Grafana renders "No data" on every panel.
+
+**`config/alloy/config.alloy`** — specified in §5 above.
+
+**`config/prometheus/prometheus.yml`** — two scrape targets and nothing else:
 
 ```yaml
-# observability services — add to docker-compose.yml
+global:
+  scrape_interval: 15s
 
-  alloy:
-    image: grafana/alloy:v1.x
-    container_name: aliceut-alloy
-    ports:
-      - "12345:12345"   # Alloy UI (dev only)
-    volumes:
-      - ./config/alloy/config.alloy:/etc/alloy/config.alloy:ro
-      - /var/lib/docker/containers:/var/lib/docker/containers:ro
-      - /var/run/docker.sock:/var/run/docker.sock
-    command: run --server.http.listen-addr=0.0.0.0:12345 /etc/alloy/config.alloy
-    depends_on:
-      - loki
+scrape_configs:
+  - job_name: api
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['api:3000']
 
-  loki:
-    image: grafana/loki:3.x
-    container_name: aliceut-loki
-    ports:
-      - "3100:3100"
-    volumes:
-      - loki_data:/loki
-    command: -config.file=/etc/loki/local-config.yaml
-
-  prometheus:
-    image: prom/prometheus:latest
-    container_name: aliceut-prometheus
-    ports:
-      - "9090:9090"
-    volumes:
-      - ./config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - prometheus_data:/prometheus
-
-  grafana:
-    image: grafana/grafana:11.x
-    container_name: aliceut-grafana
-    ports:
-      - "3200:3000"   # host 3200 — avoids conflict with api (3000) and loki (3100)
-    environment:
-      - GF_AUTH_ANONYMOUS_ENABLED=true        # dev only — remove in any deployed env
-      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin      # dev only
-    volumes:
-      - grafana_data:/var/lib/grafana
-      - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
-    depends_on:
-      - loki
-      - prometheus
-
-volumes:
-  loki_data:
-  prometheus_data:
-  grafana_data:
+  - job_name: workers
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['workers:3001']
 ```
 
-**Provisioning:** Pre-configure Loki and Prometheus as Grafana datasources in `config/grafana/provisioning/datasources/` so Grafana is query-ready on first boot.
+Both targets are container-network addresses, so neither depends on a published port. **The values are literals on purpose:** Prometheus performs no environment-variable substitution in this file, so `PORT_WORKERS` and `METRICS_PATH` cannot be written as `${…}` here the way they are in compose. Changing either variable therefore means editing this file in the same commit, and the defaults above (`3001`, `/metrics`) are the ones the topology declares.
+
+**`config/grafana/provisioning/datasources/datasources.yaml`** — Loki and Prometheus declared so that Grafana is query-ready on first boot, with no manual datasource step:
+
+```yaml
+apiVersion: 1
+
+datasources:
+  - name: Loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    isDefault: true
+
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+```
+
+Loki is the default because a log query is the first thing anyone opens Grafana to run. `access: proxy` keeps both connections server-side, so the browser never talks to Loki or Prometheus directly.
+
+**Anonymous access is `Viewer`, never `Admin`.** `GF_AUTH_ANONYMOUS_ENABLED=true` is the point of a development stack — a dashboard should open without a login — but `GF_AUTH_ANONYMOUS_ORG_ROLE` must be `Viewer`. An anonymous Admin on a published port can edit datasources, and a datasource is a credentialed connection to Loki and Prometheus: the exposure is a stranger repointing where the platform's logs are read from, not a defaced dashboard. Editing stays behind `GF_SECURITY_ADMIN_PASSWORD`. Any deployed environment sets `GF_AUTH_ANONYMOUS_ENABLED=false` as well.
 
 ---
 
@@ -738,4 +773,4 @@ Or in Grafana Explore:
 - Run against **local docker-compose** (`NODE_ENV=test`) or a **staging deploy** — same strategy works for both.
 - `TEST_DATABASE_URL` and `BASE_URL` set per environment in CI secrets.
 - DB assertions are optional per test — use them for critical write paths (orders, payments, KYC) where eventual consistency makes API polling unreliable.
-- For Kafka-driven side effects (e.g. email triggered by order event), poll the read-model API or check a test email inbox (Mailpit) rather than asserting DB directly.
+- For Kafka-driven side effects (e.g. email triggered by order event), poll the read-model API or read the message out of Mailpit rather than asserting DB directly. Mailpit is a compose service in every environment this suite runs against, with the SMTP port on `1025` and an HTTP API behind the inbox on `8025` — a test can fetch the captured message and assert on its body, so an emailed verification link is assertable rather than assumed.

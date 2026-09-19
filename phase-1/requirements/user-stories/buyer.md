@@ -190,7 +190,7 @@ Priority: Must — trace: FR-B-09, FR-P-03, FR-P-04, NFR-14
 - Checkout page shows: cart line items, shipping form, a mock shipping-method choice with its displayed cost and delivery estimate, fake payment selector, order total per currency, and "Place order" button.
 - The page presents the stages in the mock's order: Shipping Address, Shipping Method, then Payment Method. Exact mock shipping-service names, fees, and estimates are seeded configuration — not a real carrier integration.
 - Multi-currency carts: system groups all per-seller-currency fulfillments under one order. Buyer submits once and sees a single confirmation page listing placed and failed fulfillments. Each fulfillment progresses independently; seller sees only their own fulfillment and currency.
-- **Order ID format:** `ORD-` prefix + first 8 uppercase hex chars of the Order's UUID (e.g. `ORD-3F2A1B9C`). UI shows without `#` prefix; `#` is display-only convention in copy.
+- **Order ID format:** `ORD-` prefix + 9 zero-padded digits drawn from the dedicated `orders.order_display_seq` PostgreSQL sequence (e.g. `ORD-000001042`). The fulfillment display id and the mock tracking number follow the same scheme from their own sequences: `FUL-` + 9 digits (e.g. `FUL-000003871`) and `TRK-` + 9 digits (e.g. `TRK-000003871`). Display ids are **not** derived from the row's UUID — the leading hex characters of a UUIDv7 are its millisecond timestamp, so any prefix of it collides for rows created close together and leaks the key's internal structure. Gaps in these sequences are expected and acceptable: a rolled-back transaction consumes its value and does not return it, and no job renumbers or compacts them. UI shows the id without a `#` prefix; `#` is a display-only convention in copy.
 - On submit:
   1. Validate address (all fields required, country in allowed list).
   2. Identify stale/inactive-offer items in the cart; exclude them from this checkout without removing them; collect as `skipped_items`. If no valid items remain after exclusion → error: "No purchasable items in cart." Skipped items are shown to the buyer on the order detail page; they remain in cart.
@@ -267,8 +267,8 @@ The first persisted Fulfillment state is `PENDING`; a cart is not an order state
 Priority: Must — trace: FR-B-10
 
 **Acceptance criteria**
-- Confirmation page shown after checkout completes. Shows Order ID (Order `ORD-<uuid8>`). Order total covers placed fulfillments only — skipped and failed items excluded. Up to three sections:
-  - **Placed items:** each fulfillment with currency total, per-item snapshot pricing, mock tracking `TRK-<first 8 uppercase hex chars of id>`, and ETA; grouped by seller.
+- Confirmation page shown after checkout completes. Shows Order ID (Order `ORD-000001042`). Order total covers placed fulfillments only — skipped and failed items excluded. Up to three sections:
+  - **Placed items:** each fulfillment with currency total, per-item snapshot pricing, mock tracking `TRK-000003871`, and ETA; grouped by seller.
   - **Skipped items** (if any `skipped_items`): items whose offer was inactive at submit time; shown with product name and reason "No longer available"; remain in cart.
   - **Failed items** (if `PARTIALLY_PLACED`): items that could not be reserved; shown with product name and reason (e.g. "Out of stock"); remain in cart.
 - Tracking number assigned at `PENDING` placement, retained at shipment, never regenerated.
@@ -281,7 +281,8 @@ Priority: Must — trace: FR-B-10
 Priority: Must — trace: FR-B-11
 
 **Acceptance criteria**
-- `/orders` lists past orders paginated, newest first. Pagination: offset-based — `page` (1-based) and `limit` (default 20, max 100) query params; response envelope `{ data, total, page, limit }`. Default sort: `placed_at DESC`. Each row shows: Order ID (Order `ORD-<uuid8>`), `placed_at`, fulfillment currency totals, Order status badge, partial-placement warning (if `PARTIALLY_PLACED`), and sub-line "N of M fulfillments shipped" for count context.
+- `/orders` lists past orders paginated, newest first. Pagination: cursor-based (keyset) — `limit` (default 20, max 100) and an opaque `cursor` query param, which on every request after the first is the previous response's `meta.nextCursor` passed back verbatim. Response envelope is `{ data, meta: { nextCursor, hasMore } }`; there is no `total`, no `page` and no `offset`, because a cursor-paginated query cannot produce a total count without a second full scan. Default sort: `placed_at DESC`, with the row id as tiebreaker so the sort key is unique and stable. Each row shows: Order ID (Order `ORD-000001042`), `placed_at`, fulfillment currency totals, Order status badge, partial-placement warning (if `PARTIALLY_PLACED`), and sub-line "N of M fulfillments shipped" for count context.
+- Because there is no total, the list offers Previous/Next navigation only — no page numbers and no "N of M orders" caption. The end of the list is signalled by `meta.hasMore` being `false`, and the UI states explicitly that the buyer has reached the oldest order rather than leaving an empty page ambiguous.
 - **Empty state:** if buyer has placed no orders, show "No orders yet — browse the catalog to get started" with a Browse CTA.
 - **Order status badge** (derived from placed Fulfillments only; always shown) — see table in US-B-09.
 - **Placement outcome warning** (permanent, set at checkout):
@@ -305,10 +306,10 @@ Priority: Must — trace: FR-B-10, FR-B-11
 | Trigger event | To | Template | Key content |
 |---|---|---|---|
 | Order placement finalized | Buyer | [ET-01](email-templates.md#et-01----order-summary-orderfinalized) | Order ID and placement outcome; placed fulfillments with snapshot pricing, mock tracking numbers, and ETAs; skipped items section (if any) with reason "No longer available"; failed groups section (if partially placed). One email per order regardless of fulfillment count. |
-| Fulfillment shipped | Buyer | [ET-02](email-templates.md#et-02----fulfillment-shipped-fulfillmentshipped) | Order `ORD-<uuid8>`, seller name, tracking number TRK-<first 8 uppercase hex chars of id>, ETA, items in shipment. |
-| Fulfillment delivered | Buyer | [ET-03](email-templates.md#et-03----fulfillment-delivered-fulfillmentdelivered) | Order `ORD-<uuid8>`, seller name, items delivered. |
-| Fulfillment refunded | Buyer | [ET-04](email-templates.md#et-04----fulfillment-refunded-fulfillmentrefunded) | Order `ORD-<uuid8>`, seller name, refunded items with snapshot pricing, refund amount. |
-| Order fully completed | Buyer | [ET-05](email-templates.md#et-05----order-completed-ordercompleted) | Order `ORD-<uuid8>` complete — all items delivered. Only sent when order had ≥ 2 fulfillments; single-fulfillment orders rely on ET-03. |
+| Fulfillment shipped | Buyer | [ET-02](email-templates.md#et-02----fulfillment-shipped-fulfillmentshipped) | Order `ORD-000001042`, seller name, tracking number `TRK-000003871`, ETA, items in shipment. |
+| Fulfillment delivered | Buyer | [ET-03](email-templates.md#et-03----fulfillment-delivered-fulfillmentdelivered) | Order `ORD-000001042`, seller name, items delivered. |
+| Fulfillment refunded | Buyer | [ET-04](email-templates.md#et-04----fulfillment-refunded-fulfillmentrefunded) | Order `ORD-000001042`, seller name, refunded items with snapshot pricing, refund amount. |
+| Order fully completed | Buyer | [ET-05](email-templates.md#et-05----order-completed-ordercompleted) | Order `ORD-000001042` complete — all items delivered. Only sent when order had ≥ 2 fulfillments; single-fulfillment orders rely on ET-03. |
 
 **Notes:**
 - Order placement email fires once per order regardless of fulfillment count.
