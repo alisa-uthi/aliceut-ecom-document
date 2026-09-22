@@ -1,8 +1,8 @@
 # Business Requirements Document (BRD)
 ## AliceUT — Global Multi-Vendor Marketplace
 
-**Document version:** 1.2
-**Date:** 2026-08-29
+**Document version:** 1.3
+**Date:** 2026-09-22
 **Author:** Business Analyst (working with product owner)
 **Status:** Signed off — ready for design phase
 
@@ -132,24 +132,24 @@ A global multi-vendor e-commerce marketplace inspired by Amazon.com. Serves as a
 
 | ID | Requirement | Priority |
 |----|-------------|----------|
-| FR-P-01 | A `Product` may have one or more `Offer`s (one per seller). Each `Offer` carries exactly one pricing currency and has one or more `Price`s (one per price type: `LIST`, `SALE`, `B2B_TIER`). A second currency means a second `Offer`; no forced canonical currency | Must |
+| FR-P-01 | A `Product` may have one or more `Offer`s (one per seller). Each `Offer` carries exactly one pricing currency and has one or more `Price`s (one per price type: `LIST`, `SALE`). A second currency means a second `Offer`; no forced canonical currency | Must |
 | FR-P-02 | Optional display conversion: if buyer's preferred currency is not on the offer, system converts using FX rate table for **display only** (with visible "estimated" label) | Should |
 | FR-P-03 | At checkout, system creates a **price snapshot** on `FulfillmentItem` (unit_price `NUMERIC(19,4)`, currency_code, tax, fx_rate_used_at_capture). Historical orders never re-derive amounts from live FX or current offer prices | Must |
 | FR-P-04 | All monetary amounts stored as **Decimal** (Postgres `NUMERIC(19,4)` — 19 total digits, 4 fractional). Currency code stored as ISO 4217 alongside. Precision covers major currencies including 3-decimal (BHD, KWD, OMR) and 4-decimal accounting rounding | Must |
-| FR-P-04a | JS/TS boundary: TypeORM/Prisma maps `NUMERIC` to string; app code uses `decimal.js` or `Big.js` for arithmetic. **Never use JS `number` for monetary math** | Must |
+| FR-P-04a | JS/TS boundary: TypeORM maps `NUMERIC` to string; app code uses `decimal.js` or `Big.js` for arithmetic. **Never use JS `number` for monetary math** | Must |
 | FR-P-04b | API responses serialize amounts as string (`"99.99"`), not float, to preserve precision across JSON boundary | Must |
 | FR-P-05 | Buyer sees offer selection when multiple sellers offer the same product; default = lowest price in buyer's currency (or converted) | Should |
 | FR-P-06 | Product catalog seeded from **Kaggle "Amazon Product Data"** dataset, **100 products** curated across major categories (electronics, books, home, apparel) | Must |
 | FR-P-06a | Allowed pricing currencies for sellers in V1: **USD, THB, JPY, SGD** | Must |
-| FR-P-06b | Every `Offer` supports multiple `Price` rows keyed by `price_type`: **LIST** (default), **SALE** (time-bounded discount, `starts_at`/`ends_at`), **B2B_TIER** (quantity break, `min_qty`). PDP resolves effective price by user account type + time + quantity | Must |
-| FR-P-06c | Prohibited categories admin must block: **weapons, drugs, adult content**. Moderation queue flags on category taxonomy + keyword blocklist at listing time | Must |
+| FR-P-06b | Every `Offer` supports multiple `Price` rows keyed by `price_type`: **LIST** (default), **SALE** (time-bounded discount, `starts_at`/`ends_at`). PDP resolves effective price by price type + time only; account type and quantity are not inputs | Must |
+| FR-P-06c | Prohibited categories: **weapons, drugs, adult content**. Enforced in two tiers at listing time. **Hard tier** — prohibited category taxonomy node, or exact hit on the hard keyword blocklist: submit is **rejected (422)** and no listing is created. **Soft tier** — fuzzy / keyword-suspicion match: the listing **is created** with offer status `FLAGGED` plus an `admin.moderation_case` row. The soft tier is the input to FR-A-03's flagged-listing queue | Must |
 | FR-P-06d | B2B account uses identical buyer UX to B2C. Differentiation is **branding only** (business account badge, optional business logo on invoice, "Business" tag in header) | Must |
 | FR-P-07 | All secrets in env vars; no credentials in code | Must |
 | FR-P-08 | Input validation on all API endpoints (DTO + class-validator) | Must |
 | FR-P-09 | Domain state changes (product, offer, inventory, order, KYC, moderation) publish events to Kafka via transactional outbox | Must |
 | FR-P-10 | Search index (Elasticsearch) updated **asynchronously** from Kafka events, not from synchronous API writes | Must |
 | FR-P-11 | Email + in-app notifications driven by Kafka consumers, not inline from request handlers | Must |
-| FR-P-12 | Every event carries `event_id`, `correlation_id`, `occurred_at`; consumers are idempotent | Must |
+| FR-P-12 | Every event carries `event_id`, `event_type`, `event_version`, `occurred_at`, `correlation_id`, `payload`; consumers are idempotent | Must |
 | FR-P-13 | Poison-message dead-letter topic per consumer group with alerting | Should |
 
 ---
@@ -175,7 +175,7 @@ A global multi-vendor e-commerce marketplace inspired by Amazon.com. Serves as a
 | NFR-05 | Security | Password storage | bcrypt / argon2, never plaintext |
 | NFR-06 | Security | Auth tokens | JWT with short expiry + refresh rotation |
 | NFR-07 | Security | Input validation | class-validator on every DTO |
-| NFR-08 | Security | SQL injection | Parameterized queries only (TypeORM / Prisma) |
+| NFR-08 | Security | SQL injection | Parameterized queries only (TypeORM) |
 | NFR-09 | Security | PII handling | KYC docs encrypted at rest, access-logged |
 | NFR-10 | Security | OWASP | Top 10 covered (CSRF, XSS, SSRF, etc.) |
 | NFR-11 | Reliability | DB backup | Docker volume snapshot before schema migration |
@@ -185,7 +185,7 @@ A global multi-vendor e-commerce marketplace inspired by Amazon.com. Serves as a
 | NFR-15 | Reliability | Poison message handling | DLQ per consumer group, no infinite retry loops |
 | NFR-16 | Testability | Backend unit test coverage | ≥ 70% line coverage (Jest, per NestJS module) |
 | NFR-17 | Testability | E2E test coverage | Playwright suite covers 3 happy paths in §6 + auth flows |
-| NFR-18 | Portability | Language/framework migration cost | Schema migrations written as **raw SQL** (portable); repository layer isolates all TypeORM calls behind interfaces so future language swap = reimplement repos only, not schema |
+| NFR-18 | Portability | Language/framework migration cost | Schema migrations written as **raw SQL** (portable); **Tier 1** (core transactional) modules isolate all TypeORM calls behind repository interfaces so a future language swap = reimplement those repos only, not schema. Tier 2 modules may inject `Repository<T>` directly; Tier 3 owns no repositories. The portability guarantee covers the transactional core. Tier membership is defined in `conventions/backend-module-architecture.md § 2` |
 
 ---
 
@@ -204,8 +204,8 @@ A global multi-vendor e-commerce marketplace inspired by Amazon.com. Serves as a
 |------|--------|------------|
 | Scope creep (adding reviews / recs) delays V1 | High | Strict V1 checklist; defer to phase 2 |
 | Elasticsearch operational complexity for solo dev | Medium | Use single-node dev cluster; managed service if pain grows |
-| Kafka + Zookeeper resource footprint on dev laptop | Medium | Use `bitnami/kafka` KRaft mode (no Zookeeper) if resources tight; else standard confluentinc images. Tune heap to `-Xmx512m` per broker |
-| Event schema drift breaking consumers | Medium | Schema registry (Confluent-compatible); event_version field; consumers tolerate unknown fields (BC forward-compat) |
+| Kafka + Zookeeper resource footprint on dev laptop | Medium | Use `apache/kafka:3.8.0` in KRaft mode (no Zookeeper). Tune heap to `-Xmx512m` per broker |
+| Event schema drift breaking consumers | Medium | Schema registry (Confluent-compatible); `event_version` field; **BACKWARD** compatibility per §12 #9 — a new schema must be readable by consumers still on the previous one |
 | Duplicate event side-effects (at-least-once) | Medium | Idempotent consumers keyed on `event_id`; write dedupe table with TTL |
 | Outbox relay falls behind, search stale | Low | NFR-13 monitors lag; alert when > 30s |
 | KYC doc storage feels contrived without real compliance | Low | Simulate flow; document what real system would add (bucket encryption, retention policy) |
@@ -243,7 +243,7 @@ A global multi-vendor e-commerce marketplace inspired by Amazon.com. Serves as a
 
 ---
 
-## 12. Resolved Decisions (product owner sign-off 2026-08-19)
+## 12. Resolved Decisions (product owner sign-off 2026-08-19; amended 2026-09-14 and 2026-09-22)
 
 | # | Question | Decision |
 |---|----------|----------|
@@ -254,14 +254,15 @@ A global multi-vendor e-commerce marketplace inspired by Amazon.com. Serves as a
 | 4 | Elasticsearch hosting | Self-hosted, single-node, docker-compose |
 | 5 | FX source | `exchangerate.host` public API, cron refresh; display-only |
 | 5a | Allowed currencies V1 | USD, THB, JPY, SGD |
-| 5b | Price types | LIST + SALE + B2B_TIER (all three) |
+| 5b | Price types | **LIST + SALE** only. `B2B_TIER` dropped — quantity-break pricing is deferred with the rest of B2B bulk pricing (#2) |
 | 6 | Test coverage in DoD | Yes — ≥ 70% unit, Playwright e2e for §6 happy paths |
 | 7 | Prohibited categories | Weapons, drugs, adult content |
-| 8 | Kafka vs Redpanda | **Kafka** in docker-compose (KRaft mode acceptable if resources tight) |
+| 8 | Kafka vs Redpanda | **Kafka** in docker-compose — `apache/kafka:3.8.0`, KRaft mode (no Zookeeper). Redpanda is **not** the substitute; KRaft mode is the answer to Zookeeper's footprint |
 | 9 | Schema registry | Confluent Schema Registry, Avro, BACKWARD compatibility |
 | 10 | Kafka UI tool | Yes — `provectus/kafka-ui` in docker-compose |
 | 11 | Fulfillment model | **Direct-ship**: seller ships directly to buyer using buyer's delivery address. No platform warehouse, FBA-style centralized fulfillment, or reverse-logistics hub in V1. Buyer address accessible to seller via authenticated, audited order detail view only (US-S-05b, NFR-09). |
 | 12 | Frontend portal architecture | Three separate Angular applications — `buyer-app` (storefront), `seller-app` (seller portal), `admin-app` (admin portal) — in an Nx monorepo. Each app served by a dedicated nginx container in Docker Compose. Development uses separate `ng serve` instances on ports 4200 (buyer), 4201 (seller), 4202 (admin). Shared code (auth interceptor, generated API client, UI components, domain DTO types) lives in `libs/`. |
+| 13 | Cache + short-lived token store | **Redis** in docker-compose. Two uses: response/lookup caching, and single-use short-lived tokens (notably the 60-second OAuth authorization code). The instance holding tokens runs `maxmemory-policy noeviction` — eviction can silently drop a token mid-flow. A cache instance with eviction enabled must be a **separate** instance. Redis is never a source of truth. |
 
 All prior open questions resolved. Ready for detailed design + backlog decomposition.
 
@@ -270,6 +271,15 @@ All prior open questions resolved. Ready for detailed design + backlog decomposi
 - FR-B-03 amended 2026-09-14 (design alignment audit) — rating filter/display removed from V1 scope (reviews out of scope per §3.2).
 - §3.1, FR-P-01 and FR-P-03 amended 2026-09-14 (design alignment audit) — the pricing currency moves from the `Price` row to the `Offer`. FR-P-01 previously read "one or more `Price`s (one per currency)", which made currency a dimension of the price row alongside price type. Design found that shape unenforceable: the `LIST` uniqueness rule and the `SALE` overlap constraint are both keyed on `offer_id` alone, and a per-price currency column made every constraint, index and query carry a dimension that no requirement in this document actually exercises — no story asks for one offer priced in two currencies, only for sellers to choose the currency they price in. The offer now carries exactly one currency, a second currency means a second offer, and the price row has no currency column. Buyer-facing display conversion (FR-P-02) is unaffected and remains display-only. FR-P-03's snapshot entity is renamed to `FulfillmentItem` to match the per-seller fulfillment model resolved in §12 #11, and `unit_price_minor` is corrected to `unit_price NUMERIC(19,4)` to match FR-P-04 — the minor-unit integer form contradicted the decimal storage rule in the row directly below it.
 
+The amendments below land 2026-09-22 (cross-document alignment audit, Wave 0). Decision record: `phase-1/audits/2026-09-22-wave0-decisions.md`. Each is applied at the requirement itself as well as recorded here — the 2026-09-14 pass was appendix-only, and readers reached the superseded rule in the FR table first.
+
+- §12 #13 added 2026-09-22 (D-01) — **Redis** is a locked stack component: cache plus single-use short-lived token store. It had entered the design documents through `architecture-overview.md` without BRD authority. The token-holding instance runs `noeviction`; an eviction-enabled cache instance must be separate, because the 60-second OAuth authorization code cannot survive an LRU eviction.
+- FR-P-01, FR-P-06b and §12 #5b amended 2026-09-22 (D-02) — **`B2B_TIER` dropped.** V1 price types are `LIST` and `SALE`. Quantity-break pricing was mandatory in the FR table while §12 #2 and FR-P-06d made B2B differentiation branding-only with bulk pricing deferred; every downstream design document already assumed the narrow reading. Effective-price resolution now takes price type and time only — account type and quantity are not inputs.
+- FR-P-06c amended 2026-09-22 (D-05) — prohibited content restated as a two-tier rule. A prohibited taxonomy node or an exact hard-blocklist hit is rejected at submit with 422; a fuzzy keyword-suspicion match creates the listing as `FLAGGED` with a moderation case. The requirement previously specified flagging only, while the API contract blocked at submit; FR-A-03's queue keeps the soft tier as its input.
+- NFR-18 amended 2026-09-22 (D-04) — the repository-interface requirement binds **Tier 1** (core transactional) modules only. Tier 2 may inject `Repository<T>` directly, Tier 3 owns no repositories, and tier membership is defined in `conventions/backend-module-architecture.md § 2`. As written the requirement bound all eleven modules and six of them violated it.
+- §9 Kafka footprint risk and §12 #8 amended 2026-09-22 (D-06) — the V1 broker image is **`apache/kafka:3.8.0`** in KRaft mode, matching `phase-1/technical-design/docker-compose-topology.md`. The `bitnami/kafka` and `confluentinc` naming is removed, and Redpanda is recorded as *not* the chosen substitute: KRaft mode, not a different broker, is the answer to Zookeeper's footprint.
+- Clerical, 2026-09-22 — Prisma removed from FR-P-04a and NFR-08 (§12 #3 locks TypeORM); the §9 schema-drift risk row corrected from forward-compat to **BACKWARD** compatibility, matching §12 #9; FR-P-12 corrected to list all six envelope fields (`event_id`, `event_type`, `event_version`, `occurred_at`, `correlation_id`, `payload`) — it listed three.
+
 ---
 
-*End of BRD v1.2. All decisions signed off — proceed to design phase.*
+*End of BRD v1.3. All decisions signed off — proceed to design phase.*

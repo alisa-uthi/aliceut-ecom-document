@@ -759,7 +759,10 @@ services:
     restart: unless-stopped
     ports:
       - "6379:6379"
-    command: redis-server --appendonly no --maxmemory 256mb --maxmemory-policy allkeys-lru
+    # noeviction, not allkeys-lru: this instance also holds the 60-second single-use
+    # OAuth authorization code, and an LRU eviction would drop it mid-login with no
+    # error. A cache instance that may evict has to be a separate one (BRD §12 #13).
+    command: redis-server --appendonly no --maxmemory 256mb --maxmemory-policy noeviction
     networks:
       - aliceut_backend
     healthcheck:

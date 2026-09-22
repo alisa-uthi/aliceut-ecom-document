@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Current Project State
 
-**Pre-implementation.** Repo contains `architecture-overview.md`, `phase-1/requirements/BRD.md` (v1.2, signed off 2026-08-19; §10 and §12 amended 2026-09-14), and `phase-1/requirements/user-stories/` (split by role: buyer/seller/admin/platform). No source code or build system yet. Next phase per BRD §12 (Resolved Decisions): detailed design (→ `phase-1/technical-design/`) + backlog decomposition. Do not scaffold code unless user explicitly asks.
+**Pre-implementation.** Repo contains `architecture-overview.md`, `phase-1/requirements/BRD.md` (v1.3, signed off 2026-08-19; amended 2026-09-14 and 2026-09-22), and `phase-1/requirements/user-stories/` (split by role: buyer/seller/admin/platform). No source code or build system yet. Next phase per BRD §12 (Resolved Decisions): detailed design (→ `phase-1/technical-design/`) + backlog decomposition. Do not scaffold code unless user explicitly asks.
 
 ## Repo Layout
 
@@ -51,12 +51,13 @@ When UI/screen/component work is requested without a specified source, default t
 - **Backend:** NestJS 11+ (modular monolith, microservice-ready)
 - **DBs:** PostgreSQL (transactional core) + MongoDB (activity/audit/high-write append data) + MinIO (store images and documents)
 - **Search:** Elasticsearch/OpenSearch (self-hosted single-node)
-- **Event bus:** Apache Kafka + Confluent Schema Registry (Avro, BACKWARD compat) + Kafka UI (`provectus/kafka-ui`)
-- **ORM:** TypeORM with **raw-SQL migrations** (not decorator schema sync) + repository pattern behind interfaces (portability requirement — NFR-18)
+- **Cache + short-lived token store:** Redis (`noeviction` on the instance holding single-use tokens — the 60s OAuth authorization code lives there; an eviction-enabled cache instance must be separate)
+- **Event bus:** Apache Kafka (`apache/kafka:3.8.0`, KRaft mode) + Confluent Schema Registry (Avro, BACKWARD compat) + Kafka UI (`provectus/kafka-ui`)
+- **ORM:** TypeORM with **raw-SQL migrations** (not decorator schema sync) + repository pattern behind interfaces for Tier 1 modules (portability requirement — NFR-18)
 - **Auth:** Passport.js (local + Google + Facebook), JWT with refresh rotation
 - **Deploy V1:** docker-compose. **V2:** Kubernetes + Istio, Kafka via Strimzi
 
-Redpanda / KRaft mode acceptable substitute if Kafka+Zookeeper too heavy.
+Kafka runs in KRaft mode (no Zookeeper) to keep the local footprint down. Redpanda is not a substitute.
 
 ## Non-Negotiable Rules
 
@@ -73,7 +74,7 @@ Product → Offer (per seller, one currency) → Price (per price_type)
 ```
 Currency lives on the offer (`catalog.offer.native_currency_code`), not on the price row — a second currency means a second offer. Cart/FulfillmentItem reference `Offer`, not `Product`. Never store price on `Product`.
 
-Price types: `LIST`, `SALE` (time-bounded), `B2B_TIER` (min_qty). PDP resolves effective price by account type + time + qty.
+Price types: `LIST`, `SALE` (time-bounded). No `B2B_TIER` in V1. PDP resolves effective price by price type + time — account type and quantity are not inputs.
 
 ### Order immutability (FR-P-03)
 `FulfillmentItem` snapshots `unit_price`, `currency`, `tax`, `fx_rate_used_at_capture` at checkout. **Never re-derive historical amounts from live FX or current Price rows.**
@@ -89,8 +90,8 @@ Price types: `LIST`, `SALE` (time-bounded), `B2B_TIER` (min_qty). PDP resolves e
 ### V1 currencies
 Seller pricing allowed: **USD, THB, JPY, SGD** only.
 
-### Prohibited categories
-Weapons, drugs, adult content. Moderation flags on taxonomy + keyword blocklist at listing time.
+### Prohibited categories (FR-P-06c)
+Weapons, drugs, adult content. Two tiers at listing time: prohibited taxonomy node or exact hard-blocklist hit → **422 at submit, no listing created**; fuzzy/keyword-suspicion match → listing **created** as `FLAGGED` with an `admin.moderation_case` row (this is FR-A-03's queue input).
 
 ### B2B in V1
 Same UX as B2C. Differentiation is branding only (badge, business logo on invoice, "Business" header tag). No bulk pricing/invoicing yet.

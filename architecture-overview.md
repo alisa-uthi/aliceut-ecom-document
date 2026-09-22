@@ -64,17 +64,17 @@ Locked in BRD §12. Not revisable without a BRD amendment.
 | Frontend | Angular 22+ + Angular Material                                                  |
 | Backend | NestJS 11+ (modular monolith, microservice-ready)                               |
 | Primary DB | PostgreSQL (transactional source of truth)                                      |
-| Cache | Redis                                      |
+| Cache + short-lived token store | Redis (`noeviction` where single-use tokens live)             |
 | Audit / activity | MongoDB (append-only, event-fed)                                                |
 | Search | Elasticsearch / OpenSearch (self-hosted, single-node in V1)                     |
-| Event bus | Apache Kafka + Confluent Schema Registry (Avro, BACKWARD compat) + Kafka UI     |
+| Event bus | Apache Kafka (`apache/kafka:3.8.0`, KRaft mode) + Confluent Schema Registry (Avro, BACKWARD compat) + Kafka UI |
 | ORM | TypeORM with raw-SQL migrations + repository interfaces                         |
 | Auth | Passport.js (local + Google + Facebook), JWT with refresh rotation              |
 | Object storage | MinIO (S3-compatible; `product-images`, `kyc-documents`, `user-assets` buckets) |
 | V1 deploy | Docker Compose                                                                  |
 | V2+ deploy | Kubernetes + Istio; Kafka via Strimzi                                           |
 
-Redpanda / KRaft mode is an acceptable substitute if Kafka + ZooKeeper is too heavy for local development.
+Kafka runs in KRaft mode — no ZooKeeper — to keep the local development footprint down (BRD §12 #8). Redpanda is not a substitute.
 
 <a id="application-modules"></a>
 ## 5. Application modules
@@ -148,7 +148,7 @@ Weapons, drugs, adult content. Checked at listing time via taxonomy flag and key
 |---|---|---|
 | PostgreSQL | Source of truth for users, catalog, offers, prices, inventory, carts, orders, KYC, moderation, and outbox | Raw SQL migrations; one schema per module; repository interfaces isolate ORM usage |
 | MongoDB | Audit logs and activity events (append-only) | Populated from Kafka events; never source of truth for order or catalog state |
-| Redis | Caching, session storage, and fast temporary data access | Use for short-lived or high-speed data. Set appropriate TTLs. Do not treat Redis as the primary source of truth unless explicitly designed for persistence. Avoid storing sensitive data unnecessarily. Monitor memory usage and eviction policies. |
+| Redis | Caching, session storage, and single-use short-lived tokens | Use for short-lived or high-speed data. Set appropriate TTLs. Never a source of truth. Avoid storing sensitive data unnecessarily. The instance holding single-use tokens runs `noeviction` — eviction can silently drop a token mid-flow; an eviction-enabled cache instance must be separate. Monitor memory usage. |
 | Elasticsearch | Search documents and facets | Written from Kafka consumers only; never from the API request path |
 | Kafka | Durable domain-event transport | At-least-once delivery; consumers idempotent; BACKWARD-compatible Avro schemas |
 | MinIO | Binary assets (images, documents, user files) | Three buckets: `product-images` (public read), `kyc-documents` (private, presigned GET), `user-assets` (private) |
@@ -194,7 +194,7 @@ The compose file and the config it mounts live in a sibling repository, `aliceut
 | Security | DTO validation, parameterized queries, Argon2id passwords, short-lived JWTs with refresh rotation, secrets in environment variables |
 | Performance | Elasticsearch serves search; API avoids synchronous indexing; targets: product listing ≤2 s p95, search ≤500 ms p95 |
 | Scalability | Search model supports 10,000+ products; module interfaces and Kafka contracts are future extraction seams |
-| Portability | Raw SQL migrations and repository interfaces prevent ORM leakage into domain logic. One caveat (NFR-18): `pricing.offer_price`'s overlap `EXCLUDE` needs the bundled contrib extension `btree_gist`, so a managed PostgreSQL that forbids contrib also forbids that constraint |
+| Portability | Raw SQL migrations and, in Tier 1 modules, repository interfaces prevent ORM leakage into domain logic (NFR-18 binds Tier 1 only). One caveat: `pricing.offer_price`'s overlap `EXCLUDE` needs the bundled contrib extension `btree_gist`, so a managed PostgreSQL that forbids contrib also forbids that constraint |
 | Observability | Structured JSON logs, `X-Correlation-ID` accepted/generated/echoed and carried onto every event envelope, sensitive-key masking; monitor outbox relay lag and consumer lag. Governed by `conventions/observability.md` from Phase 1 onward |
 
 <a id="implementation-structure"></a>
