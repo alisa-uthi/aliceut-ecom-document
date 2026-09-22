@@ -94,7 +94,6 @@ PUT /products
           "native_currency_code":   { "type": "keyword" },
           "amount":                 { "type": "scaled_float", "scaling_factor": 10000 },
           "price_type":             { "type": "keyword" },
-          "min_qty":                { "type": "integer" },
           "available_qty":          { "type": "integer" },
           "display_prices": {
             "properties": {
@@ -115,7 +114,7 @@ PUT /products
 
 - `display_prices` is declared per V1 currency (`USD`, `THB`, `JPY`, `SGD` — the seller-price allowlist) rather than as a dynamic map, so each key gets the money type explicitly. The product-level copy is the lowest indexable offer's converted price and is what `priceMin`/`priceMax`, the price sorts and the `priceRange` aggregation read; the nested copy is per offer.
 - There is **no rating, review count or review field**, in keeping with reviews being out of V1 scope (BRD §3.2) and with the absence of a `minRating` param.
-- `B2B_TIER` prices are never indexed — see the `lowestOffer.priceType` note above — so `price_type` only ever holds `LIST` or `SALE` here.
+- `price_type` holds `LIST` or `SALE`. There is no third value and no `min_qty` field on an offer entry: `B2B_TIER` is not a V1 price type (Wave 0 decision D-02), and `min_qty` existed only to carry its quantity break, so `offer.changed` no longer publishes one and nothing writes one here.
 - Amounts cross the wire to clients as decimal strings, unchanged. `scaled_float` is a storage and comparison type: values are read back and re-rendered with `decimal.js`, and no floating-point arithmetic is performed on a monetary value at any point (FR-P-04a).
 - `images` and `variants.attributes` are `enabled: false` — stored in `_source` and returned, never indexed, because nothing queries them.
 
@@ -243,7 +242,7 @@ No single event carries a whole product document, and none is made to. Price liv
 
 Two consequences follow, and both are load-bearing:
 
-- **First-write ordering does not matter.** Every consumer writes with `doc_as_upsert: true`, so whichever event arrives first creates the document and the rest merge into it. There is no "product must be indexed before its offer" rule to enforce, and no consumer waits for another. The removal consumers are the deliberate exception — they upsert nothing, because a write whose whole purpose is to take a listing out of the index must never put a document back into it ([Removal never creates a document](#removal-never-creates)).
+- **First-write ordering does not matter.** Every consumer that may legitimately create a document does so on its first write — `doc_as_upsert` on `product.changed`, `scripted_upsert` on `offer.changed`'s `ACTIVE` branch and the inventory topics — so whichever of those arrives first creates it and the rest merge into it. There is no "product must be indexed before its offer" rule to enforce, and no consumer waits for another. The removal consumers are the deliberate exception — they upsert nothing, because a write whose whole purpose is to take a listing out of the index must never put a document back into it ([Removal never creates a document](#removal-never-creates)).
 - **A partial document is a normal state.** A product whose `offer.changed` has not yet arrived has no `display_prices` and no `offers`; the search query filters on `status`, `seller_active` and a price range, so such a document simply does not match yet. Nothing renders half a result.
 
 <a id="write-mechanisms"></a>
@@ -251,14 +250,15 @@ Two consequences follow, and both are load-bearing:
 
 - **Product-level flat fields, one document by id** — `product.changed` only. A `doc` merge with `doc_as_upsert: true`, which is also the one write that deletes a document.
 - **One offer's entry inside `offers[]`, one document by id** — `offer.changed`, `inventory.changed`, `inventory.reservation_expired`, `listing.flagged`, `moderation.listing.removed`, `listing.soft_deleted`. A **scripted** `_update`, because a `doc` merge cannot address a single element of a nested array: a plain `doc` write carrying `offers` replaces the whole array and drops every co-seller's entry. `scripted_upsert: true` appears only where a first-arriving event may legitimately create the document — the `offer.changed` `ACTIVE` branch and the inventory topics — and never on a removal write ([A removal write never creates a document](#removal-never-creates)).
-- **Many documents matched by a field rather than by id** — `seller.suspended`, `seller.reinstated`, `seller.suspension_expired`, `fx_rate.updated`. A scripted `_update_by_query`, because the payload names offer ids or a base currency and the consumer holds no product ids to address. `_update_by_query` has no upsert form, so these writes cannot create a document either.
+- **Many documents matched by a field rather than by id** — `seller.suspended`, `seller.reinstated`, `seller.suspension_expired`, `seller.profile_changed`, `fx_rate.updated`. A scripted `_update_by_query`, because the payload names offer ids, a seller or a base currency and the consumer holds no product ids to address. `_update_by_query` has no upsert form, so these writes cannot create a document either.
 
 | Event | Fields it owns and merges |
 |---|---|
-| `product.changed` | `product_id`, `title`, `brand`, `description`, `category_id`, `category_path`, `images`, `variants`, `status`, `created_at`. Deletes the document on `change_type = REMOVED`, and is the only event that deletes one. |
-| `offer.changed` | The `offers[]` entry for that one offer — `offer_id`, `seller_profile_id`, `seller_name`, `seller_active`, `status`, `native_currency_code`, `amount`, `price_type`, `min_qty`, its `display_prices` — and the product-level `lowest_offer_*` and `display_prices` recomputed across the surviving entries. Removes the entry whenever the payload's `status` is not `ACTIVE`, whatever the `change_type` says. |
-| `inventory.changed`, `inventory.reservation_expired` | `offers[].available_qty` for that offer, and the `in_stock` product rollup recomputed from every entry. Writes neither when `change_reason = SHIPMENT` — see below. |
-| `seller.suspended`, `seller.reinstated`, `seller.suspension_expired` | `offers[].seller_active` for every offer id in the payload, and the `in_stock` rollup. |
+| `product.changed` | `product_id`, `title`, `brand`, `description`, `category_id`, `category_path`, `images`, `variants`, `status`, `created_at`. Every one of them is carried in the payload, `category_path` and `created_at` included — Catalog resolves the path from `catalog.category` inside the producing transaction, because walking the tree here would be a read into another module's schema. Deletes the document on `change_type = REMOVED`, and is the only event that deletes one — on either of its two triggers, a seller withdrawing their last listing on the product or an admin removal emptying it. |
+| `offer.changed` | The `offers[]` entry for that one offer — `offer_id`, `seller_profile_id`, `seller_name`, `seller_active`, `status`, `native_currency_code`, `amount`, `price_type`, its `display_prices` — and the product-level `lowest_offer_*` and `display_prices` recomputed across the surviving entries. `seller_name` and `seller_active` come from the payload, composed by Catalog through `SellerApplicationService`; `display_prices` likewise, through `PricingApplicationService`, so a newly published offer is findable by a price filter before the next FX refresh. Removes the entry whenever the payload's `status` is not `ACTIVE`, whatever the `change_type` says. |
+| `inventory.changed`, `inventory.reservation_expired` | `offers[].available_qty` for that offer, and the `in_stock` product rollup recomputed from every entry. Both payloads carry `product_id` — the document id this write is addressed to — and an **absolute** `available_qty`, never a delta: a redelivered release applied as an increment would raise availability twice. Writes neither field when `change_reason = SHIPMENT` — see below. |
+| `seller.suspended`, `seller.reinstated`, `seller.suspension_expired` | `offers[].seller_active` for every offer id in the payload, and the `in_stock` rollup. All three carry `offer_ids`, including the timed expiry — a set the consumer cannot otherwise obtain, holding no permission to read `catalog.offer`. |
+| `seller.profile_changed` | `offers[].seller_name` on every entry whose `seller_profile_id` matches the payload's `seller_id`. Nothing else: the name feeds no rollup. This is the only event that changes an indexed `seller_name` after the entry exists, and without it a seller who renames their business is never corrected — the offer did not change, so no `offer.changed` fires. |
 | `listing.flagged`, `moderation.listing.removed`, `listing.soft_deleted` | Removal of the `offers[]` entry and the recomputed `lowest_offer_*` / `display_prices` / `in_stock`. Deletes no document and creates none — see [Only `product.changed` deletes a document](#only-product-changed-deletes). |
 | `fx_rate.updated` | `display_prices[<quote currency>]` at both levels, for offers whose `native_currency_code` is the event's base currency. Touches no other field. |
 
@@ -268,7 +268,7 @@ The table is the complete account, not an illustration: every field in the mappi
 - **Derived rollups** — `in_stock`, `lowest_offer_id`, `lowest_offer_price_type`, `lowest_offer_currency_code`, `lowest_offer_amount` and the product-level `display_prices` — are owned by no event. They are recomputed by whichever consumer just changed one of their inputs, in the same update, **from the document's own `offers[]` array after the merge**. That is why several rows list them: each is recomputing the same function over the same array, so the result does not depend on which consumer ran last.
 - `offers[].seller_active` is the one owned field two rows touch, and only in disjoint scopes. The Seller domain owns its value; `offer.changed` sets it on the single entry it creates or replaces, from the seller state carried in its own payload, because a new entry cannot exist without one. It never writes another entry's value, and the seller events never write anything else on an entry.
 
-Beyond that, the consumer reads **no** other module's tables and makes no enrichment call: whatever it needs is in the payload of the event it is handling, in the document it is updating, or it is not its field to write.
+Beyond that, the consumer reads **no** other module's tables and makes no enrichment call: whatever it needs is in the payload of the event it is handling, in the document it is updating, or it is not its field to write. Every field in the mapping is matched to the payload field that supplies it, consumer by consumer, in [consumer-field-matrix.md § 3](../consumer-field-matrix.md#search-family) — which is where a new mapping field earns its supplying event before it is added here.
 
 **`inventory.changed` is not synonymous with an availability change.** The consumer branches on the event's `change_reason` — a payload field, not a column, since `inventory.stock` has no reason column and is not to be given one. A reason of `SHIPMENT` moves `on_hand_qty` and `reserved_qty` by the same quantity, so `available = on_hand - reserved` does not move and the consumer **writes no availability field at all** for that event; it is not a write of the same value. No field in the mapping carries the reason, the on-hand figure or the reserved figure, and none is to be added: search filters on availability, and a shipment does not change availability. The seller-portal on-hand figure and the MongoDB audit trail are the consumers that care about the distinction.
 
@@ -323,11 +323,11 @@ sequenceDiagram
 
 ### offer.changed — offer fields update in product document
 
-Producers: Catalog module / Seller module (offer created, activated, updated, deactivated, or removed).
+Producer: Catalog module (offer created, activated, updated, deactivated, or removed). A seller action reaches it through `CatalogApplicationService`, which writes `catalog.offer` and the outbox row in the caller's transaction — `offer.changed` has one producer, which is the schema owner ([kafka-events.md § 2.11](../kafka-events.md#211-offerchanged)).
 
 ```mermaid
 sequenceDiagram
-    participant SellerAPI as Seller API
+    participant SellerAPI as Seller API → CatalogApplicationService
     participant Postgres
     participant Relay as Outbox Relay
     participant Kafka
@@ -335,7 +335,7 @@ sequenceDiagram
     participant ES as Elasticsearch
 
     Note over SellerAPI,Postgres: Seller creates, updates, or deactivates an offer
-    SellerAPI->>Postgres: BEGIN TX<br/>UPDATE catalog.offer SET status = ACTIVE (or INACTIVE or REMOVED)<br/>UPSERT pricing.offer_price rows<br/>INSERT platform.outbox_event (topic=offer.changed, change_type, payload)
+    SellerAPI->>Postgres: BEGIN TX<br/>UPDATE catalog.offer SET status = ACTIVE (or INACTIVE or REMOVED) — CatalogApplicationService<br/>UPSERT pricing.offer_price rows — PricingApplicationService<br/>INSERT platform.outbox_event (topic=offer.changed, change_type, payload incl. seller_name, seller_active, display_prices)
     Postgres-->>SellerAPI: COMMIT
 
     Relay->>Kafka: Produce to offer.changed (partition key: offer_id)
@@ -374,10 +374,11 @@ sequenceDiagram
     participant ES as Elasticsearch
 
     alt inventory.changed (stock updated)
-        Inventory->>Postgres: BEGIN TX<br/>UPDATE inventory.stock (on_hand_qty or reserved_qty)<br/>INSERT platform.outbox_event (topic=inventory.changed, available_qty, change_reason)
-        Note over Inventory,Postgres: change_reason travels in the payload only — inventory.stock has no reason column.<br/>change_reason = SHIPMENT decrements on_hand_qty and reserved_qty together, so available_qty is unchanged
+        Inventory->>Postgres: BEGIN TX<br/>UPDATE inventory.stock (on_hand_qty or reserved_qty)<br/>INSERT platform.outbox_event (topic=inventory.changed, product_id, offer_id, available_qty, change_reason)
+        Note over Inventory,Postgres: change_reason travels in the payload only — inventory.stock has no reason column.<br/>change_reason = SHIPMENT decrements on_hand_qty and reserved_qty together, so available_qty is unchanged.<br/>product_id is carried because the ES write is addressed by document id and the consumer may not read catalog.offer
     else inventory.reservation_expired (reservation released by scheduler)
-        Inventory->>Postgres: BEGIN TX<br/>UPDATE inventory.stock_reservation SET status = EXPIRED<br/>UPDATE inventory.stock SET reserved_qty = reserved_qty - :quantity<br/>INSERT platform.outbox_event (topic=inventory.reservation_expired, released_qty)
+        Inventory->>Postgres: BEGIN TX<br/>UPDATE inventory.stock_reservation SET status = EXPIRED<br/>UPDATE inventory.stock SET reserved_qty = reserved_qty - :quantity<br/>INSERT platform.outbox_event (topic=inventory.reservation_expired, product_id, offer_id, available_qty)
+        Note over Inventory,Postgres: available_qty is the absolute post-release figure read in this transaction, not the released quantity.<br/>A delta is not idempotent: a redelivered release applied as an increment raises availability a second time
     end
     Postgres-->>Inventory: COMMIT
 
@@ -426,13 +427,43 @@ sequenceDiagram
         Note over Consumer: Idempotency check on platform.processed_event
         Consumer->>ES: POST /products/_update_by_query (scripted)<br/>Same match on the payload's offer_ids#59; set seller_active = true#59; recompute in_stock
     else Timed suspension expires (seller.suspension_expired, Workers scheduler)
-        Admin->>Postgres: BEGIN TX — Workers polls WHERE suspended_until <= NOW()<br/>UPDATE seller.seller_profile SET suspension_status = ACTIVE, suspended_until = NULL<br/>UPDATE catalog.offer SET status = ACTIVE, status_changed_reason = NULL<br/>  WHERE seller_profile_id = :sellerProfileId AND status_changed_reason = SUSPENSION<br/>INSERT platform.outbox_event (topic=seller.suspension_expired)
+        Admin->>Postgres: BEGIN TX — Workers polls WHERE suspended_until <= NOW()<br/>UPDATE seller.seller_profile SET suspension_status = ACTIVE, suspended_until = NULL<br/>CatalogApplicationService.reactivateSuspendedOffers(sellerProfileId, tx) — UPDATE catalog.offer SET status = ACTIVE, status_changed_reason = NULL<br/>  WHERE seller_profile_id = :sellerProfileId AND status_changed_reason = SUSPENSION RETURNING id<br/>INSERT platform.outbox_event (topic=seller.suspension_expired, payload includes offer_ids)
         Postgres-->>Admin: COMMIT
         Relay->>Kafka: Produce to seller.suspension_expired (partition key: seller_id)
         Kafka-->>Consumer: Consume seller.suspension_expired (group: search.suspension-expired)
         Note over Consumer: Idempotency check on platform.processed_event
         Consumer->>ES: POST /products/_update_by_query (scripted)<br/>Same write as manual reinstatement — set seller_active = true on the payload's offers#59; recompute in_stock
     end
+    ES-->>Consumer: acknowledged
+    Consumer->>Postgres: INSERT platform.processed_event
+    Note over Consumer: Commit Kafka offset
+```
+
+---
+
+### seller.profile_changed — business-name refresh across the seller's offers
+
+Producer: Seller module (`PATCH /seller/profile`, business-name change).
+
+`offers[].seller_name` is written once, by the `offer.changed` that created the entry. A seller renaming their business changes no offer, so no `offer.changed` fires and every indexed copy of the old name would stand indefinitely — for a seller who never edits a listing again, permanently. This consumer is the one write that corrects it.
+
+```mermaid
+sequenceDiagram
+    participant SellerAPI as Seller API
+    participant Postgres
+    participant Relay as Outbox Relay
+    participant Kafka
+    participant Consumer as SearchConsumer
+    participant ES as Elasticsearch
+
+    Note over SellerAPI,Postgres: Seller changes businessName
+    SellerAPI->>Postgres: BEGIN TX<br/>UPDATE seller.seller_profile SET business_name = :businessName<br/>INSERT platform.outbox_event (topic=seller.profile_changed, payload={seller_id, seller_name, changed_at})
+    Postgres-->>SellerAPI: COMMIT
+    Note over SellerAPI,Postgres: The outbox row is written only when business_name actually changed —<br/>a PATCH that touches submittedData alone indexes nothing
+    Relay->>Kafka: Produce to seller.profile_changed (partition key: seller_id)
+    Kafka-->>Consumer: Consume seller.profile_changed (group: search.seller-profile-changed)
+    Note over Consumer: Idempotency check on platform.processed_event
+    Consumer->>ES: POST /products/_update_by_query (scripted)<br/>Match documents holding an offers[] entry whose seller_profile_id = payload.seller_id<br/>Set seller_name on those entries#59; no rollup is recomputed — the name feeds none<br/>No upsert form, so a seller with no indexed offers is a successful no-op
     ES-->>Consumer: acknowledged
     Consumer->>Postgres: INSERT platform.processed_event
     Note over Consumer: Commit Kafka offset
@@ -510,7 +541,7 @@ sequenceDiagram
 **Only `product.changed` deletes a document.** Removing the last indexable entry from `offers[]` leaves the document in place, holding the product's own fields and an empty array. That costs one unmatched document and is the safe end of the trade: a buyer-facing query filters on the nested offers, so an entry-less document matches nothing and renders nowhere, while deleting it would strand the product. Two reachable cases show why. A co-seller's `INACTIVE` offer keeps the product `ACTIVE` while nothing on it is indexable, as the paragraph above describes. And a seller deactivating their last offer through `PATCH /seller/offers/:offerId` empties `offers[]` without touching `catalog.product` at all — the path every platform-seeded product takes, since the product-level delete refuses one the caller did not create. In both the product is still catalogued and still meant to return to search the moment an offer is activated, and the event that would bring it back is an `offer.changed` carrying offer fields only. Against a deleted document that event upserts a document with no `title`, `status` or `category_path` — a product permanently invisible to every query that filters them, with no later event obliged to repair it. Deletion therefore stays with the one event that means the product itself is gone.
 
 <a id="removal-never-creates"></a>
-**A removal write never creates a document.** `moderation.listing.removed`, `listing.soft_deleted` and `listing.flagged` write their scripted updates **without** `scripted_upsert`, unlike the `offer.changed` and `inventory.changed` consumers above. The reason is the other half of the last-seller case: when the withdrawn offer was the only one and the product was the caller's own, the product goes `REMOVED` and `product.changed` deletes the whole document — and that event travels on the product's partition key while the per-offer event travels on the offer's, so the two arrive in either order. If a listing event lands after the delete and its write carried an upsert flag, ES would recreate the document from the script's upsert body: a product no longer in the catalogue, back in the index, holding an offers entry and none of the fields a buyer-facing query filters on. Without the flag ES answers `document_missing`, which this consumer treats as a **successful no-op** — the offer it was asked to remove is gone, and so is the document that held it. The message is neither retried nor sent to the DLQ, which exists for writes that a retry could still land; this one never can.
+**A removal write never creates a document.** `moderation.listing.removed`, `listing.soft_deleted` and `listing.flagged` write their scripted updates **without** `scripted_upsert`, unlike the `offer.changed` and `inventory.changed` consumers above. The reason is the other half of the last-seller case: when the removed offer was the last non-`REMOVED` one on the product — whether the seller withdrew it ([seller.md](./seller.md#delete-product-soft)) or an admin removed it on a moderation decision ([admin.md](./admin.md#decide-moderation-case)) — the product goes `REMOVED` and `product.changed` deletes the whole document — and that event travels on the product's partition key while the per-offer event travels on the offer's, so the two arrive in either order. If a listing event lands after the delete and its write carried an upsert flag, ES would recreate the document from the script's upsert body: a product no longer in the catalogue, back in the index, holding an offers entry and none of the fields a buyer-facing query filters on. Without the flag ES answers `document_missing`, which this consumer treats as a **successful no-op** — the offer it was asked to remove is gone, and so is the document that held it. The message is neither retried nor sent to the DLQ, which exists for writes that a retry could still land; this one never can.
 
 ---
 

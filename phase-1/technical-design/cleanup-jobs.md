@@ -206,6 +206,8 @@ WHERE status = 'ACTIVE'
 LIMIT :batchSize;
 ```
 
+Then resolve the product id of every claimed offer in one call — `CatalogApplicationService.getProductIdsForOffers(offerIds)`. It is not a join: `catalog.offer` is Catalog's table, and the event needs `product_id` because the search consumer's write is addressed by document id and that consumer may read nothing.
+
 Then, per row, in one transaction — release the stock under the optimistic lock, mark the reservation, write the outbox row:
 
 ```sql
@@ -214,7 +216,8 @@ SET reserved_qty = reserved_qty - :quantity,
     version      = version + 1,
     updated_at   = now()
 WHERE offer_id = :offerId
-  AND version  = :version;
+  AND version  = :version
+RETURNING on_hand_qty - reserved_qty AS available_qty;
 
 UPDATE inventory.stock_reservation
 SET status = 'EXPIRED', updated_at = now()
@@ -226,20 +229,25 @@ INSERT INTO platform.outbox_event (
   event_type, event_version, payload, correlation_id,
   occurred_at, created_at, updated_at
 ) VALUES (
-  'stock_reservation', :reservationId, 'inventory.reservation_expired', :reservationId::text,
+  'inventory.stock', :offerId, 'inventory.reservation_expired', :offerId::text,
   'inventory.reservation_expired', 1,
   jsonb_build_object(
     'reservation_id', :reservationId,
     'offer_id',       :offerId,
+    'product_id',     :productId,
     'order_id',       :orderId,
-    'released_qty',   :quantity,
+    'available_qty',  :availableQty,
     'released_at',    :releasedAt
   ),
   :correlationId, now(), now(), now()
 );
 ```
 
-The stock `UPDATE` carries the `version` read with the row and is the required optimistic lock: a checkout that reserved against the same offer between the `SELECT` and the `UPDATE` bumps `version`, the statement affects zero rows, and the row is skipped and retried on the next pass rather than decrementing `reserved_qty` from a stale figure. The reservation `UPDATE` re-checks `status = 'ACTIVE'` for the same reason — a checkout that completed in that window has already set `fulfillment_id`, and its reservation must not be expired underneath it. The payload carries every field `InventoryReservationExpiredPayload` declares; `order_id` is why `stock_reservation.order_id` stays `NOT NULL`.
+The stock `UPDATE` carries the `version` read with the row and is the required optimistic lock: a checkout that reserved against the same offer between the `SELECT` and the `UPDATE` bumps `version`, the statement affects zero rows, and the row is skipped and retried on the next pass rather than decrementing `reserved_qty` from a stale figure. The reservation `UPDATE` re-checks `status = 'ACTIVE'` for the same reason — a checkout that completed in that window has already set `fulfillment_id`, and its reservation must not be expired underneath it. The payload carries every field `InventoryReservationExpiredPayload` declares ([kafka-events.md § 2.19](kafka-events.md#219-inventoryreservation_expired)); `order_id` is why `stock_reservation.order_id` stays `NOT NULL`. Three details of it are load-bearing:
+
+- **`available_qty`, the absolute figure, not the quantity released.** It comes from the `RETURNING` clause of the release itself, so it is the post-release value read inside the same transaction. The search consumer sets `offers[].available_qty` to it. A delta would not be idempotent: the topic is at-least-once, and a redelivered release applied as an increment raises availability a second time.
+- **`product_id`.** The Elasticsearch index holds product documents, so the consumer's write is a `POST /products/_update/:productId`, and the consumer may not read `catalog.offer` to find the id. The scheduler resolves it through `CatalogApplicationService`, once per batch, rather than joining `catalog.offer` into the claim query above.
+- **The partition key is `offer_id`.** The topic keys on the offer, and the outbox contract makes `key` = `aggregate_id`, so the aggregate is the stock row and not the reservation. Keyed on `reservationId` every expiry for one offer would land on a different partition, and two expiries racing on one offer could be applied to the index out of order — the later absolute figure overwritten by the earlier one.
 
 #### `cleanup-old-stock-reservations` — terminal-row retention
 
@@ -384,17 +392,18 @@ Deleting a read row also releases its `(recipient_user_id, source_event_id)` uni
 | Batch env var | `CLEANUP_BATCH_SIZE` — profiles claimed per run |
 | Guard | `pg_advisory_lock` on `lift-expired-suspensions` |
 
-Claim the due profiles, joining `identity.user` for the recipient identity the notification consumer needs:
+Claim the due profiles from the job's own schema:
 
 ```sql
-SELECT p.id, p.business_name, p.suspended_until, u.email, u.full_name
+SELECT p.id, p.user_id, p.business_name, p.suspended_until
 FROM seller.seller_profile p
-JOIN identity.user u ON u.id = p.user_id
 WHERE p.suspension_status = 'SUSPENDED'
   AND p.suspended_until IS NOT NULL
   AND p.suspended_until < now()
 LIMIT :batchSize;
 ```
+
+**No join to `identity.user`.** The recipient identity the payload carries comes from `IdentityApplicationService.getUsersByIds(userIds): UserView[]`, called once per batch with the claimed `user_id` set, not from SQL across a schema this module does not own ([backend-module-architecture § Ownership boundaries](./backend-module-architecture.md#ownership-boundaries), D-03). The view supplies `id`, `email` and `full_name` — the three the payload needs, `id` included, because `seller.suspension_expired.seller_user_id` is the `identity.user` id the in-app notification is addressed by and the profile row does not hold it under that name. The call is outside the per-profile transaction: it is a read, it does not have to be atomic with the update, and a batch of one round trip is cheaper than a join that the Phase 2 extraction would have to unpick.
 
 Then, per profile, in one transaction:
 
@@ -406,7 +415,15 @@ SET suspension_status = 'ACTIVE',
     updated_at        = now()
 WHERE id = :sellerProfileId
   AND suspension_status = 'SUSPENDED';
+```
 
+Then, in the same transaction, reactivate the offers the suspension deactivated — through Catalog, which owns the table:
+
+```
+offerIds = CatalogApplicationService.reactivateSuspendedOffers(sellerProfileId, tx)
+```
+
+```sql
 INSERT INTO platform.outbox_event (
   aggregate_type, aggregate_id, topic, key,
   event_type, event_version, payload, correlation_id,
@@ -416,11 +433,13 @@ INSERT INTO platform.outbox_event (
   'seller.suspension_expired', 1,
   jsonb_build_object(
     'seller_id',       :sellerProfileId,
+    'seller_user_id',  :userId,
     'seller_email',    :email,
     'seller_name',     :fullName,
     'business_name',   :businessName,
     'suspended_until', :suspendedUntil,
-    'expired_at',      :expiredAt
+    'expired_at',      :expiredAt,
+    'offer_ids',       :offerIds
   ),
   :correlationId, now(), now(), now()
 );
@@ -428,9 +447,11 @@ INSERT INTO platform.outbox_event (
 
 `suspension_reason` is cleared with `suspended_until`. Leaving it set on an `ACTIVE` profile makes every reader of the row — admin seller view, seller portal banner — see a suspension reason on an unsuspended seller; the historical reason survives in MongoDB `audit_logs` against the `SELLER_SUSPENDED` action, which is where suspension history is queried from anyway.
 
-The payload carries the recipient identity ET-11 renders (`seller_name`, `business_name`) rather than only the profile id, so the notification consumer does not have to read `identity.user` from another module's schema.
+The payload carries the recipient identity ET-11 renders (`seller_name`, `business_name`) and the `seller_user_id` the in-app row is addressed by, rather than only the profile id, so the notification consumer does not have to read `identity.user` from another module's schema. Every field the schema declares ([kafka-events § 2.18](./kafka-events.md#218-sellersuspension_expired)) is populated here: the payload and the producer are one list, and a required field this job omits does not degrade at the consumer, it fails Avro serialization in the relay.
 
-**This job does not reactivate the seller's offers.** Offers deactivated by the suspension carry `catalog.offer.status_changed_reason = 'SUSPENSION'`, and `catalog` is the only writer of that table; a scheduler in the `seller` module writing `catalog.offer` would be exactly the cross-module write the architecture forbids. Reactivation is a consumer-side effect of `seller.suspension_expired`, on the same footing as the Elasticsearch re-enable — see [kafka-events.md](./kafka-events.md) for the consumer wiring on that topic.
+**Offers are reactivated in this transaction, through Catalog.** Offers the suspension deactivated carry `catalog.offer.status = 'INACTIVE'` with `status_changed_reason = 'SUSPENSION'`, and `catalog` is the only writer of that table, so the job calls `CatalogApplicationService.reactivateSuspendedOffers(sellerProfileId, tx): string[]` rather than issuing the `UPDATE` itself. The service sets exactly those rows back to `ACTIVE` with `status_changed_reason = NULL`, leaves `REMOVED` and `FLAGGED` offers untouched — an expiry lifts a suspension, not a content decision — and returns the ids it changed, which become the payload's `offer_ids`. The method takes the caller's transaction handle, so the profile update and the offer reactivation commit together or not at all.
+
+**Why not defer reactivation to a consumer.** Leaving it to `seller.suspension_expired`'s subscribers would have required a new Catalog consumer group on the topic, and would have left `offer_ids` unsuppliable: the payload field the search consumer matches on is "the offers the expiry reactivated", and a producer that reactivates nothing has no set to name. It would also have split one state transition across a synchronous profile write and an asynchronous offer write, so a seller whose suspension expired would be `ACTIVE` with `INACTIVE` offers for as long as the consumer lagged. This is the shape manual reinstatement already uses ([api-design/admin.md](./api-design/admin.md#reinstate-seller)): reactivate in the transaction, publish the ids, let search re-enable the indexed entries from the payload.
 
 ---
 

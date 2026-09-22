@@ -106,6 +106,15 @@ Two tiers, stated once and referenced from both sides.
 | Prohibited taxonomy node, or exact hit on the hard blocklist | **422 at submit.** Listing is not created. |
 | Fuzzy / keyword-suspicion match | Listing is **created** with offer status `FLAGGED` and a `admin.moderation_case` row. |
 
+> **The Trigger column above is superseded by [D-14](#d-14--d-05s-tier-discriminator-the-matched-terms-stored-enforcement-not-the-precision-of-the-match).**
+> The two *Behaviour* cells stand unchanged and are what FR-A-03 depends on. What changed is
+> how a trigger is assigned to a tier: not by how precisely the text matched ("exact hit"
+> versus "fuzzy"), which is unimplementable in both directions, but by the stored
+> `enforcement` of the blocklist term that matched. Read the rows as **hard tier** = a
+> prohibited taxonomy node or a term stored `BLOCK`; **soft tier** = a term stored `FLAG`.
+> The original wording is left in place rather than rewritten, because this is a record of
+> what was signed off and D-14 carries the amendment.
+
 **Required changes:**
 - `BRD.md:145` — restate as the two-tier rule above; the flag path is what feeds FR-A-03.
 - `api-design/seller.md:56` — keep the 422 but scope it to the hard tier, and document
@@ -214,3 +223,108 @@ the superseded rule in the FR table first and never reached the amendment list.
 
 **Every change above is applied in place, at the cited line**, with the amendment list at
 `BRD.md:270-271` extended to record it. Appendix-only edits do not count as applied.
+
+---
+
+# Addendum — decisions raised during execution
+
+Decisions D-01…D-10 above came from the fix plan's Wave 0 gate. The two below surfaced
+while the waves were executing, and carry the same authority.
+
+## D-11 — Re-suspending an already-suspended seller: **409, plus a separate amend endpoint**
+
+Closes one of the four story acceptance criteria the audit could not locate endpoint
+behaviour for (fix plan §1, "Withheld, not missing").
+
+- `POST` suspend against a seller whose suspension is **active** returns **409 Conflict**.
+  The suspension state machine has no re-entry.
+- Amending an active suspension — its end date, its reason, or both — is a **separate
+  `PATCH`** on the suspension resource. Specify it in `api-design/admin.md`: request shape,
+  the fields that may be amended, the 404/409 cases, and the audit trail it writes.
+- Consequence for the event contract: `seller.suspended` carries **no `is_extension`
+  field**. An amendment is a distinct operation and, if it needs an event at all, a
+  distinct event type — do not overload `seller.suspended` with a boolean discriminator.
+- `user-stories/admin.md` needs the re-suspension AC stated to match.
+
+## D-12 — New Kafka topic `seller.profile_changed`: **approved**
+
+`PATCH /seller/profile` previously wrote no outbox row while `api-design/search.md`
+indexes `seller_name`, so a renamed seller went permanently stale in search. D-03
+(sole-writer ENFORCE) forbids the cross-module DB read that would otherwise supply the
+name, leaving a new topic as the only option.
+
+Topic counts across the technical-design documents move to **29 topics / 39 consumer
+groups / 39 DLQs**. Any document stating other counts is stale and must be updated.
+
+The 29th is `seller.suspension_amended`, added under D-11. It is audit-only, so it adds a
+topic without adding a consumer group or a DLQ — which is why the group and DLQ counts do
+not move with it. An earlier revision of this decision said 28; that was one behind.
+
+## D-13 — Two-producer topics: **`listing.flagged` collapses to one producer; audit-family topics may have many**
+
+> **Provenance:** this one is a controller ruling, not a product-owner ruling. It follows
+> from D-03 and D-05 rather than adding anything new, which is why it was not escalated.
+> Flagged to the product owner when made; override it if the reading is wrong.
+
+`conventions/kafka-events.md:14` requires one producer per topic. Wave 1 found two topics
+with two producers each. They are not the same case.
+
+**`listing.flagged` — one producer: admin.** Both paths write an
+`admin.moderation_case` row: the admin path is manual flagging (D-08), the seller path is
+the soft tier's flag-on-create (D-05). D-03 makes the `admin` schema writable by the admin
+module alone, so the seller path already has to route through the admin module's
+application service — and the producer is the module that writes the row in the same
+transaction as the outbox event. The two-producer table comes out; the two *call sites*
+stay, both entering through admin.
+
+**`pii.accessed` — many producers, legitimately.** Audit is a cross-cutting concern, not a
+domain state change. It owns no schema, so sole-writer has nothing to say about it, and any
+module that touches PII must be able to record that it did. Forcing it through one module
+would either centralise every PII read or lose the events.
+
+**The rule to state in `conventions/kafka-events.md` § 1**, replacing the flat
+one-producer-per-topic sentence: a topic carrying a **domain state change** has exactly one
+producer — the module that owns the schema the change was written to. A topic carrying
+**audit or observability** records has as many producers as there are modules generating
+them, and its schema is owned by the audit consumer rather than by any producer. Name which
+family each existing topic belongs to, so the next editor does not have to infer it.
+
+## D-14 — D-05's tier discriminator: **the matched term's stored enforcement, not the precision of the match**
+
+> **Provenance:** like D-13, a controller ruling rather than a product-owner ruling, and
+> this one **amends the wording of a signed-off decision** — D-05 above, and FR-P-06c with
+> it. It was not escalated because it changes how the two tiers are told apart, not what
+> either tier does: the hard tier still 422s with no listing, the soft tier still creates
+> the listing `FLAGGED` with a `admin.moderation_case` row, and FR-A-03's input is
+> unchanged. Flagged to the product owner when made. If the original reading was meant
+> literally, override this and the design follows.
+
+D-05 as signed off made **match precision** the discriminator: "exact hit on the hard
+blocklist" against "fuzzy / keyword-suspicion match". Wave 1's C5 work found that
+unimplementable in both directions:
+
+- an admin cannot flag a precisely-spelled term they only want reviewed, because precise
+  spelling forces the hard tier
+- an admin cannot hard-block a pattern that has no single exact spelling, because a pattern
+  forces the soft tier
+
+The tier is therefore a property of **the blocklist term that matched** — each term stored
+as blocking or flagging — and explicitly not of how precisely the text matched. Substring,
+whole-word and pattern matching exist on both tiers — the three `match_type` values are
+`SUBSTRING`, `WORD` and `REGEX`, and "exact" is not one of them. Where terms of both tiers match, the
+strictest wins.
+
+Design carries this as `admin.keyword_blocklist.enforcement` (`BLOCK` | `FLAG`), required,
+no default, **independent of `match_type`** (`WORD` | `SUBSTRING` | `REGEX`).
+`data-model-erd.md:668` states the independence and why conflating the two columns is the
+mistake to avoid. `BRD.md:145` states the rule without naming a column or table, so the
+requirement reads without opening a design document.
+
+Recorded on the existing FR-P-06c amendment bullet at `BRD.md:278`, not as a second bullet
+— the same requirement amended twice in one day's pass is one decision, and two bullets
+would read as two.
+
+**Consequence for later waves:** a document that still tiers by match precision is stale.
+Wave 6 owes the blocklist screen an `enforcement` control (required, no default, so there
+is currently no way to create a term through the UI) and must not present the choice as a
+matching-precision setting.

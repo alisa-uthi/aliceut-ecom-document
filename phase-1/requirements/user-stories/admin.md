@@ -108,12 +108,17 @@ Priority: Should — trace: FR-A-05
 - Seller notified by email (→ ET-10); all listings removed from search; action is auditable.
 - Pending unshipped orders at suspension time remain active; seller retains obligation to fulfill them. If seller remains suspended and an order is not shipped within its expected window, buyer is notified and a refund is issued. (→ ET-13)
 - Suspension expiry: timed suspensions (7/30/90 days) auto-lift at `suspended_until`; listings are reactivated automatically and seller is notified by email (→ ET-11).
-- Given an admin attempts to suspend a seller who is already permanently suspended:
-  Then the API returns 409 "Seller is already permanently suspended."
-- Given an admin attempts to suspend a seller who is already temporarily suspended:
-  Then the admin may extend the suspension by providing a new `suspended_until` date and reason.
-  The existing suspension record is updated (not duplicated).
-  The action is recorded in audit_logs.
+- Given an admin attempts to suspend a seller whose suspension is already in force, timed or permanent:
+  Then the API returns 409 "Seller is already suspended." The suspension state machine has no re-entry,
+  and no listing, notification or audit record is written by the rejected call.
+- Given an admin needs to change the end date or the reason of a suspension already in force:
+  Then they amend it, which is a separate action on the suspension itself and not a second suspension.
+  The admin supplies a new end date, a new reason, or both; the existing suspension record is updated
+  (not duplicated) and the action is recorded in audit_logs with both the prior and the new value.
+  The seller remains suspended throughout: listings stay deactivated, and no suspension email is re-sent
+  — the new end date is shown on the seller's own suspension banner.
+  Amending is not available once the suspension has been lifted or has expired; reinstating a seller
+  and suspending them again is the only path from there, and it is a new suspension (US-A-05b).
 
 ---
 

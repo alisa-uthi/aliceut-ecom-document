@@ -53,7 +53,7 @@ The three `./config/` paths resolve inside the infra repository itself, not a si
 <a id="service-inventory"></a>
 ## 2. Service inventory
 
-**Nineteen services.** Every one of them starts in V1; nothing in this file is staged for a later phase.
+**Twenty services.** Every one of them starts in V1; nothing in this file is staged for a later phase.
 
 | Service | Image / Build | Host port | Purpose |
 |---------|--------------|-----------|---------|
@@ -66,10 +66,11 @@ The three `./config/` paths resolve inside the infra repository itself, not a si
 | `mongodb` | `mongo:7` | `27017:27017` | Audit and activity log store |
 | `elasticsearch` | `docker.elastic.co/elasticsearch/elasticsearch:8.14.0` | `9200:9200` | Search index |
 | `kafka` | `apache/kafka:3.8.0` | `29092:29092` | Kafka broker (KRaft mode); `kafka:9092` in-network, `localhost:29092` from the host |
+| `kafka-init` | `apache/kafka:3.8.0` | — | One-shot topic provisioning: creates all 29 event topics, the 39 consumer-group DLQ topics and `email.outbound.dlq`, each with its documented retention, partition count and replication factor |
 | `schema-registry` | `confluentinc/cp-schema-registry:7.7.0` | `8081:8081` | Confluent Schema Registry (Community) |
-| `kafka-ui` | `provectus/kafka-ui:latest` | `8080:8080` | Kafka management UI |
+| `kafka-ui` | `provectus/kafka-ui:v0.7.2` | `8080:8080` | Kafka management UI |
 | `minio` | `minio/minio:RELEASE.2024-11-07T00-52-20Z` | `9000:9000`, `9001:9001` | S3-compatible object storage (product images, KYC docs, user assets) |
-| `minio-init` | `minio/mc:latest` | — | One-shot bucket creation init container |
+| `minio-init` | `minio/mc:latest` | — | One-shot bucket creation init container — the one unpinned tag here, see below |
 | `redis` | `redis:7-alpine` | `6379:6379` | JWT revocation key store (`auth:revoke_before:{userId}` keys, TTL 960 s) |
 | `mailpit` | `axllent/mailpit:v1.31.1` | `8025:8025`, `1025:1025` | SMTP sink and web inbox — the target of every `ET-*` email the notification consumer sends |
 | `alloy` | `grafana/alloy:v1.19.2` | `12345:12345` | Unified collector: tails container logs, forwards to Loki |
@@ -77,7 +78,9 @@ The three `./config/` paths resolve inside the infra repository itself, not a si
 | `prometheus` | `prom/prometheus:v3.14.0` | `9090:9090` | Metrics scrape, including the outbox-lag gauge (§12) |
 | `grafana` | `grafana/grafana:11.6.16` | `3200:3000` | Dashboards over Loki + Prometheus |
 
-The last four are the observability stack specified by [conventions/observability.md §5-6](../../conventions/observability.md#docker-compose); that document owns their configuration and this one owns their wiring. Image tags are pinned to an exact patch release rather than a floating `latest` or `3.x`, matching every other service here — a topology whose behaviour changes on `docker compose pull` is not reproducible.
+The last four are the observability stack specified by [conventions/observability.md §5-6](../../conventions/observability.md#docker-compose); that document owns their configuration and this one owns their wiring. Image tags are pinned to an exact patch release rather than a floating `latest` or `3.x` — a topology whose behaviour changes on `docker compose pull` is not reproducible.
+
+**`minio-init` is the one exception, and it is the only image where `latest` is tolerable.** It is a one-shot container that runs `mc mb --ignore-existing` against a bucket list and exits; it serves no request, holds no state, and is not running when anything else talks to MinIO, so a newer `mc` changes the topology's behaviour only if bucket creation itself breaks — which fails loudly at start-up rather than silently at runtime. Pinning it is still the better default: replace `latest` with the `RELEASE.*` tag published alongside the `minio/minio` version above when one is confirmed against the registry. Every other service here carries an exact tag and must keep one.
 
 ---
 
@@ -86,8 +89,8 @@ The last four are the observability stack specified by [conventions/observabilit
 
 ```
 aliceut_frontend   buyer-nginx, seller-nginx, admin-nginx (no backend access)
-aliceut_backend    api, workers, postgres, mongodb, elasticsearch, kafka, schema-registry,
-                   kafka-ui, minio, minio-init, redis, mailpit,
+aliceut_backend    api, workers, postgres, mongodb, elasticsearch, kafka, kafka-init,
+                   schema-registry, kafka-ui, minio, minio-init, redis, mailpit,
                    alloy, loki, prometheus, grafana
 ```
 
@@ -162,6 +165,12 @@ KAFKA_BROKERS=kafka:9092
 SCHEMA_REGISTRY_URL=http://schema-registry:8081
 KAFKA_CLIENT_ID=aliceut-api
 KAFKA_WORKER_CLIENT_ID=aliceut-workers
+# Topic retention applied by kafka-init at creation time (§6). 7 days for every topic,
+# 24 hours for the three auth.* topics, whose payloads carry a raw single-use credential
+# token. Raising the first without raising PROCESSED_EVENT_RETENTION_DAYS (14) breaks the
+# dedupe ordering the DLQ replay depends on.
+KAFKA_TOPIC_RETENTION_MS=604800000
+KAFKA_AUTH_TOPIC_RETENTION_MS=86400000
 
 # ── Outbox relay (workers) ───────────────────────────────
 OUTBOX_POLL_INTERVAL_MS=500
@@ -453,6 +462,8 @@ services:
         condition: service_healthy
       minio-init:
         condition: service_completed_successfully
+      kafka-init:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/api/v1/health"]
       interval: 30s
@@ -534,6 +545,8 @@ services:
         condition: service_healthy
       mailpit:
         condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
     healthcheck:
       # Path is /api/v1/health, not /health: the endpoint sits under the global
       # prefix and has no unversioned alias (api-design/health.md).
@@ -647,8 +660,18 @@ services:
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
-      KAFKA_NUM_PARTITIONS: 3
+      # Off, deliberately. An auto-created topic takes the broker's defaults, and the
+      # broker default retention is 7 days — which silently overrides the 24 hours the
+      # auth.* topics are specified at, and those payloads carry a raw single-use
+      # credential token (kafka-events.md § 3). Every topic is created explicitly by
+      # kafka-init below, with its own retention, partition count and replication factor.
+      # A producer publishing to a topic nobody created now fails loudly instead of
+      # inventing one with the wrong settings.
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      # 1, matching every topic in the catalogue, so an internal topic the broker does
+      # create for itself is shaped like the rest. It was 3, which contradicted
+      # kafka-events.md § 3 for anything auto-created.
+      KAFKA_NUM_PARTITIONS: 1
       KAFKA_DEFAULT_REPLICATION_FACTOR: 1
       KAFKA_LOG_DIRS: /var/lib/kafka/data
       # 7 days, pinned rather than inherited from the image default, because
@@ -669,6 +692,69 @@ services:
       timeout: 10s
       retries: 10
       start_period: 30s
+
+  kafka-init:
+    image: apache/kafka:3.8.0
+    container_name: aliceut_kafka_init
+    restart: "no"
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - aliceut_backend
+    environment:
+      # 7 days, matching KAFKA_LOG_RETENTION_HOURS above. Both are overridable, and the
+      # dedupe window (PROCESSED_EVENT_RETENTION_DAYS, 14) must stay strictly greater.
+      KAFKA_TOPIC_RETENTION_MS: ${KAFKA_TOPIC_RETENTION_MS:-604800000}
+      # 24 hours. The auth.* payloads carry a raw verification_token / reset_token, whose
+      # own TTL is shorter still, so nothing is lost by expiring the message early and the
+      # window in which a broker-log reader could replay a live token closes with it.
+      KAFKA_AUTH_TOPIC_RETENTION_MS: ${KAFKA_AUTH_TOPIC_RETENTION_MS:-86400000}
+    entrypoint: >
+      /bin/sh -euc "
+        K=/opt/kafka/bin/kafka-topics.sh;
+        B=kafka:9092;
+        create() {
+          $$K --bootstrap-server $$B --create --if-not-exists --topic \"$$1\" \
+              --partitions 1 --replication-factor 1 --config retention.ms=\"$$2\";
+        };
+        STANDARD='seller.kyc.submitted seller.kyc.decided seller.suspended
+          seller.suspension_expired seller.reinstated seller.profile_changed
+          seller.suspension_amended
+          fulfillment.placed fulfillment.shipped fulfillment.delivered
+          fulfillment.refunded fulfillment.cancelled fulfillment.refund_suspended_seller
+          order.finalized order.completed product.changed offer.changed
+          listing.soft_deleted inventory.changed inventory.low_stock
+          inventory.reservation_expired fx_rate.updated listing.flagged
+          moderation.listing.removed pii.accessed keyword_blocklist.changed';
+        AUTH='auth.email_verification_requested auth.password_reset_requested
+          auth.password_changed';
+        DLQ='notification.kyc-submitted notification.kyc-decided
+          notification.seller-suspended notification.seller-reinstated
+          notification.suspension-expired notification.fulfillment-placed
+          notification.fulfillment-seller-alert notification.fulfillment-shipped
+          notification.fulfillment-delivered notification.fulfillment-refunded
+          notification.fulfillment-cancelled notification.refund-suspended-seller-buyer
+          notification.refund-suspended-seller-seller notification.order-summary
+          notification.order-completed notification.low-stock
+          notification.listing-flagged notification.listing-removed
+          search.product-changed search.offer-changed
+          search.inventory-changed search.reservation-expired search.seller-suspended
+          search.seller-reinstated search.suspension-expired search.listing-flagged
+          search.listing-removed search.listing-soft-deleted
+          search.seller-profile-changed search.fx-rate-updated
+          inventory.fulfillment-placed inventory.fulfillment-shipped
+          inventory.fulfillment-cancelled inventory.fulfillment-refunded
+          orders.delivery-tracker platform.audit';
+        AUTH_DLQ='notification.email-verification notification.password-reset
+          notification.password-changed';
+        for t in $$STANDARD; do create \"$$t\" \"$$KAFKA_TOPIC_RETENTION_MS\"; done;
+        for t in $$AUTH; do create \"$$t\" \"$$KAFKA_AUTH_TOPIC_RETENTION_MS\"; done;
+        for g in $$DLQ; do create \"$$g.dlq\" \"$$KAFKA_TOPIC_RETENTION_MS\"; done;
+        for g in $$AUTH_DLQ; do create \"$$g.dlq\" \"$$KAFKA_AUTH_TOPIC_RETENTION_MS\"; done;
+        create email.outbound.dlq \"$$KAFKA_TOPIC_RETENTION_MS\";
+        echo 'Topics ready: 29 event topics, 39 consumer-group dead-letter topics, email.outbound.dlq.'
+      "
 
   # ── Confluent Schema Registry ────────────────────────────
 
@@ -775,7 +861,10 @@ services:
   # ── Kafka UI ─────────────────────────────────────────────
 
   kafka-ui:
-    image: provectus/kafka-ui:latest
+    # Pinned, like every other image in this file. On `latest` the UI's configuration
+    # schema can change under a `docker compose pull` on a shared dev machine, and the
+    # DLQ alert in §12 is a screen in this container.
+    image: provectus/kafka-ui:v0.7.2
     container_name: aliceut_kafka_ui
     restart: unless-stopped
     ports:
@@ -1011,7 +1100,7 @@ server {
 postgres ─────────────────────┐
 mongodb ──────────────────────┤
 elasticsearch ────────────────┤──► api ──► buyer-nginx
-kafka ────────────────────────┤         ├─ seller-nginx
+kafka ──► kafka-init ─────────┤         ├─ seller-nginx
 kafka ──► schema-registry ────┤         └─ admin-nginx
 kafka ──► kafka-ui            │
 redis ────────────────────────┤
@@ -1026,7 +1115,11 @@ loki ──┐
 prometheus ──┘
 ```
 
-`api` waits for postgres, mongodb, elasticsearch, kafka, schema-registry, redis and minio to report `service_healthy`, and for `minio-init` to report `service_completed_successfully` — the application's MinIO service account and the three buckets must exist before the first upload request. `workers` waits for postgres, mongodb, kafka, schema-registry, elasticsearch and mailpit. nginx containers wait for `api` to be healthy.
+`api` waits for postgres, mongodb, elasticsearch, kafka, schema-registry, redis and minio to report `service_healthy`, and for `minio-init` and `kafka-init` to report `service_completed_successfully` — the application's MinIO service account and the three buckets must exist before the first upload request, and every Kafka topic must exist with its own retention before the relay publishes to one or a consumer subscribes to one. `workers` waits for postgres, mongodb, kafka, schema-registry, elasticsearch and mailpit, plus the same `kafka-init` completion. nginx containers wait for `api` to be healthy.
+
+**`kafka-init` runs once and is idempotent.** It creates the 29 event topics and 39 consumer-group dead-letter topics of [kafka-events.md § 1](./kafka-events.md#topic-summary) and [§ 4](./kafka-events.md#dlq-topics), plus `email.outbound.dlq` — the one dead-letter topic that is not a consumer group's, holding emails whose SMTP delivery failed three times — with `--if-not-exists`, one partition and replication factor 1 each, at 7-day retention — except the three `auth.*` topics and the three DLQs fed only by them, which are created at 24 hours because those payloads carry a raw single-use credential token.
+
+**The `AUTH_DLQ` list is why the DLQ loop is two loops.** A dead-lettered message carries the original envelope and payload ([conventions/kafka-events.md § DLQ](../../conventions/kafka-events.md#dlq-topology)), so a `notification.password-reset` failure parks a live `reset_token` in `notification.password-reset.dlq`. Provisioned from `KAFKA_TOPIC_RETENTION_MS` with the rest, that token would sit in the broker log for seven days — on the one path where the notification never reached the user and an operator is therefore going to open the topic and read it, which is the exposure the 24-hour `auth.*` retention exists to close. The rule is a DLQ takes the **longest** of its source topics' retentions ([kafka-events.md § 3](./kafka-events.md#topic-retention)); `notification.email-verification`, `notification.password-reset` and `notification.password-changed` each subscribe to exactly one 24-hour topic, so for them the longest is 24 hours. `platform.audit.dlq` stays at seven days because that group also consumes 7-day topics and a genuine maximum is what the rule asks for. Broker auto-creation is off (§6), so this container is the only thing that creates a topic: with auto-creation on, the first producer to reach an unprovisioned `auth.*` topic would have created it at the broker default of 7 days and held live password-reset tokens in the log for seven times the intended window, with nothing in the topology to notice. Running to completion before `api` and `workers` start also keeps it clear of the migrations.
 
 The observability stack is a second, independent root: `alloy` and `grafana` wait on `loki`, and `grafana` additionally on `prometheus`. Nothing in the application graph waits on any of them, and that is deliberate — a collector outage must not stop the API from booting. The dependency runs the other way: Alloy discovers containers through the Docker API, so it picks up services that started before it without needing to be told about them.
 
@@ -1034,7 +1127,7 @@ The observability stack is a second, independent root: `alloy` and `grafana` wai
 
 There is no `elasticsearch-init` container and there will not be one. The Search module creates the `products` index itself during `workers` boot — an idempotent `ensureIndex` that runs after `elasticsearch` is healthy and **before** any `search.*` consumer group begins consuming, so no consumer can index a document into a missing or unmapped index. It reads the index, creates it with the mapping if absent, warns on drift if present, and never mutates a live index.
 
-`minio-init` looks like a precedent and is not one. Buckets must exist before *any* process starts, and several services touch them; this index has exactly one writer and exactly one moment it is needed, which is inside the process that writes it. A one-shot init container would instead race the migrations and the app, need its own image carrying an Elasticsearch client, and make the index conditional on someone remembering to include the infra profile in their `docker compose up`. The service count stays at nineteen.
+`minio-init` looks like a precedent and is not one. Buckets must exist before *any* process starts, and several services touch them; this index has exactly one writer and exactly one moment it is needed, which is inside the process that writes it. A one-shot init container would instead race the migrations and the app, need its own image carrying an Elasticsearch client, and make the index conditional on someone remembering to include the infra profile in their `docker compose up`. `kafka-init` is not the counter-example it looks like: its work is per topic rather than per process, three services depend on its output, and one of its settings is a security control no application code could apply to a topic the broker had already created.
 
 ---
 
@@ -1148,7 +1241,7 @@ Logging, correlation-ID propagation and the collector stack are governed by [con
 | Outbox relay lag | oldest `PENDING` row in `platform.outbox_event` older than **30 s** | The workers process computes the lag as `now() - min(created_at) WHERE publication_status = 'PENDING'` and reports it on its health endpoint (`GET :$PORT_WORKERS/api/v1/health`, §11). The same value is exposed as `aliceut_outbox_oldest_pending_age_seconds` on `workers`' `METRICS_PATH`, scraped by the `prometheus` service, so the alert is a threshold rule on that gauge and the history is queryable in Grafana (http://localhost:3200). Age is the gauge the rule fires on, not `aliceut_outbox_pending`: a steady small pending count with a climbing age is a stuck relay, while a large count with a flat age is a busy one, so alerting on depth would page on throughput. Read `aliceut_outbox_pending` beside it for the size of the backlog once the rule has fired. The health endpoint remains the container-level probe: a non-200 means the relay is stalled or lagging. |
 | DLQ non-empty | **any** message on any `<consumer_group>.dlq` topic | Kafka UI (http://localhost:8080) → cluster `aliceut-dev` → Topics, filtered to `*.dlq`: any topic with a non-zero message count is a live alert. Consumer lag per group is on the same screen. DLQ naming and the alert requirement come from [conventions/kafka-events.md §5](../../conventions/kafka-events.md). This one is screen-only in V1 and deliberately so: no gauge in [api-design/health.md](./api-design/health.md#workers-health-check) reports DLQ depth, and the `consumers` check passes with an assignment held even while that group is dead-lettering every message, so a green probe is not evidence of an empty DLQ. |
 
-The `*.dlq` filter is expected to match **thirty-eight** topics — one per consumer group in [backend-module-architecture.md](./backend-module-architecture.md#module-summary-table). A dead-letter topic is per *consumer group*, not per event topic, and two groups subscribe to more than one topic — `platform.audit` to every topic, and `inventory.fulfillment-refunded` to both `fulfillment.refunded` and `fulfillment.refund_suspended_seller` — so this count is deliberately **not** the topic count in [kafka-events.md §1](./kafka-events.md#topic-summary) and the two numbers must not be reconciled against each other. A group with no `.dlq` topic on that screen is a wiring defect, not a quiet success.
+The `*.dlq` filter is expected to match **forty** topics, all of them created by `kafka-init` at start-up rather than on first failure: thirty-nine consumer-group DLQs — one per consumer group in [backend-module-architecture.md](./backend-module-architecture.md#module-summary-table). A dead-letter topic is per *consumer group*, not per event topic, and two groups subscribe to more than one topic — `platform.audit` to nearly every topic, and `inventory.fulfillment-refunded` to both `fulfillment.refunded` and `fulfillment.refund_suspended_seller` — so this count is deliberately **not** the twenty-nine-topic count in [kafka-events.md §1](./kafka-events.md#topic-summary) and the two numbers must not be reconciled against each other. The fortieth is `email.outbound.dlq`, which belongs to no group: it holds the *email* after three failed SMTP attempts, while the event that produced it was processed correctly and is not dead-lettered ([kafka-events.md § 4](./kafka-events.md#dlq-topics)). A group with no `.dlq` topic on that screen is a wiring defect, not a quiet success.
 
 Neither condition is self-clearing. A non-empty DLQ stays non-empty until an operator replays or discards the messages, so the alert is a work queue, not a transient.
 

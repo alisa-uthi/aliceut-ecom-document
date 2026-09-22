@@ -185,8 +185,9 @@ sequenceDiagram
     IS->>PG: INSERT identity.user (email, password_hash, full_name, roles=['BUYER'], email_verified=false, account_type, status='ACTIVE')
     IS->>PG: INSERT identity.email_verification_token (user_id, token_hash, expires_at=NOW()+24h)
     IS->>PG: INSERT identity.refresh_session (user_id, token_hash=session_token_hash, expires_at=NOW()+7d, device_metadata)
-    IS->>PG: INSERT platform.outbox_event (aggregate_type='identity.user', aggregate_id=user_id, key=user_id, topic='auth.email_verification_requested', event_type='auth.email_verification_requested', event_version=1, correlation_id, occurred_at=NOW(), created_at=NOW(), updated_at=NOW(), payload={user_id, email, verification_token, expires_at})
+    IS->>PG: INSERT platform.outbox_event (aggregate_type='identity.user', aggregate_id=user_id, key=user_id, topic='auth.email_verification_requested', event_type='auth.email_verification_requested', event_version=1, correlation_id, occurred_at=NOW(), created_at=NOW(), updated_at=NOW(), payload={user_id, email, full_name, verification_token, expires_at})
     Note over IS,PG: payload carries the raw single-use token — the notification consumer builds the email link from it&#59; the audit consumer masks it before writing MongoDB
+    Note over IS,PG: full_name is the value just written to identity.user — ET-18 greets with it and the notification consumer may not read identity.user (kafka-events § 2.22)
     IS->>PG: COMMIT
 
     IS-->>A: {accessToken, refreshToken, user}
@@ -563,7 +564,8 @@ sequenceDiagram
     IS->>PG: BEGIN TRANSACTION
     IS->>PG: DELETE identity.email_verification_token WHERE user_id = $1
     IS->>PG: INSERT identity.email_verification_token (user_id, token_hash, expires_at=NOW()+24h)
-    IS->>PG: INSERT platform.outbox_event (aggregate_type='identity.user', aggregate_id=user_id, key=user_id, topic='auth.email_verification_requested', event_type='auth.email_verification_requested', event_version=1, correlation_id, occurred_at=NOW(), created_at=NOW(), updated_at=NOW(), payload={user_id, email, verification_token, expires_at})
+    IS->>PG: INSERT platform.outbox_event (aggregate_type='identity.user', aggregate_id=user_id, key=user_id, topic='auth.email_verification_requested', event_type='auth.email_verification_requested', event_version=1, correlation_id, occurred_at=NOW(), created_at=NOW(), updated_at=NOW(), payload={user_id, email, full_name, verification_token, expires_at})
+    Note over IS,PG: email and full_name come from the identity.user row read above — the same payload shape as registration, because both feed ET-18
     IS->>PG: COMMIT
 
     IS-->>A: success
@@ -637,8 +639,9 @@ sequenceDiagram
         IS->>IS: crypto.randomBytes(32) → raw_token — SHA-256(raw_token) → token_hash
         IS->>PG: BEGIN TRANSACTION
         IS->>PG: INSERT identity.password_reset_token (user_id, token_hash, portal, expires_at=NOW()+60min)
-        IS->>PG: INSERT platform.outbox_event (aggregate_type='identity.user', aggregate_id=user_id, key=user_id, topic='auth.password_reset_requested', event_type='auth.password_reset_requested', event_version=1, correlation_id, occurred_at=NOW(), created_at=NOW(), updated_at=NOW(), payload={user_id, email, reset_token, portal, has_local_password, expires_at})
+        IS->>PG: INSERT platform.outbox_event (aggregate_type='identity.user', aggregate_id=user_id, key=user_id, topic='auth.password_reset_requested', event_type='auth.password_reset_requested', event_version=1, correlation_id, occurred_at=NOW(), created_at=NOW(), updated_at=NOW(), payload={user_id, email, full_name, reset_token, portal, has_local_password, expires_at})
         Note over IS,PG: payload carries the raw single-use token — the consumer cannot build the link without it&#59; the audit consumer masks it before writing MongoDB
+        Note over IS,PG: portal and has_local_password are payload fields, not token-row reads: the notification consumer picks the link path from portal and the mode hint from has_local_password, and may not read identity.password_reset_token (kafka-events § 2.23). full_name is what ET-19 greets with
         IS->>PG: COMMIT
         Note over KO,KR: async — runs after TX commit
         KR->>PG: Poll platform.outbox_event WHERE publication_status='PENDING'
@@ -729,10 +732,11 @@ sequenceDiagram
 
     IS->>PG: BEGIN TRANSACTION
     IS->>PG: UPDATE identity.password_reset_token SET used_at=NOW() WHERE id=$1
-    IS->>PG: UPDATE identity.user SET password_hash=newHash WHERE id=token.user_id
+    IS->>PG: UPDATE identity.user SET password_hash=newHash WHERE id=token.user_id RETURNING email, full_name
     IS->>PG: UPDATE identity.refresh_session SET revoked_at=NOW() WHERE user_id=$1 AND revoked_at IS NULL
     Note right of PG: soft revoke — rows retained so a replayed token is still detectable as reuse
-    IS->>PG: INSERT platform.outbox_event (aggregate_type='identity.user', aggregate_id=user_id, key=user_id, topic='auth.password_changed', event_type='auth.password_changed', event_version=1, correlation_id, occurred_at=NOW(), created_at=NOW(), updated_at=NOW(), payload={user_id, email, changed_at, changed_method='PASSWORD_RESET_LINK'})
+    IS->>PG: INSERT platform.outbox_event (aggregate_type='identity.user', aggregate_id=user_id, key=user_id, topic='auth.password_changed', event_type='auth.password_changed', event_version=1, correlation_id, occurred_at=NOW(), created_at=NOW(), updated_at=NOW(), payload={user_id, email, full_name, changed_at, changed_method='PASSWORD_RESET_LINK'})
+    Note over IS,PG: the RETURNING clause supplies both recipient fields from the write itself — ET-20 greets with full_name and no second read is needed
     IS->>PG: COMMIT
 
     IS-->>A: success
@@ -808,10 +812,10 @@ sequenceDiagram
     IS->>IS: SHA-256(refreshToken from cookie) → current_token_hash
 
     IS->>PG: BEGIN TRANSACTION
-    IS->>PG: UPDATE identity.user SET password_hash=newHash WHERE id=JWT.sub
+    IS->>PG: UPDATE identity.user SET password_hash=newHash WHERE id=JWT.sub RETURNING email, full_name
     IS->>PG: UPDATE identity.refresh_session SET revoked_at=NOW() WHERE user_id=JWT.sub AND token_hash != current_token_hash AND revoked_at IS NULL
     Note right of PG: soft-revokes every session except the caller's own&#59; rows retained
-    IS->>PG: INSERT platform.outbox_event (aggregate_type='identity.user', aggregate_id=user_id, key=user_id, topic='auth.password_changed', event_type='auth.password_changed', event_version=1, correlation_id, occurred_at=NOW(), created_at=NOW(), updated_at=NOW(), payload={user_id, email, changed_at, changed_method='ACCOUNT_SETTING'})
+    IS->>PG: INSERT platform.outbox_event (aggregate_type='identity.user', aggregate_id=user_id, key=user_id, topic='auth.password_changed', event_type='auth.password_changed', event_version=1, correlation_id, occurred_at=NOW(), created_at=NOW(), updated_at=NOW(), payload={user_id, email, full_name, changed_at, changed_method='ACCOUNT_SETTING'})
     IS->>PG: COMMIT
 
     IS-->>A: success

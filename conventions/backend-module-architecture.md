@@ -56,11 +56,15 @@ aliceut-ecom-backend/
 
 Not every module warrants the full hexagonal layout. Three tiers apply based on domain complexity.
 
-| Tier | When to use | Example Modules                                     |
+**Tier membership is declared, not inferred.** NFR-18 binds Tier 1 repositories only (BRD §8, amended by Wave 0 decision D-04), so "Tier 1" has to name modules rather than describe a kind of module — a requirement scoped to a tier whose membership is a matter of judgement is a requirement nobody can be held to. The table below is that declaration and is **exhaustive for Phase 1**: every module lib in [phase-1/technical-design/backend-module-architecture.md § Module summary table](../phase-1/technical-design/backend-module-architecture.md#module-summary-table) appears in exactly one row, and a module added later takes a tier in the same commit that adds it.
+
+| Tier | When to use | Modules (Phase 1, exhaustive)                        |
 |------|-------------|-----------------------------------------------------|
 | **1 — Full hexagonal** | Rich domain rules, money, state machines, swap-ORM requirement (NFR-18) | `catalog`, `orders`, `pricing`, `inventory`, `cart` |
 | **2 — Simplified service** | Has DB state but no complex invariants; auth libraries do the heavy lifting | `identity`, `seller`, `admin`                       |
-| **3 — Thin / infrastructure** | No domain entities; pure read models, event fan-out, or infra wiring | `search`, `notifications`, `platform`, `workers`    |
+| **3 — Thin / infrastructure** | No domain entities; pure read models, event fan-out, or infra wiring | `search`, `notifications`, `platform`               |
+
+Eleven module libs, and `apps/workers` is a composition root rather than a module — it owns no tier. `libs/contracts` and `libs/shared` are support libraries and likewise take none (§11).
 
 Tier 1 modules use the full structure in §2.1. Tier 2 and 3 use the simplified structures in §2.2 and §2.3.
 
@@ -143,7 +147,7 @@ libs/identity/
 
 Tier 2 rules:
 - TypeORM decorators live directly on the entity — no separate `typeorm-entity` file.
-- No repository interface; inject TypeORM's `Repository<T>` directly inside the service.
+- No repository interface; inject TypeORM's `Repository<T>` directly inside the service. This is the rule NFR-18 exempts: as amended by Wave 0 decision D-04 the repository-interface requirement binds **Tier 1** repositories only — the transactional core whose portability the requirement exists to protect — and Tier 3 has no repositories at all. The two documents agree deliberately rather than by omission.
 - No `commands/` or `queries/` subdirectory; the service methods are the use cases.
 - Outbox writes still go through `OutboxService` (from `platform`) inside a transaction.
 - `index.ts` exports only the service class, not internal entities.

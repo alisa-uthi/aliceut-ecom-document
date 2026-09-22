@@ -8,7 +8,7 @@
 
 > **Conventions:** every endpoint accepts an `X-Correlation-ID` request header, generates a UUIDv7 when it is absent, echoes it on the response, and carries the same value into every log line and into the `correlation_id` of every `platform.outbox_event` row and Kafka envelope it writes — see [observability.md § Correlation ID Propagation](../../../conventions/observability.md#correlation-id). Error bodies use the envelope and code table in [api-conventions.md § Standard Error Shape](../../../conventions/api-conventions.md#standard-error-shape). Every list endpoint uses the cursor envelope of [api-conventions.md § Pagination](../../../conventions/api-conventions.md#pagination) — `cursor` + `limit` (default 20, max 100), `meta: { nextCursor, hasMore }`, and **no `total`**.
 
-> **Audit records are written by consumers, never by a handler.** No endpoint in this document writes to MongoDB. Every auditable action writes a `platform.outbox_event` row inside the same Postgres transaction as the domain change; the `audit` consumer group reads the event and writes the `audit_logs` document (FR-P-11, [data-model-mongodb.md](../data-model-mongodb.md)). A handler that wrote MongoDB directly would put a second store on the request's success path and would bypass the outbox, so a rolled-back transaction could still leave an audit record claiming the action happened. The consumer masks every payload key matching `DEFAULT_SENSITIVE_KEYS` — `tax_id` among them — before insert. That masking rule governs the `audit_logs` write, whose payloads can carry a sensitive key; the `pii.accessed` payloads behind `pii_access_logs` carry no tax ID and no document content in the first place, so on that topic there is nothing to mask rather than something masked. A reader who expects a masked field in a `pii_access_logs` document will not find one.
+> **Audit records are written by consumers, never by a handler.** No endpoint in this document writes to MongoDB. Every auditable action writes a `platform.outbox_event` row inside the same Postgres transaction as the domain change; the `platform.audit` consumer group reads the event and writes the `audit_logs` document (FR-P-11, [data-model-mongodb.md](../data-model-mongodb.md)). A handler that wrote MongoDB directly would put a second store on the request's success path and would bypass the outbox, so a rolled-back transaction could still leave an audit record claiming the action happened. The consumer masks every payload key matching `DEFAULT_SENSITIVE_KEYS` — `tax_id` among them — before insert. That masking rule governs the `audit_logs` write, whose payloads can carry a sensitive key; the `pii.accessed` payloads behind `pii_access_logs` carry no tax ID and no document content in the first place, so on that topic there is nothing to mask rather than something masked. A reader who expects a masked field in a `pii_access_logs` document will not find one.
 
 > **Outbox rows.** Every `INSERT outbox_event` below populates `aggregate_type`, `aggregate_id`, `topic`, `key` (= `aggregate_id`), `event_type`, `event_version`, `payload`, `correlation_id`, `occurred_at`, `created_at`, `updated_at` and `publication_status='PENDING'`, in the same transaction as the domain change. The sequences abbreviate the argument list for legibility; the full column set is never optional. `pii.accessed` is the one exception to `key` — it partitions by `subject_user_id`, per [kafka-events.md § 2.26](../kafka-events.md#226-piiaccessed).
 
@@ -34,7 +34,8 @@
 | KYC | `POST` | [`/admin/kyc/:applicationId/decide`](#decide-kyc-application) | ADMIN | Approve or reject KYC |
 | Sellers | `GET` | [`/admin/sellers`](#list-sellers) | ADMIN | List all sellers |
 | Sellers | `GET` | [`/admin/sellers/:sellerProfileId`](#get-seller-detail-admin) | ADMIN | Seller detail with moderation history — tax-ID read emits `pii.accessed` |
-| Sellers | `POST` | [`/admin/sellers/:sellerProfileId/suspend`](#suspend-seller) | ADMIN | Suspend or extend a suspension |
+| Sellers | `POST` | [`/admin/sellers/:sellerProfileId/suspend`](#suspend-seller) | ADMIN | Suspend a seller — `409` if one is already in force |
+| Sellers | `PATCH` | [`/admin/sellers/:sellerProfileId/suspension`](#amend-suspension) | ADMIN | Amend an active suspension's end date or reason |
 | Sellers | `POST` | [`/admin/sellers/:sellerProfileId/reinstate`](#reinstate-seller) | ADMIN | Reinstate suspended seller |
 | Moderation | `GET` | [`/admin/moderation`](#list-moderation-queue) | ADMIN | List moderation queue |
 | Moderation | `GET` | [`/admin/moderation/:caseId`](#get-moderation-case) | ADMIN | Moderation case detail |
@@ -64,12 +65,13 @@
 | `GET /admin/sellers` | Postgres | `seller.seller_profile`, `identity.user`, `catalog.offer` (counts) |
 | `GET /admin/sellers/:sellerProfileId` | Postgres | `seller.seller_profile`, `identity.user`, `catalog.offer`, `admin.moderation_case` (history), `platform.outbox_event` (`pii.accessed`, `SELLER_TAX_ID`) |
 | `POST /admin/sellers/:sellerProfileId/suspend` | Postgres + **Redis** | `seller.seller_profile`, `catalog.offer` (deactivate), `platform.outbox_event` (`seller.suspended`); `auth:revoke_before:{userId}` |
+| `PATCH /admin/sellers/:sellerProfileId/suspension` | Postgres | `seller.seller_profile` (`suspended_until`, `suspension_reason`), `platform.outbox_event` (`seller.suspension_amended`). No `catalog.offer` write and no Redis key — the seller stays suspended |
 | `POST /admin/sellers/:sellerProfileId/reinstate` | Postgres + **Redis** | `seller.seller_profile`, `catalog.offer` (re-enable), `platform.outbox_event` (`seller.reinstated`); `auth:revoke_before:{userId}` |
 | `GET /admin/moderation` | Postgres | `admin.moderation_case`, `catalog.offer`, `catalog.product`, `seller.seller_profile` |
 | `GET /admin/moderation/:caseId` | Postgres | `admin.moderation_case` |
-| `POST /admin/moderation/:caseId/decide` | Postgres | `admin.moderation_case`, `catalog.offer` (status → `REMOVED` on REMOVE, `ACTIVE` on DISMISS), `catalog.product` (status → `REMOVED` when every offer is removed), `platform.outbox_event` (`moderation.listing.removed` on REMOVE; `offer.changed` on DISMISS) |
-| `POST /admin/moderation/bulk-remove` | Postgres | Same tables as the single decide, one case and one event per listing |
-| `POST /admin/moderation` | Postgres | `admin.moderation_case` (manual flag insert), `catalog.offer` (status → `FLAGGED`), `platform.outbox_event` (`listing.flagged`, `offer.changed`) |
+| `POST /admin/moderation/:caseId/decide` | Postgres | `admin.moderation_case`, `catalog.offer` (status → `REMOVED` on REMOVE, `ACTIVE` on DISMISS), `CatalogApplicationService.removeProductIfNoOffersRemain` (`catalog.product` status → `REMOVED` when every offer is removed, + `product.changed`), `platform.outbox_event` (`moderation.listing.removed` on REMOVE); on DISMISS `CatalogApplicationService.republishOffer` writes the `offer.changed` row |
+| `POST /admin/moderation/bulk-remove` | Postgres | Same tables and the same application-service call as the single decide, one case and one `moderation.listing.removed` per listing, plus one `product.changed` per product the cascade emptied |
+| `POST /admin/moderation` | Postgres | `admin.moderation_case` (manual flag insert), `catalog.offer` (status → `FLAGGED`), `platform.outbox_event` (`listing.flagged`); `CatalogApplicationService.republishOffer` writes the `offer.changed` row |
 | `GET`/`POST`/`PATCH`/`DELETE /admin/keyword-blocklist*` | Postgres | `admin.keyword_blocklist`, `platform.outbox_event` (audited mutation) |
 | `GET /admin/dashboard/stats` | Postgres | `seller.kyc_application`, `admin.moderation_case`, `seller.seller_profile`, `catalog.offer` (counts) |
 
@@ -182,7 +184,7 @@ Auth: ADMIN
 
 `documentUrls` are presigned GETs against the `kyc-documents` bucket with a **5-minute** TTL — long enough to open a PDF, short enough that a copied URL is worthless by the time it is shared.
 
-**Document access is audited (NFR-09, US-A-02).** The handler writes a `pii.accessed` outbox row — `resource_type = KYC_DOCUMENT`, `resource_id` = the application id, `subject_user_id` = the seller's user id, `accessor_user_id` = the admin, `accessor_role = ADMIN` — in the same transaction that serves the request. The `audit` consumer writes the `pii_access_logs` document ([kafka-events.md § 2.26](../kafka-events.md#226-piiaccessed)). The payload carries no document content and no tax ID: the record is *that* the documents were read, by whom, and when.
+**Document access is audited (NFR-09, US-A-02).** The handler writes a `pii.accessed` outbox row — `resource_type = KYC_DOCUMENT`, `resource_id` = the application id, `subject_user_id` = the seller's user id, `accessor_user_id` = the admin, `accessor_role = ADMIN` — in the same transaction that serves the request. The `platform.audit` consumer writes the `pii_access_logs` document ([kafka-events.md § 2.26](../kafka-events.md#226-piiaccessed)). The payload carries no document content and no tax ID: the record is *that* the documents were read, by whom, and when.
 
 **Errors:** 404 application not found
 
@@ -196,7 +198,7 @@ sequenceDiagram
     participant S as AdminService
     participant PG as Postgres
     participant Relay as Kafka Relay
-    participant AC as audit
+    participant AC as platform.audit
 
     C->>API: GET /admin/kyc/:applicationId
     API->>G: verify token + ADMIN role
@@ -253,7 +255,7 @@ sequenceDiagram
     participant PG as Postgres
     participant R as Redis
     participant Relay as Kafka Relay
-    participant AC as audit
+    participant AC as platform.audit
 
     C->>API: POST /admin/kyc/:applicationId/decide { decision, reason? }
     API->>G: verify token + ADMIN role
@@ -273,7 +275,8 @@ sequenceDiagram
         S->>PG: BEGIN TX
         S->>PG: UPDATE kyc_application SET status=:decision, decision_reason=:reason, reviewer_user_id=:adminUserId, decided_at=NOW()
         S->>PG: UPDATE seller_profile SET kyc_status = (APPROVED | REJECTED)
-        S->>PG: INSERT outbox_event (topic='seller.kyc.decided', aggregate_type='seller.seller_profile', aggregate_id=sellerProfileId, key=sellerProfileId, payload={kyc_application_id, seller_profile_id, user_id, decision, reason, decided_by, decided_at})
+        Note over S,PG: ET-06 and ET-07 are addressed to seller_email and render the seller's name and business name, and the KYC_DECIDED in-app row is addressed by seller_user_id, so the payload carries the identity fields the schema declares (kafka-events § 2.2) rather than ids alone. reviewer_user_id is the audit record's actor_id
+        S->>PG: INSERT outbox_event (topic='seller.kyc.decided', aggregate_type='seller.seller_profile', aggregate_id=sellerProfileId, key=sellerProfileId, payload={seller_id:sellerProfileId, seller_user_id:userId, kyc_application_id, decision, reason, reviewer_user_id:adminUserId, decided_at, seller_email, seller_name, business_name})
         S->>PG: COMMIT TX
         S->>R: SET auth:revoke_before:{userId} = NOW() EX 960
         Note over S,R: seller's next request refreshes and receives the new seller_kyc_status claim — without this the old claim stays valid for up to 15 min
@@ -389,7 +392,7 @@ Auth: ADMIN
 
 **It is not, however, the only endpoint that discloses a tax ID.** [`GET /admin/kyc/:applicationId`](#get-kyc-application-detail) returns `taxId` in full as well, and its access is recorded under `KYC_DOCUMENT` rather than `SELLER_TAX_ID` — that read is a document review of which the tax ID is one field. A query answering "who read this seller's tax ID" therefore has to read both resource types, and a reader who checks this endpoint alone has audited half the disclosures.
 
-**The tax-ID read is audited (NFR-09).** The handler writes one `pii.accessed` outbox row per call, in the same transaction that serves the request — `resource_type = SELLER_TAX_ID`, `resource_id` = the `seller_profile` id, `subject_user_id` = the seller's `identity.user` id, `accessor_user_id` = the admin, `accessor_role = ADMIN`. The partition key is `subject_user_id`, not the aggregate id: this is the one topic in the system keyed by subject, so every access to one person's PII lands on one partition and is read back in order ([kafka-events.md § 2.26](../kafka-events.md#226-piiaccessed)). The `audit` consumer writes the `pii_access_logs` document. The payload carries no tax ID — the record is *that* it was read, by whom, and when.
+**The tax-ID read is audited (NFR-09).** The handler writes one `pii.accessed` outbox row per call, in the same transaction that serves the request — `resource_type = SELLER_TAX_ID`, `resource_id` = the `seller_profile` id, `subject_user_id` = the seller's `identity.user` id, `accessor_user_id` = the admin, `accessor_role = ADMIN`. The partition key is `subject_user_id`, not the aggregate id: this is the one topic in the system keyed by subject, so every access to one person's PII lands on one partition and is read back in order ([kafka-events.md § 2.26](../kafka-events.md#226-piiaccessed)). The `platform.audit` consumer writes the `pii_access_logs` document. The payload carries no tax ID — the record is *that* it was read, by whom, and when.
 
 **Errors:** 404 seller not found
 
@@ -403,7 +406,7 @@ sequenceDiagram
     participant S as AdminService
     participant PG as Postgres
     participant Relay as Kafka Relay
-    participant AC as audit
+    participant AC as platform.audit
 
     C->>API: GET /admin/sellers/:sellerProfileId
     API->>G: verify token + ADMIN role
@@ -450,15 +453,18 @@ Auth: ADMIN
 ```
 **Response 200** `{ "data": { "suspensionStatus": "SUSPENDED", "suspendedUntil": "ISO8601 | null" } }`  
 Side effects: `seller.suspended` event via the outbox; every `ACTIVE` offer set `INACTIVE` with `status_changed_reason = 'SUSPENSION'`; `auth:revoke_before:{userId}` written.  
-**Errors:** 400 reason missing or over 500 chars, 404 seller not found, 409 seller is already **permanently** suspended, 422 invalid `durationDays`
+**Errors:** 400 reason missing or over 500 chars, 404 seller not found, 409 seller is already suspended, 422 invalid `durationDays`
 
-**Re-suspension rules** (US-A-05:111-116):
+**Re-suspension rules** (US-A-05:111-116, [Wave 0 D-11](../../audits/2026-09-22-wave0-decisions.md)):
 
 | Current state | Outcome |
 |---|---|
 | `ACTIVE` | New suspension. Offers deactivated, `seller.suspended` emitted. |
-| `SUSPENDED` with `suspended_until IS NOT NULL` (timed) | The suspension is **extended**: `suspended_until` and `suspension_reason` are updated on the existing row — not duplicated — and `seller.suspended` is re-emitted. A timed suspension may be extended to permanent by passing `durationDays: null`. |
-| `SUSPENDED` with `suspended_until IS NULL` (permanent) | **`409`** "Seller is already permanently suspended." A permanent suspension is never silently converted into a timed one, which is what an unconditional extend would do when the admin passes a duration. |
+| `SUSPENDED`, timed or permanent | **`409`** `SELLER_ALREADY_SUSPENDED`. |
+
+**The suspension state machine has no re-entry.** A second `POST` against a suspended seller is a conflict whatever the existing suspension's shape, and whatever duration the body carries. This endpoint creates a suspension; it does not edit one. Changing an active suspension's end date or its reason is [`PATCH /admin/sellers/:sellerProfileId/suspension`](#amend-suspension), a separate resource with its own event and its own audit record.
+
+Two things follow that a reader of the old rule would get wrong. A timed suspension is no longer silently convertible to permanent by re-posting with `durationDays: null` — that is an amendment. And `seller.suspended` now fires **once per suspension**, so a consumer may treat it as the opening of a suspension rather than as a state assertion that may repeat: ET-10 reaches the seller exactly once per suspension, and the `search.seller-suspended` write is no longer re-sent with an empty `offer_ids` array on a second call.
 
 #### Sequence
 
@@ -472,7 +478,7 @@ sequenceDiagram
     participant R as Redis
     participant Relay as Kafka Relay
     participant SC as search.seller-suspended
-    participant AC as audit
+    participant AC as platform.audit
     participant ES as Elasticsearch
 
     C->>API: POST /admin/sellers/:sellerProfileId/suspend { reason, durationDays }
@@ -487,26 +493,16 @@ sequenceDiagram
     S->>PG: SELECT seller_profile.suspension_status, suspended_until, user_id
     alt not found
         S-->>C: 404 Not Found
-    else already SUSPENDED and suspended_until IS NULL
-        S-->>C: 409 Conflict "Seller is already permanently suspended."
-    else already SUSPENDED and suspended_until IS NOT NULL
-        Note over S,PG: Atomic Postgres transaction — extend the existing suspension record
-        S->>PG: BEGIN TX
-        S->>PG: UPDATE seller_profile SET suspended_until=:newDate, suspension_reason=:reason, updated_at=NOW()
-        S->>PG: INSERT outbox_event (topic='seller.suspended', aggregate_type='seller.seller_profile', aggregate_id=sellerProfileId, key=sellerProfileId, payload={seller_profile_id, user_id, reason, suspended_until, is_extension:true, offer_ids:[], suspended_by:adminUserId})
-        S->>PG: COMMIT TX
-        S->>R: SET auth:revoke_before:{userId} = NOW() EX 960
-        S-->>C: 200 { data: { suspensionStatus: SUSPENDED, suspendedUntil: newDate | null } }
-        Note over Relay,ES: async — no deindex needed, the offers are already inactive
-        Relay-)PG: poll outbox_event WHERE publication_status = PENDING
-        Relay-)Relay: publish seller.suspended to Kafka
-        AC-)AC: consume seller.suspended → INSERT audit_logs
+    else already SUSPENDED (timed or permanent)
+        S-->>C: 409 Conflict "Seller is already suspended."
+        Note over S,C: No write, no event. An amendment is PATCH /admin/sellers/:sellerProfileId/suspension
     else ACTIVE
         Note over S,PG: Atomic Postgres transaction — new suspension
         S->>PG: BEGIN TX
         S->>PG: UPDATE seller_profile SET suspension_status=SUSPENDED, suspended_until=:date, suspension_reason=:reason
         S->>PG: UPDATE catalog.offer SET status=INACTIVE, status_changed_reason='SUSPENSION' WHERE seller_profile_id=:sellerProfileId AND status='ACTIVE' RETURNING id
-        S->>PG: INSERT outbox_event (topic='seller.suspended', aggregate_type='seller.seller_profile', aggregate_id=sellerProfileId, key=sellerProfileId, payload={seller_profile_id, user_id, reason, suspended_until, is_extension:false, offer_ids, suspended_by:adminUserId})
+        S->>PG: INSERT outbox_event (topic='seller.suspended', aggregate_type='seller.seller_profile', aggregate_id=sellerProfileId, key=sellerProfileId, payload={seller_id:sellerProfileId, seller_user_id:userId, reason, admin_user_id:adminUserId, suspended_at:NOW(), offer_ids, is_permanent:(date IS NULL), suspended_until:date, duration_label, seller_name, seller_email, business_name})
+        Note over S,PG: The payload is the schema's full field set (kafka-events § 2.3). ET-10 renders the seller's name, the business name, the duration label and the expiry, and the in-app row is addressed by seller_user_id — none of which the notification consumer may read from seller.seller_profile or identity.user. There is no is_extension field: under D-11 this event fires once per suspension and has nothing to discriminate
         S->>PG: COMMIT TX
         S->>R: SET auth:revoke_before:{userId} = NOW() EX 960
         Note over S,R: blocks every listing route on the seller's next request instead of 15 minutes later
@@ -521,6 +517,95 @@ sequenceDiagram
 ```
 
 **Pending orders survive suspension.** No fulfillment is touched here: unshipped orders remain the seller's obligation, and the suspended seller keeps read access to the order list, order detail and the ship action so they can discharge it (US-A-05:106, US-S-02:42). Orders that then pass the ship-by window are refunded by the auto-refund monitor (US-P-16), not by this endpoint.
+
+---
+
+<a id="amend-suspension"></a>
+### Amend suspension
+
+```
+PATCH /admin/sellers/:sellerProfileId/suspension
+Tag: Admin
+Auth: ADMIN
+```
+
+The suspension is a sub-resource of the seller, and this is the only way to change one that is already in force ([Wave 0 D-11](../../audits/2026-09-22-wave0-decisions.md)). It exists because `POST .../suspend` now `409`s on a suspended seller: without it, correcting a wrong end date or a wrong reason would mean reinstating the seller and suspending them again, which sends ET-12 and ET-10 to a seller whose standing never actually changed and puts two false transitions in the audit trail.
+
+**Request body** — both fields optional, at least one required
+```json
+{
+  "suspendedUntil": "ISO8601 | null",
+  "reason": "string (max 500 chars)"
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `suspendedUntil` | The new expiry. `null` makes the suspension **permanent**. Absent leaves the current expiry untouched — which is not the same as `null`, so the field's presence is what the handler branches on, not its truthiness. |
+| `reason` | Replaces `seller.seller_profile.suspension_reason`. Absent leaves it untouched. The 500-character cap is the same as every other reason on this surface. |
+
+**An absolute timestamp, not `durationDays`.** `POST .../suspend` offers a fixed menu of 7, 30 or 90 days because the admin is choosing a policy duration starting now. An amendment moves an expiry that is already fixed, and `seller.seller_profile` records no `suspended_at`, so a duration here would have nothing to re-base on — 30 days from *when*? Re-basing on now would silently extend every correction. The endpoint therefore takes the date itself, and it is also what makes the call naturally idempotent: the same body twice yields the same `suspended_until`, where a duration would not.
+
+**Response 200**
+```json
+{ "data": { "suspensionStatus": "SUSPENDED", "suspendedUntil": "ISO8601 | null", "reason": "string" } }
+```
+Side effects: `seller.suspension_amended` event via the outbox. **No offer is touched, no Redis key is written, and no notification is sent** — see below for each.
+
+**Errors:** 400 neither field present, or `reason` over 500 chars; 404 seller not found; 409 seller is not currently suspended; 422 `suspendedUntil` is not a valid timestamp, or is not in the future
+
+**`409` covers never-suspended, reinstated and expired alike, and that is deliberate.** `seller.seller_profile` holds the seller's *current* standing: reinstatement nulls `suspended_until` and `suspension_reason` along with the status, and so does the expiry scheduler, so a seller who was never suspended and a seller reinstated an hour ago are the same row. Splitting the two would mean inferring history from a nullable text column. The history lives in `audit_logs`, which a handler may not read (FR-P-11), so one code answers all three: there is no active suspension to amend. This matches `POST .../reinstate`, which returns the same `409` on the same condition.
+
+**Nothing else changes, and each omission is a decision.**
+
+- **Offers stay `INACTIVE`.** The seller remains suspended throughout; only the date or the wording moved. `catalog.offer` is not read and not written, so the `search.*` consumers have nothing to do and no `seller_active` write is emitted.
+- **No `auth:revoke_before` write.** The JWT claim this could invalidate is `seller_suspension_status`, and it still reads `SUSPENDED`. The suspension's *expiry* is not a token claim — the suspension-expiry scheduler (US-P-18) polls `suspended_until` live, so a shortened suspension is picked up on the scheduler's next pass with no token work, and a lengthened one simply is not reached at the old time.
+- **No email and no in-app notification in V1, stated rather than left silent.** The seller's portal banner renders the live `suspended_until`, so the new date is visible to them without a message. There is no template for an amendment: ET-01…ET-21 is the complete V1 set and none of them says a suspension's terms changed, so the choice was between sending ET-10 — "Your seller account has been suspended", to a seller already suspended, naming a date as though it were new — and sending nothing. Nothing is the honest option. A future ET-22 would be a requirements change, and the event below already carries every field such a template would need, so adding the consumer later needs no schema change.
+
+#### Sequence
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant API as API (NestJS)
+    participant G as AdminGuard
+    participant S as AdminService
+    participant PG as Postgres
+    participant Relay as Kafka Relay
+    participant AC as platform.audit
+
+    C->>API: PATCH /admin/sellers/:sellerProfileId/suspension { suspendedUntil?, reason? }
+    API->>G: verify token + ADMIN role
+    Note over G: 403 if no valid ADMIN token (missing, invalid, or non-ADMIN role)
+    G-->>API: pass
+    API->>S: amendSuspension(sellerProfileId, patch, adminUserId)
+    S->>S: validate at least one field present, reason max 500 chars, suspendedUntil a future timestamp or explicit null
+    alt validation fails
+        S-->>C: 400 / 422
+    end
+    S->>PG: SELECT seller_profile.suspension_status, suspended_until, suspension_reason, user_id FOR UPDATE
+    alt not found
+        S-->>C: 404 Not Found
+    else suspension_status = ACTIVE
+        S-->>C: 409 Conflict "Seller is not currently suspended."
+    else suspension_status = SUSPENDED
+        Note over S,PG: Atomic Postgres transaction
+        S->>PG: BEGIN TX
+        S->>PG: UPDATE seller_profile SET suspended_until=:newUntil, suspension_reason=:newReason, updated_at=NOW() WHERE id=:sellerProfileId AND suspension_status='SUSPENDED'
+        Note over S,PG: Only the fields the body carried are assigned&#59; the FOR UPDATE read above supplies the prior values for the event
+        S->>PG: INSERT outbox_event (topic='seller.suspension_amended', aggregate_type='seller.seller_profile', aggregate_id=sellerProfileId, key=sellerProfileId, payload={seller_id:sellerProfileId, seller_user_id:userId, seller_email, seller_name, business_name, admin_user_id:adminUserId, amended_at:NOW(), previous_suspended_until, suspended_until:newUntil, is_permanent:(newUntil IS NULL), previous_reason, reason:newReason})
+        S->>PG: COMMIT TX
+        S-->>C: 200 { data: { suspensionStatus: SUSPENDED, suspendedUntil: newUntil | null, reason: newReason } }
+        Note over Relay,AC: async — audit only, no search write and no notification
+        Relay-)PG: poll outbox_event WHERE publication_status = PENDING
+        Relay-)Relay: publish seller.suspension_amended to Kafka
+        AC-)AC: consume seller.suspension_amended → INSERT audit_logs (action=SELLER_SUSPENSION_AMENDED)
+    end
+```
+
+**The event is what makes the amendment auditable at all.** No handler in this document writes MongoDB, so an admin action that published nothing would leave no record of who moved a seller's expiry or why — the one thing US-A-05b:126 requires of every override of a prior admin decision. It is a **distinct event type** and not a flag on `seller.suspended`: a boolean discriminator would put two operations with different consumer sets on one topic, and every `notification.seller-suspended` consumer would have to learn to stay silent on one of them ([kafka-events.md § 2.29](../kafka-events.md#229-sellersuspension_amended)). The payload carries both the prior and the new value of each amended field, because `audit_logs` is the only account of the change and a document holding just the new date cannot answer what it was before.
+
+**Idempotency** follows the document's standard: an `Idempotency-Key` replay returns the suspension's current state, re-read at replay time. Without a key the endpoint is still safe to repeat — the body names absolute values, so applying it twice lands the same row in the same state. A repeat does write a second outbox row and therefore a second `audit_logs` document, which is correct: the admin performed the action twice, and the amendment trail records attempts rather than diffs.
 
 ---
 
@@ -555,7 +640,7 @@ sequenceDiagram
     participant R as Redis
     participant Relay as Kafka Relay
     participant SC as search.seller-reinstated
-    participant AC as audit
+    participant AC as platform.audit
     participant ES as Elasticsearch
 
     C->>API: POST /admin/sellers/:sellerProfileId/reinstate { reason }
@@ -579,7 +664,8 @@ sequenceDiagram
         S->>PG: UPDATE seller_profile SET suspension_status=ACTIVE, suspended_until=NULL, suspension_reason=NULL
         S->>PG: UPDATE catalog.offer SET status=ACTIVE, status_changed_reason=NULL WHERE seller_profile_id=:sellerProfileId AND status='INACTIVE' AND status_changed_reason='SUSPENSION' RETURNING id
         Note over S,PG: REMOVED offers are untouched — reinstatement does not reverse a content decision
-        S->>PG: INSERT outbox_event (topic='seller.reinstated', aggregate_type='seller.seller_profile', aggregate_id=sellerProfileId, key=sellerProfileId, payload={seller_profile_id, user_id, reason, reinstated_by:adminUserId, reactivated_offer_ids})
+        Note over S,PG: Field names are the schema's (kafka-events § 2.15): offer_ids not reactivated_offer_ids, admin_id not reinstated_by — and the seller's identity fields, which ET-12 renders and the SELLER_REINSTATED in-app row is addressed by
+        S->>PG: INSERT outbox_event (topic='seller.reinstated', aggregate_type='seller.seller_profile', aggregate_id=sellerProfileId, key=sellerProfileId, payload={seller_id:sellerProfileId, seller_user_id:userId, seller_email, seller_name, business_name, admin_id:adminUserId, reinstated_at:NOW(), reason, offer_ids:reactivatedOfferIds})
         S->>PG: COMMIT TX
         S->>R: SET auth:revoke_before:{userId} = NOW() EX 960
         Note over S,R: forces a refresh so the token carries seller_suspension_status = ACTIVE
@@ -720,13 +806,19 @@ Auth: ADMIN
 ```
 **Request body**
 ```json
-{ "decision": "REMOVE | DISMISS", "reason": "string (max 500 chars)" }
+{
+  "decision": "REMOVE | DISMISS",
+  "reason": "string (max 500 chars)",
+  "removalCategory": "PROHIBITED_CATEGORY | IP_VIOLATION | MISLEADING | OTHER"
+}
 ```
 
-| Decision | `reason` | Story |
-|---|---|---|
-| `REMOVE` | **Required.** The seller is told which rule was broken, so there has to be something to tell them. | US-A-04:79 |
-| `DISMISS` | **Optional** note. Clearing a false positive needs no justification to the seller — nothing happened to their listing. | US-A-04b:92 |
+| Decision | `reason` | `removalCategory` | Story |
+|---|---|---|---|
+| `REMOVE` | **Required.** The seller is told which rule was broken, so there has to be something to tell them. | **Required.** ET-09 prints the category on its own line beside the free-text reason, and `moderation.listing.removed` declares the field non-null, so a removal with no category renders an email with a blank field or fails to serialize. | US-A-04:79 |
+| `DISMISS` | **Optional** note. Clearing a false positive needs no justification to the seller — nothing happened to their listing. | **Not accepted.** Nothing was removed, so there is no removal to categorise. | US-A-04b:92 |
+
+**`removalCategory` is the `removal_category` enum, not `moderation_source`.** The four values are defined once, as the `admin.removal_category` type in [`data-model-erd.md § 4`](../data-model-erd.md#postgresql-enum-types); this endpoint accepts that set and nothing else, persists it to `admin.moderation_case.removal_category`, and the removal event carries it as `RemovalCategory`. It is the admin's judgement of what the listing was, made at decision time, and it is independent of the case's `source`: a case raised by `KEYWORD_MATCH` is commonly removed as `IP_VIOLATION`, and `KEYWORD_MATCH` / `ADMIN_MANUAL` are not categories a seller can be given as a reason. The two sets overlap on `PROHIBITED_CATEGORY` alone, so a handler must never default one from the other ([`data-model-erd.md § admin.moderation_case`](../data-model-erd.md#table-admin-moderation-case)).
 
 **Response 200**
 ```json
@@ -740,9 +832,17 @@ Auth: ADMIN
   }
 }
 ```
-**Errors:** 400 reason missing on REMOVE or over 500 chars, 404 case not found, 409 already decided
+**Errors:** 400 reason or `removalCategory` missing on REMOVE, reason over 500 chars, or `removalCategory` sent with DISMISS; 404 case not found; 409 already decided
 
 **Product cascade on REMOVE.** After the offer is set `REMOVED`, the transaction checks whether any non-`REMOVED` offer remains on the product; if none does, `catalog.product.status` is set to `REMOVED` too, and `productRemoved` is `true` in the response (US-A-04:80). A product still sold by another seller is left alone — one seller's violation is not the other's.
+
+**The admin module publishes no `offer.changed` row.** The two paths here that need one — the DISMISS above and the manual flag at [`POST /admin/moderation`](#create-moderation-case-manual-flag) — reach it through `CatalogApplicationService.republishOffer(offerId, tx)`, which composes the payload from `catalog.offer` and writes the outbox row inside the caller's transaction. The topic has one producer, the module that owns the table ([kafka-events § 2.11](../kafka-events.md#211-offerchanged), [backend-module-architecture § Ownership boundaries](../backend-module-architecture.md#ownership-boundaries)): the payload carries `seller_name`, `seller_active` and `display_prices`, which come from `SellerApplicationService` and `PricingApplicationService`, and an admin handler composing them itself would be reading three schemas it does not own. Suspension and reinstatement publish no `offer.changed` at all: the bulk status move travels on `seller.suspended` / `seller.reinstated` carrying `offer_ids`, and the search consumer flips `seller_active` on those entries rather than re-reading each offer — which is why those two paths need no producer change. The `UPDATE catalog.offer SET status = …` statements beside all of these are still written from `AdminService` in this document; routing those through `CatalogApplicationService.setOfferStatus` is the remainder of the same D-03 migration and is not done here.
+
+**The cascade emits `product.changed`, and it is the only thing that empties the search index.** The check, the status write and the outbox row are one call — `CatalogApplicationService.removeProductIfNoOffersRemain(productId, tx)`, which returns whether it fired and supplies the response's `productRemoved`. Catalog owns `catalog.product` and is the only module that can assemble the payload's `category_path`, `title`, `variants[]` and `images[]` without reading another schema, so the cascade belongs behind its application service rather than in this handler.
+
+Both halves of the removal have to be published, because they are two different writes on the search side. `moderation.listing.removed` removes that one offer's `offers[]` entry from the product document and recomputes the rollups; it deliberately never deletes a document, even when it has just removed the last entry. Deleting is `product.changed` with `change_type = REMOVED`, and it is the only event that does ([search.md § write mechanisms](./search.md#write-mechanisms)). Without this outbox row the last offer's removal left a document behind with an empty `offers[]` for a product no longer in the catalogue — still returned by id, still clickable. The two events travel on different partition keys and arrive in either order, which is safe in both: the removal consumer runs without `scripted_upsert`, so a listing event landing after the delete answers `document_missing` and is a successful no-op rather than a resurrection, and a delete landing after it removes a document that is merely one entry shorter. A redelivered delete is a `404` from Elasticsearch, which the consumer treats the same way ([search.md § A removal write never creates a document](./search.md#removal-never-creates)).
+
+A product that keeps a surviving offer publishes **no** `product.changed`: nothing about the product row changed, and the entry removal is already carried by `moderation.listing.removed`. This is the same rule the seller's own withdrawal follows ([seller.md § delete product](./seller.md#delete-product-soft)), so one product cannot be removed under two different conventions.
 
 **Removal is irreversible and does not touch orders.** Pending unshipped orders on a removed listing remain active and the seller remains responsible for fulfilling them (US-A-04:83). The seller cannot reactivate a removed listing; they may create a new compliant one (US-S-10:192).
 
@@ -758,11 +858,13 @@ sequenceDiagram
     participant API as API (NestJS)
     participant G as AdminGuard
     participant S as AdminService
+    participant CAS as CatalogApplicationService
     participant PG as Postgres
     participant Relay as Kafka Relay
     participant SC as search.listing-removed
+    participant SP as search.product-changed
     participant SC2 as search.offer-changed
-    participant AC as audit
+    participant AC as platform.audit
     participant ES as Elasticsearch
 
     C->>API: POST /admin/moderation/:caseId/decide { decision, reason? }
@@ -770,7 +872,7 @@ sequenceDiagram
     Note over G: 403 if no valid ADMIN token (missing, invalid, or non-ADMIN role)
     G-->>API: pass
     API->>S: decideModerationCase(caseId, decision, reason, adminUserId)
-    S->>S: validate reason (required for REMOVE, max 500 chars either way)
+    S->>S: validate reason (required for REMOVE, max 500 chars either way) and removalCategory (required for REMOVE, rejected on DISMISS)
     alt validation fails
         S-->>C: 400 Bad Request {errors[]}
     end
@@ -784,27 +886,36 @@ sequenceDiagram
         alt decision = REMOVE
             Note over S,PG: Atomic Postgres transaction
             S->>PG: BEGIN TX
-            S->>PG: UPDATE moderation_case SET status=RESOLVED, decision=REMOVE, reason=:reason, decided_at=NOW(), decided_by_user_id=:adminUserId
+            S->>PG: UPDATE moderation_case SET status=RESOLVED, decision=REMOVE, reason=:reason, removal_category=:removalCategory, decided_at=NOW(), decided_by_user_id=:adminUserId
             S->>PG: UPDATE catalog.offer SET status=REMOVED, status_changed_reason='ADMIN_REMOVAL' WHERE id=:offerId
-            S->>PG: SELECT COUNT(*) FROM catalog.offer WHERE product_id=:productId AND status != 'REMOVED'
+            S->>CAS: removeProductIfNoOffersRemain(productId, tx)
+            CAS->>PG: SELECT COUNT(*) FROM catalog.offer WHERE product_id=:productId AND status != 'REMOVED'
             alt no offers remain on the product
-                S->>PG: UPDATE catalog.product SET status='REMOVED' WHERE id=:productId
+                CAS->>PG: UPDATE catalog.product SET status='REMOVED' WHERE id=:productId
+                CAS->>PG: INSERT outbox_event (topic='product.changed', aggregate_type='catalog.product', aggregate_id=productId, key=productId, payload={product_id, change_type:'REMOVED', category_id, category_path, title, brand, description, status:'REMOVED', created_at, variants[], images[]})
             end
-            S->>PG: INSERT outbox_event (topic='moderation.listing.removed', aggregate_type='catalog.offer', aggregate_id=offerId, key=offerId, payload={offer_id, product_id, product_removed, seller_profile_id, seller_email, product_title, moderation_case_id, removal_reason, admin_user_id, removed_at})
+            CAS-->>S: productRemoved
+            S->>PG: INSERT outbox_event (topic='moderation.listing.removed', aggregate_type='catalog.offer', aggregate_id=offerId, key=offerId, payload={offer_id, product_id, seller_id:sellerProfileId, seller_user_id, seller_email, seller_name, product_title, removal_category, removal_reason_text:reason, admin_user_id:adminUserId, moderation_case_id, removed_at})
+            Note over S,PG: The payload is the schema's full field set (kafka-events § 2.14): seller_id not seller_profile_id, removal_reason_text not removal_reason, plus removal_category, seller_user_id, seller_name and product_title. seller_user_id addresses the LISTING_REMOVED in-app row&#59; seller_name and seller_email are copied onto the ET-09 digest row, which the 23:00 scheduler sends holding no event. product_removed is dropped — no consumer reads it, and the product's own removal travels on product.changed
             S->>PG: COMMIT TX
             S-->>C: 200 { data: { caseId, decision: REMOVE, offerStatus: REMOVED, productRemoved, decidedAt } }
             Note over Relay,ES: async cascade
             Relay-)PG: poll outbox_event WHERE publication_status = PENDING
             Relay-)Relay: publish moderation.listing.removed to Kafka
             SC-)SC: consume moderation.listing.removed
-            SC->>ES: deindex offer from search
+            SC->>ES: remove that offer's offers[] entry, recompute the product rollups
+            SP-)SP: consume product.changed (change_type REMOVED), only when the cascade fired
+            SP->>ES: DELETE the product document by id
             AC-)AC: consume moderation.listing.removed → INSERT audit_logs, one record per removed listing (ET-09 digest via the notification consumer)
         else decision = DISMISS
             Note over S,PG: Atomic Postgres transaction
             S->>PG: BEGIN TX
             S->>PG: UPDATE moderation_case SET status=DISMISSED, decision=DISMISS, reason=:reason, decided_at=NOW(), decided_by_user_id=:adminUserId
             S->>PG: UPDATE catalog.offer SET status='ACTIVE', status_changed_reason=NULL WHERE id=:offerId AND status='FLAGGED'
-            S->>PG: INSERT outbox_event (topic='offer.changed', aggregate_type='catalog.offer', aggregate_id=offerId, key=offerId, payload={offer_id, change_type:'UPDATED', status:'ACTIVE', moderation_case_id, cleared_by:adminUserId, note:reason})
+            S->>CAS: republishOffer(offerId, tx)
+            CAS->>PG: INSERT outbox_event (topic='offer.changed', aggregate_type='catalog.offer', aggregate_id=offerId, key=offerId, payload={offer_id, product_id, seller_id:sellerProfileId, seller_name, seller_active, change_type:'UPDATED', status:'ACTIVE', currency_code, prices:[current live rows], display_prices})
+            Note over CAS,PG: Catalog writes this row, not Admin — one producer per topic, the owner of catalog.offer
+            Note over S,PG: offer.changed carries the whole OfferChangedPayload (kafka-events § 2.11) — product_id to address the Elasticsearch document, seller_id, seller_name, seller_active, currency_code, the live price rows and their display_prices. Without product_id the re-index has no document to write to. moderation_case_id, cleared_by and note are dropped: the schema has no field for them, and the case row holds the admin, the timestamp and the note in Postgres
             S->>PG: COMMIT TX
             S-->>C: 200 { data: { caseId, decision: DISMISS, offerStatus: ACTIVE, productRemoved: false, decidedAt } }
             Note over Relay,ES: async — the cleared offer returns to the index
@@ -832,12 +943,13 @@ US-A-04:78 lets an admin act on "one or more" flagged listings, multi-selected f
 ```json
 {
   "cases": [
-    { "caseId": "uuid", "reason": "string (max 500 chars)" }
+    { "caseId": "uuid", "reason": "string (max 500 chars)", "removalCategory": "PROHIBITED_CATEGORY | IP_VIOLATION | MISLEADING | OTHER" }
   ],
-  "sharedReason": "string (max 500 chars) | null"
+  "sharedReason": "string (max 500 chars) | null",
+  "sharedRemovalCategory": "PROHIBITED_CATEGORY | IP_VIOLATION | MISLEADING | OTHER | null"
 }
 ```
-`reason` may be given per case, or once as `sharedReason` and applied to all — US-A-04:79 allows either. A case with neither is a `400`. Maximum 100 cases per request.
+`reason` and `removalCategory` may be given per case, or once as `sharedReason` and `sharedRemovalCategory` and applied to all — US-A-04:79 allows either, and ET-09's digest renders both per listing, so each resolves independently. A case that resolves neither a reason nor a category is a `400`. Maximum 100 cases per request. The category vocabulary is the `admin.removal_category` enum, on the terms the [single-case route](#decide-moderation-case) sets out — a shared category is one admin judgement applied to several listings, never the cases' own `source` values collapsed into one.
 
 **Response 200** — one result per requested case, so a partial failure is legible rather than an all-or-nothing error
 ```json
@@ -852,7 +964,7 @@ US-A-04:78 lets an admin act on "one or more" flagged listings, multi-selected f
   }
 }
 ```
-**Errors:** 400 empty `cases[]`, over 100 entries, or a case with no reason
+**Errors:** 400 empty `cases[]`, over 100 entries, or a case that resolves no reason or no removal category
 
 **Each listing is its own transaction.** A case already decided by another admin between the queue render and the submit is reported `SKIPPED` with code `CONFLICT`; it does not roll back the removals that succeeded. One `moderation.listing.removed` event and therefore one audit record is written per removed listing (US-A-04:82), and the notification consumer aggregates them into the single daily ET-09 digest per seller — which is exactly why the events are per-listing rather than per-request.
 
@@ -864,10 +976,12 @@ sequenceDiagram
     participant API as API (NestJS)
     participant G as AdminGuard
     participant S as AdminService
+    participant CAS as CatalogApplicationService
     participant PG as Postgres
     participant Relay as Kafka Relay
     participant SC as search.listing-removed
-    participant AC as audit
+    participant SP as search.product-changed
+    participant AC as platform.audit
     participant ES as Elasticsearch
 
     C->>API: POST /admin/moderation/bulk-remove { cases[], sharedReason? }
@@ -875,7 +989,7 @@ sequenceDiagram
     Note over G: 403 if no valid ADMIN token (missing, invalid, or non-ADMIN role)
     G-->>API: pass
     API->>S: bulkRemove(cases, sharedReason, adminUserId)
-    S->>S: validate 1..100 cases, each resolving a reason (own or shared) of max 500 chars
+    S->>S: validate 1..100 cases, each resolving a reason (own or shared) of max 500 chars and a removalCategory (own or shared)
     alt validation fails
         S-->>C: 400 Bad Request {errors[]}
     end
@@ -887,10 +1001,15 @@ sequenceDiagram
             S->>PG: ROLLBACK
             S->>S: record { caseId, status: SKIPPED, code: CONFLICT }
         else status = OPEN
-            S->>PG: UPDATE moderation_case SET status=RESOLVED, decision=REMOVE, reason=:reason, decided_at=NOW(), decided_by_user_id=:adminUserId
+            S->>PG: UPDATE moderation_case SET status=RESOLVED, decision=REMOVE, reason=:reason, removal_category=:removalCategory, decided_at=NOW(), decided_by_user_id=:adminUserId
             S->>PG: UPDATE catalog.offer SET status=REMOVED, status_changed_reason='ADMIN_REMOVAL' WHERE id=:offerId
-            S->>PG: UPDATE catalog.product SET status='REMOVED' WHERE id=:productId AND NOT EXISTS (SELECT 1 FROM catalog.offer WHERE product_id=:productId AND status != 'REMOVED')
-            S->>PG: INSERT outbox_event (topic='moderation.listing.removed', aggregate_type='catalog.offer', aggregate_id=offerId, key=offerId, payload={offer_id, product_id, product_removed, seller_profile_id, moderation_case_id, removal_reason, admin_user_id, removed_at})
+            S->>CAS: removeProductIfNoOffersRemain(productId, tx)
+            CAS->>PG: UPDATE catalog.product SET status='REMOVED' WHERE id=:productId AND NOT EXISTS (SELECT 1 FROM catalog.offer WHERE product_id=:productId AND status != 'REMOVED')
+            alt the UPDATE affected a row
+                CAS->>PG: INSERT outbox_event (topic='product.changed', aggregate_type='catalog.product', aggregate_id=productId, key=productId, payload={product_id, change_type:'REMOVED', category_id, category_path, title, brand, description, status:'REMOVED', created_at, variants[], images[]})
+            end
+            CAS-->>S: productRemoved
+            S->>PG: INSERT outbox_event (topic='moderation.listing.removed', aggregate_type='catalog.offer', aggregate_id=offerId, key=offerId, payload={offer_id, product_id, seller_id:sellerProfileId, seller_user_id, seller_email, seller_name, product_title, removal_category, removal_reason_text:reason, admin_user_id:adminUserId, moderation_case_id, removed_at})
             S->>PG: COMMIT TX
             S->>S: record { caseId, status: REMOVED, offerId, productRemoved }
         end
@@ -899,7 +1018,9 @@ sequenceDiagram
     Note over Relay,ES: async cascade — one event per removed listing
     Relay-)PG: poll outbox_event WHERE publication_status = PENDING
     Relay-)Relay: publish moderation.listing.removed to Kafka
-    SC-)SC: consume each event → deindex offer from ES
+    SC-)SC: consume each event → remove that offer's offers[] entry from ES
+    SP-)SP: consume product.changed (change_type REMOVED) for each product the cascade emptied
+    SP->>ES: DELETE that product document by id
     AC-)AC: consume each event → INSERT audit_logs (one record per removed listing)
 ```
 
@@ -943,11 +1064,12 @@ sequenceDiagram
     participant API as API (NestJS)
     participant G as AdminGuard
     participant S as AdminService
+    participant CAS as CatalogApplicationService
     participant PG as Postgres
     participant Relay as Kafka Relay
     participant NC as notification.listing-flagged
     participant SC as search.listing-flagged
-    participant AC as audit
+    participant AC as platform.audit
     participant ES as Elasticsearch
 
     C->>API: POST /admin/moderation { offerId, reason }
@@ -973,9 +1095,11 @@ sequenceDiagram
     S->>PG: INSERT admin.moderation_case (offer_id, reason, source='ADMIN_MANUAL', matched_terms=NULL, status='OPEN')
     Note over S,PG: matched_terms is populated only by the keyword scan — an admin flag names its reason in prose
     S->>PG: UPDATE catalog.offer SET status=FLAGGED, status_changed_reason='ADMIN_REMOVAL' WHERE id=:offerId
-    S->>PG: INSERT outbox_event (topic='listing.flagged', aggregate_type='catalog.offer', aggregate_id=offerId, key=offerId, payload={offer_id, product_id, product_title, seller_id, seller_email, seller_name, moderation_case_id, source:'ADMIN_MANUAL', matched_terms:[], flag_reason:reason, admin_user_id:adminUserId, flagged_at})
+    S->>PG: INSERT outbox_event (topic='listing.flagged', aggregate_type='catalog.offer', aggregate_id=offerId, key=offerId, payload={offer_id, product_id, product_title, seller_id, seller_user_id, seller_email, seller_name, moderation_case_id, source:'ADMIN_MANUAL', matched_terms:[], flag_reason:reason, admin_user_id:adminUserId, flagged_at})
     Note over S,PG: an empty array, never null — a nullable array would give every consumer two empty cases to handle
-    S->>PG: INSERT outbox_event (topic='offer.changed', aggregate_type='catalog.offer', aggregate_id=offerId, key=offerId, payload={offer_id, change_type:'UPDATED', status:'FLAGGED'})
+    S->>CAS: republishOffer(offerId, tx)
+    CAS->>PG: INSERT outbox_event (topic='offer.changed', aggregate_type='catalog.offer', aggregate_id=offerId, key=offerId, payload={offer_id, product_id, seller_id:sellerProfileId, seller_name, seller_active, change_type:'UPDATED', status:'FLAGGED', currency_code, prices:[current live rows], display_prices})
+    Note over CAS,PG: Catalog composes and writes this row, not Admin — offer.changed has one producer, the owner of catalog.offer (kafka-events § 2.11). The payload needs seller_name, seller_active and display_prices, which come from SellerApplicationService and PricingApplicationService inside this transaction; the admin module may read neither schema
     S->>PG: COMMIT TX
     S-->>C: 201 { data: { id, offerId, reason, source: ADMIN_MANUAL, status: OPEN, createdAt } }
     Note over Relay,ES: async cascade
@@ -995,7 +1119,7 @@ The listing-time keyword blocklist required by FR-P-06c is an admin-editable tab
 
 Prohibited **categories** are a separate mechanism (`catalog.category.is_prohibited`) and are not editable through these routes.
 
-Every mutation below is audited. The handler writes a `platform.outbox_event` row in the same transaction as the change; the `audit` consumer writes the `audit_logs` document (FR-P-11) — no handler writes MongoDB.
+Every mutation below is audited. The handler writes a `platform.outbox_event` row in the same transaction as the change; the `platform.audit` consumer writes the `audit_logs` document (FR-P-11) — no handler writes MongoDB.
 
 <a id="list-keyword-blocklist-terms"></a>
 #### List blocklist terms
@@ -1006,7 +1130,7 @@ Tag: Admin
 Auth: ADMIN
 Pagination: cursor
 ```
-**Query params:** `isActive` (`true | false`), `category` (`WEAPONS | DRUGS | ADULT | OTHER`), `q` (substring match on `term`), `limit`, `cursor`
+**Query params:** `isActive` (`true | false`), `enforcement` (`BLOCK | FLAG`), `category` (`WEAPONS | DRUGS | ADULT | OTHER`), `q` (substring match on `term`), `limit`, `cursor`
 
 Default sort `created_at DESC`; sort key `(created_at, id)`. Inactive terms are included unless filtered out, since the reason a past flag fired must stay readable.
 
@@ -1017,6 +1141,7 @@ Default sort `created_at DESC`; sort key `(created_at, id)`. Inactive terms are 
     "id": 1042,
     "term": "string",
     "matchType": "SUBSTRING | WORD | REGEX",
+    "enforcement": "BLOCK | FLAG",
     "category": "WEAPONS | DRUGS | ADULT | OTHER",
     "isActive": true,
     "createdBy": "uuid",
@@ -1042,10 +1167,13 @@ Auth: ADMIN
 {
   "term": "string (required, 2–100 chars)",
   "matchType": "SUBSTRING | WORD | REGEX",
+  "enforcement": "BLOCK | FLAG",
   "category": "WEAPONS | DRUGS | ADULT | OTHER"
 }
 ```
 `created_by` is taken from the authenticated admin, never from the body.
+
+`enforcement` is **required and has no server-side default** — it is the whole consequence of adding the term, so the admin states it. `BLOCK` puts the term on the hard blocklist: a listing submit that matches is refused `422` and nothing is created. `FLAG` puts it on the suspicion tier: the listing is created, the offer goes `FLAGGED`, and a case opens in this queue. The two tiers are defined once, on [`admin.keyword_blocklist`](../data-model-erd.md#table-admin-keyword-blocklist), and the listing paths that apply them are in [api-design/seller.md](./seller.md#create-product). Setting `FLAG` on a term for weapons, drugs or adult content is permitted but contradicts FR-P-06c's intent — the seeded terms in those three categories load as `BLOCK`.
 
 A `REGEX` term is compiled before insert and rejected with `422` if it does not compile, or if it is not linear-time on the input — an unbounded backtracking pattern in a guard that runs on every listing save is a denial-of-service lever against the write path.
 
@@ -1060,8 +1188,8 @@ PATCH /admin/keyword-blocklist/:termId
 Tag: Admin
 Auth: ADMIN
 ```
-**Request body** (all optional) — `term`, `matchType`, `category`, `isActive`  
-Setting `isActive: true` is how a deactivated term is brought back; the row is never re-created.
+**Request body** (all optional) — `term`, `matchType`, `enforcement`, `category`, `isActive`  
+Setting `isActive: true` is how a deactivated term is brought back; the row is never re-created. Moving a term between `BLOCK` and `FLAG` changes what the next listing save does with it and nothing else: no listing already created under the old tier is revisited, because V1 has no rescan job ([kafka-events § 2.27](../kafka-events.md#227-keyword_blocklistchanged)).
 
 **Response 200** — updated term wrapped in `data`  
 **Errors:** 400 validation, 404 term not found, 409 the change would duplicate an existing `(term, matchType)`, 422 uncompilable or unsafe regex
@@ -1089,7 +1217,7 @@ sequenceDiagram
     participant S as AdminService
     participant PG as Postgres
     participant Relay as Kafka Relay
-    participant AC as audit
+    participant AC as platform.audit
 
     C->>API: POST | PATCH | DELETE /admin/keyword-blocklist[/:termId]
     API->>G: verify token + ADMIN role
@@ -1111,7 +1239,7 @@ sequenceDiagram
     else deactivate
         S->>PG: UPDATE admin.keyword_blocklist SET is_active=false, updated_at=NOW() WHERE id=:termId
     end
-    S->>PG: INSERT outbox_event (aggregate_type='admin.keyword_blocklist', aggregate_id=termId, key=termId, payload={term_id, term, match_type, category, is_active, action, actor_user_id:adminUserId})
+    S->>PG: INSERT outbox_event (topic='keyword_blocklist.changed', aggregate_type='admin.keyword_blocklist', aggregate_id=termId, key=termId, payload={blocklist_entry_id:termId, term, change_type:('ADDED' | 'REMOVED'), actor_user_id:adminUserId, actor_role:'ADMIN'})
     Note over S: no MongoDB write — the audit consumer owns audit_logs (FR-P-11)
     S->>PG: COMMIT TX
 

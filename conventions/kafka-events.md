@@ -5,6 +5,8 @@
 
 Phase-specific event schemas and topic summary: [phase-1/technical-design/kafka-events.md](../phase-1/technical-design/kafka-events.md)
 
+Which consumer writes which field, and the event field that supplies it: [phase-1/technical-design/consumer-field-matrix.md](../phase-1/technical-design/consumer-field-matrix.md). A payload change is not complete until that matrix says which consumer the new field serves.
+
 ---
 
 ## Summary
@@ -46,8 +48,15 @@ Every Avro record includes the following envelope fields as the outer record. To
 
 - One `<topic>-value` subject per topic in Confluent Schema Registry.
 - Compatibility mode: `BACKWARD` on all subjects.
-- **BACKWARD compat rules:** adding optional fields (`"default": null` on union `["null", "..."]`) is allowed; removing or renaming fields or changing a field type is a breaking change that requires a new `event_version` and coordinated consumer migration.
+- **BACKWARD compat rules.** `BACKWARD` asks one question: can a reader holding the *new* schema decode data written under the *old* one? Three consequences follow, and they are not symmetrical:
+  - **Adding a field** is allowed **only with a default** — `["null", "..."]` with `"default": null`, or a non-null default on a field every producer writes. Without one, the new reader has nothing to put in the field when it meets an old record, and the registry rejects the schema.
+  - **Removing a field** is allowed, whether or not that field had a default: the new reader simply ignores the extra value in an old record. It is a breaking change for *consumers still on the previous schema*, which keep reading the field until they are redeployed, so a removal is coordinated even though the registry permits it.
+  - **Renaming a field or changing its type** is a removal plus an addition, so it passes the registry only when the new name carries a default — and a reader on the old schema loses the value either way. Treat it as breaking.
+- **An Avro enum that mirrors a Postgres enum names it, and two enums are never interchangeable.** A field whose values land in a Postgres enum column declares that type in its `doc`, and its symbol list is that type's symbols plus `UNKNOWN` as the schema `"default"`. `UNKNOWN` is a decode fallback and never a value to persist: a consumer that meets it routes the event to the DLQ (§4) rather than inserting a symbol the column rejects. That applies to the consumers writing the mirrored column, which is what the rule is about — an audit consumer storing the payload verbatim in a schemaless document has no column to reject it, and for that family an unrecognised symbol is recorded rather than dead-lettered, because dead-lettering would discard the only record of the event. A third position needs no handling at all: a consumer that neither persists the symbol nor branches on it can decode `UNKNOWN` and proceed — `search.offer-changed` reads `change_type` for nothing and takes index membership from `status` ([kafka-events.md § `offer.changed`](../phase-1/technical-design/kafka-events.md)), so an undecodable symbol cannot leave a deactivated offer searchable. These three cases are exhaustive; do not read the DLQ rule as a default for every non-audit consumer. A consumer may choose to be stricter than its position requires — `notification.listing-removed` DLQs `UNKNOWN` even though `removal_category` lands in a `TEXT` column that would accept it — which is a local decision, not a rule. Where two fields on the same lifecycle carry overlapping symbols — a case's origin and an admin's removal category share `PROHIBITED_CATEGORY` — each field's `doc` names the one Postgres type it mirrors, and copying a value from one field into the other is a defect even though it type-checks.
+- **Never remove a symbol from an Avro enum. Deleting one is prohibited, and the registry will not stop you.** The asymmetry is that a symbol list is checked against the reader's `"default"`, not against the data: adding a symbol is BACKWARD-safe at the registry because an old record never carries it, while removing one *passes* compatibility precisely because `"default": "UNKNOWN"` gives the new reader something to return for the symbol it no longer knows. The schema registers, CI is green, and every record still on the topic that carried the deleted symbol now decodes as `UNKNOWN` — the value is not reported lost, it is silently replaced, and a consumer following the rule above then DLQs events that were valid when written. **Deprecate in place instead: leave the symbol in the list, say in the field's `doc` that it is no longer produced and from when, and stop producing it.** A symbol may only leave the list once no record carrying it remains anywhere it can still be read: after the source topic's retention has passed — per topic in [kafka-events.md § 3](../phase-1/technical-design/kafka-events.md#topic-retention) — and after the retention of every DLQ that may hold one of those records has passed as well. Which DLQ that is comes from §5 below, and its retention — the longest among its source topics' — is stated in that same § 3. Both are figures a reader can look up; nothing else in this design keeps a decoded record where it can be read again. In V1 that condition is never met while the topic exists, so the list only ever grows.
+- **Adding a symbol passes the registry and still breaks if it ships in the wrong order.** Registry compatibility is not the whole check: by the mirroring rule above the symbol lands in a Postgres enum column, so three things ship, in this order — (1) the `ALTER TYPE <type> ADD VALUE '<symbol>'` migration, (2) every consumer of the topic, redeployed onto the schema that carries the symbol, (3) the producer that emits it. Out of that order the event is valid and lost anyway: a consumer still on the old schema decodes the new symbol as `UNKNOWN` and routes a well-formed event to the DLQ, and a consumer on the new schema whose database has not had the migration fails the insert instead. `ALTER TYPE … ADD VALUE` is its own migration file — Postgres will not let the added value be used in the transaction that adds it — so it is never bundled with the migration or the deploy that first uses it. On a topic whose only consumer is an audit consumer both of those failure modes are unreachable, because neither writes the column: the wrong order there yields a permanently degraded audit document and **no operational signal at all** — no DLQ entry, no failed insert, nothing to alert on. Quieter, not better, and still a defect rather than an acceptable steady state. Step (1) still binds, via the producer's own module.
 - Avro schemas committed to `libs/contracts/avro/` inside `aliceut-ecom-backend/` and registered to Schema Registry by CI before deployment.
+- **A schema that has never been registered has no compatibility obligation.** Before the first CI registration of a subject there is no previous schema to be compatible with and no consumer holding one, so a correction to an unregistered `event_version: 1` schema is an amendment to the initial version rather than an evolution of a live one: `event_version` stays at `1` and no `.v2` topic is created. The rules above bind from the first registration onward.
 
 ---
 
@@ -58,6 +67,8 @@ Each topic uses a partition key to co-locate related events and preserve orderin
 
 Partition count and replication factor are properties of the broker deployment rather than of the event contract, so they are declared per topic in that same catalog and are not fixed here — for Phase 1, in [kafka-events.md § 3](../phase-1/technical-design/kafka-events.md#topic-retention). A single-node V1 broker cannot exceed a replication factor of 1, and the value that is correct there is a data-loss setting on the Phase 2 Strimzi cluster. What this convention requires is that every topic state both values explicitly instead of inheriting a broker default.
 
+**Every topic is created explicitly — with its partition count, replication factor and retention — before any producer or consumer starts.** Broker auto-creation is disabled, because a topic the broker invents takes the broker's defaults, and a default retention silently overrides a retention the design chose for a security reason: the `auth.*` topics carry a raw single-use credential token and are held to 24 hours against a broker default of seven days. The provisioning step for Phase 1 is the `kafka-init` container in [docker-compose-topology.md § 6](../phase-1/technical-design/docker-compose-topology.md#docker-compose-yml); it is idempotent, it runs to completion before `api` and `workers` start, and it creates the DLQ topics (§5) as well as the event topics — a DLQ nobody created is a failure nobody sees.
+
 ---
 
 <a id="consumer-idempotency-template"></a>
@@ -67,11 +78,13 @@ Partition count and replication factor are properties of the broker deployment r
 1. Check platform.processed_event(consumer_group, event_id)
    → if found: skip (already processed)
 2. Execute side effect (write Postgres row, send email, update ES, etc.)
-3. INSERT INTO platform.processed_event (consumer_group, event_id, processed_at, outcome)
+3. INSERT INTO platform.processed_event (consumer_group, event_id, processed_at, outcome = 'OK')
 4. Commit Kafka offset
 ```
 
 On unhandled exception: route to `<consumer_group>.dlq`, then commit offset. DLQ non-empty triggers alert.
+
+**A failure writes no dedupe row.** Step 3 runs on the success path only, and `outcome` is therefore always `'OK'` — the column records *which* result was recorded, not whether one was. A row written on the exception path would make the message look processed: a DLQ exists so a fixed consumer can replay the event, and a replay that finds its own `event_id` in `platform.processed_event` skips the side effect and commits the offset, discarding the very message the DLQ was holding. The 14-day dedupe window would then be the window in which replay is guaranteed to fail. The offset still commits after the DLQ route, because the message has been moved somewhere durable; what must not happen is claiming the side effect ran.
 
 ### 4.1 Processing flow diagram
 
@@ -84,9 +97,8 @@ flowchart TD
     C -- no --> E[Execute side effect\nsee §4.2 family patterns]
     E -- success --> F["INSERT processed_event\n(outcome = OK)"]
     F --> G
-    E -- exception --> H["Route original event\nto &lt;consumer_group&gt;.dlq"]
-    H --> I["INSERT processed_event\n(outcome = FAILED)"]
-    I --> G
+    E -- exception --> H["Route original event\nto &lt;consumer_group&gt;.dlq\nno processed_event row —\nthe replay must not\nskip itself"]
+    H --> G
     G --> J{DLQ non-empty?}
     J -- yes --> K[Alert]
     J -- no --> A
@@ -96,13 +108,18 @@ flowchart TD
 
 Each consumer group belongs to one family. The idempotency wrapper (§4) applies to all; the steps below are the side-effect body (step 2 above).
 
+**A consumer's inputs are its payload and the document or row it is updating.** No consumer in any family below reads another module's tables, and none makes an enrichment call to fill a gap: a field a consumer needs belongs in the event. Where that leaves a field unsupplied, the event is fattened at the producer — which composes its payload from the tables it owns plus values obtained through the owning module's exported `ApplicationService`, inside the producing transaction. The field-by-field account of what each consumer writes and which payload field supplies it is [phase-1/technical-design/consumer-field-matrix.md](../phase-1/technical-design/consumer-field-matrix.md), which also records the one bounded exception (the admin roster, which is role membership rather than event data).
+
 ---
 
 #### `notification.*` — email + in-app notification
 
 ```
-1. Resolve recipient email
-     - Prefer payload field (e.g. seller_email, buyer_id → look up in DB)
+1. Resolve recipient from the payload
+     - Email address: the payload's own recipient field (seller_email, buyer_email, email)
+     - In-app recipient_user_id: the payload's identity.user id (buyer_id, seller_user_id)
+     - Never a DB lookup: a seller_id is a seller_profile_id and addresses no user row,
+       which is why every notification topic carries the recipient's user id and address
 2. Render email template (ET-XX defined in email-templates.md)
 3. Send via SMTP/mailer with 3× retry + exponential backoff (100 ms, 500 ms, 2 s)
      - On 3× failure: route to email.outbound.dlq (do NOT route main event to DLQ)
@@ -125,7 +142,7 @@ Each consumer group belongs to one family. The idempotency wrapper (§4) applies
 
 ---
 
-#### `audit` — MongoDB write
+#### `platform.audit` — MongoDB write
 
 ```
 1. Map envelope + payload fields to audit_logs or activity_events schema
@@ -184,4 +201,10 @@ When adding a new field to an existing event payload:
 3. Update the Schema Registry subject; validate BACKWARD compatibility passes before deploying
 4. Update all consumers to handle the new field (null-safe)
 
-When removing a field, changing a type, or renaming: this is a **breaking change**. Create a new topic `<topic>.v2` or bump the major version; deprecate the old topic after all consumers migrate.
+When removing a field: the registry permits it under `BACKWARD` (§2), and the sequence is consumer-first — redeploy every consumer that reads the field, then register the schema without it, then stop producing it. Done in that order it needs no new topic and no `event_version` bump. Done in the other order it is an outage: a consumer still projecting the field reads `null` and writes a document or a document update that is silently missing a value.
+
+**The paragraph above is about fields. Removing a symbol from an enum is a different change and consumer-first ordering does not make it safe** — it is prohibited outright (§2). The field recipe works because the only thing at risk is a consumer still reading the field, and redeploying it first removes that risk. A deleted symbol damages records that are already written: they decode as `UNKNOWN` against the new schema no matter which order the deploy ran in, and no redeploy sequence can reach them. Deprecate the symbol in place instead, and see §2 for the mechanism and for the one condition under which a symbol may eventually leave the list.
+
+**Adding a symbol to an enum is also not the four steps above**, because the symbol has to exist in the Postgres enum column before it can be persisted: the `ALTER TYPE … ADD VALUE` migration ships first, then the consumers, then the producer. Ordering and failure modes are in §2.
+
+When changing a type or renaming: this is a **breaking change**. Create a new topic `<topic>.v2` or bump the major version; deprecate the old topic after all consumers migrate.

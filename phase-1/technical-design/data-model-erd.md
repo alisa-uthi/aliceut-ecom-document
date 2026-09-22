@@ -109,6 +109,8 @@ All application enums are defined as PostgreSQL custom types before any schema m
 | `moderation_status` | `admin` | `OPEN`, `RESOLVED`, `DISMISSED` |
 | `moderation_decision` | `admin` | `REMOVE`, `DISMISS` |
 | `moderation_source` | `admin` | `KEYWORD_MATCH`, `PROHIBITED_CATEGORY`, `ADMIN_MANUAL` |
+| `removal_category` | `admin` | `PROHIBITED_CATEGORY`, `IP_VIOLATION`, `MISLEADING`, `OTHER` |
+| `blocklist_enforcement` | `admin` | `BLOCK`, `FLAG` |
 | `outbox_publication_status` | `platform` | `PENDING`, `PUBLISHED`, `FAILED` |
 
 The `promotion_status`, `promotion_type`, `discount_type`, and `stacking_policy` types referenced in [§8](#future-phase-seller-promotions) are deliberately absent from this table: it lists only the types created by the V1 migration. They are defined with the `promotion` schema when that scope is approved.
@@ -632,10 +634,13 @@ A rejected seller resubmits by inserting a new `kyc_application` row whose `supe
 | `matched_terms` | `TEXT[]` | Nullable; the blocklist terms that triggered the case, one array element per term. Populated for `KEYWORD_MATCH` and `NULL` for every other source. Machine-readable, unlike `reason` — the keyword scan queries it. |
 | `status` | `moderation_status` | Required case lifecycle state |
 | `decision` | `moderation_decision` | Nullable until resolved |
+| `removal_category` | `removal_category` | Nullable; the category the admin removed the listing under, chosen at decision time and carried by `moderation.listing.removed`. `CHECK ((decision IS NOT DISTINCT FROM 'REMOVE') = (removal_category IS NOT NULL))` — present exactly when the decision is `REMOVE`, and null while the case is open or once it is dismissed. Written `IS NOT DISTINCT FROM` rather than `=` because a plain comparison against the null `decision` of an open case evaluates to null, which a `CHECK` accepts, and the constraint would then let an undecided case carry a removal category. |
 | `decided_by_user_id` | `UUID` | Nullable FK → `identity.user(id)` until resolved |
 | `created_at`, `decided_at`, `updated_at` | `TIMESTAMPTZ` | Required creation/update; decision nullable |
 
 Opening a case sets the offer to `FLAGGED` and emits `listing.flagged`. Resolving a case with decision `REMOVE` sets the offer to `REMOVED` and emits `moderation.listing.removed`; both events are written to the outbox in the same transaction as the case and offer rows.
+
+**`source` and `removal_category` are two enums and neither substitutes for the other.** `source` is why the case was opened, written by the system or by the flagging admin, and it is what the moderation queue filters on. `removal_category` is what the removing admin judged the listing to be, written only on a `REMOVE` decision, and it is what the seller is told — ET-09 renders it as the removal's "Category". The two share the symbol `PROHIBITED_CATEGORY` and nothing else: a case opened under `KEYWORD_MATCH` is routinely removed as `IP_VIOLATION`, and `ADMIN_MANUAL` is not a category any seller can be given as a reason. Assigning one column's value to the other type-checks in neither Postgres nor Avro, and must not be done by copying through an event payload either — `moderation.listing.removed` carries `removal_category` and `listing.flagged` carries `source`, each mirroring the one type named here.
 
 A `DISMISS` decision suppresses re-flagging on the same word. The keyword scan runs at listing and update time rather than continuously, so dismissing a case does not cause an immediate re-flag, but the seller's next edit would otherwise trip the same term again and put the admin in a loop. The scan therefore skips any `(offer_id, term)` pair for which a `DISMISSED` case already records that term in `matched_terms`, and raises a new case only for terms not previously dismissed on that offer. A term the admin has never dismissed still flags normally, and a `REMOVE` decision suppresses nothing, since the offer is terminal.
 
@@ -649,6 +654,7 @@ The listing-time keyword blocklist required by FR-P-06c. Admin-maintained rather
 | `id` | `BIGSERIAL` | PK |
 | `term` | `TEXT` | Required blocked term |
 | `match_type` | `TEXT` | Required; `SUBSTRING`, `WORD`, or `REGEX` |
+| `enforcement` | `blocklist_enforcement` | Required, no default; `BLOCK` or `FLAG`. **This column is the two tiers of D-05.** `BLOCK` is the hard blocklist: a listing submit whose content matches is refused `422` and no row is written anywhere. `FLAG` is keyword suspicion: the listing is created, its offer goes `FLAGGED`, and a `moderation_case` opens for review. Requiring a value rather than defaulting one is deliberate — the tier is the whole consequence of adding a term, so an admin adding one chooses it explicitly. |
 | `category` | `TEXT` | Required; `WEAPONS`, `DRUGS`, `ADULT`, or `OTHER` |
 | `is_active` | `BOOLEAN` | Required; `DEFAULT true` |
 | `created_by` | `UUID` | Required FK → `identity.user(id)`; the admin who added the term |
@@ -659,7 +665,11 @@ Unique constraint: `(term, match_type)`.
 
 Terms are deactivated (`is_active = false`), never hard-deleted, so the audit trail behind a past flag remains readable. Every mutation of this table is audited. The listing-time guard loads the active terms into an in-process cache with a configurable TTL and must not query this table per save.
 
-Prohibited **categories** are a separate mechanism and are unchanged: they live on the taxonomy as `catalog.category.is_prohibited`.
+**`enforcement` and `match_type` are independent, and conflating them is the mistake to avoid.** `match_type` is how the scanner recognises the term — `WORD` for a whole-word hit, `SUBSTRING` for an embedded one, `REGEX` for a pattern. `enforcement` is what happens when it does. A slang term for a controlled substance is `SUBSTRING` and `BLOCK`; a word that is usually innocent and occasionally not is `WORD` and `FLAG`. Deriving the tier from the match type — treating an exact match as hard and a pattern as soft — would mean an admin could not add a precisely-spelled term they only wanted reviewed, and could not hard-block a pattern that has no single exact spelling. The two columns answer different questions and the guard reads both: it resolves the tier from the strictest `enforcement` among the terms that matched, so one `BLOCK` hit refuses the submit regardless of how many `FLAG` terms matched alongside it.
+
+The seed loads the three FR-P-06c classes — `WEAPONS`, `DRUGS`, `ADULT` — as `BLOCK`, and `OTHER` as `FLAG`. That is seed policy, not a constraint: an admin may set either value on any category.
+
+Prohibited **categories** are a separate mechanism and are unchanged: they live on the taxonomy as `catalog.category.is_prohibited`. A prohibited node is always the hard tier — it is a deliberate structural choice by an admin, not a word that happened to appear — so it behaves as `BLOCK` and has no `FLAG` counterpart.
 
 <a id="schema-notifications"></a><a id="schema-platform"></a>
 ### `notifications` and `platform`
@@ -700,14 +710,14 @@ Partial index: `(recipient_user_id, read_at) WHERE read_at IS NULL`. The unread 
 
 Staging table for the daily listing-removal email digest (ET-09). The `notification.listing-removed` Kafka consumer writes rows here; it does **not** send email immediately. A scheduled job in the `workers` service — not a database cron — aggregates rows per selling profile at 23:00 UTC, renders ET-09, sends the email, and deletes the processed rows. It takes a Postgres advisory lock before doing work so that running more than one worker replica cannot send a seller two digests.
 
-`removal_category` is copied from `admin.moderation_case.source` and `removal_reason_text` from `admin.moderation_case.reason` on the removal event, so both required columns always have a source.
+`removal_category` is copied from `admin.moderation_case.removal_category` and `removal_reason_text` from `admin.moderation_case.reason` on the removal event, so both required columns always have a source. Not from `moderation_case.source` — that is the case's origin, a different enum, and it is not what ET-09 shows the seller ([`admin.moderation_case`](#table-admin-moderation-case)).
 
 | Column | Type | Constraints / purpose |
 |---|---|---|
 | `id` | `BIGSERIAL` | PK |
 | `seller_profile_id` | `UUID` | Required FK → `seller.seller_profile(id)`; the digest is aggregated per selling profile, matching every other table that references a seller |
 | `product_title` | `TEXT` | Required; captured at removal time |
-| `removal_category` | `TEXT` | Required; the `admin.moderation_case.source` value the removal was decided under (`KEYWORD_MATCH`, `PROHIBITED_CATEGORY`, or `ADMIN_MANUAL`) |
+| `removal_category` | `TEXT` | Required; the `admin.removal_category` value the listing was removed under, taken from the event. `TEXT` rather than the enum type deliberately: this is a rendering snapshot captured for one digest cycle, like `product_title`, and the `notifications` schema takes no type dependency on `admin`. The type discipline therefore lives in the consumer — an `UNKNOWN` decoded off the topic is routed to the DLQ, never written here. |
 | `removal_reason_text` | `TEXT` | Required; admin-provided or system reason |
 | `removed_at` | `TIMESTAMPTZ` | Required; when the listing was removed |
 | `created_at` | `TIMESTAMPTZ` | Required; `DEFAULT NOW()` |

@@ -91,7 +91,7 @@ Price types: `LIST`, `SALE` (time-bounded). No `B2B_TIER` in V1. PDP resolves ef
 Seller pricing allowed: **USD, THB, JPY, SGD** only.
 
 ### Prohibited categories (FR-P-06c)
-Weapons, drugs, adult content. Two tiers at listing time: prohibited taxonomy node or exact hard-blocklist hit → **422 at submit, no listing created**; fuzzy/keyword-suspicion match → listing **created** as `FLAGGED` with an `admin.moderation_case` row (this is FR-A-03's queue input).
+Weapons, drugs, adult content. Two tiers at listing time. The tier comes from the **stored `enforcement` of the blocklist term that matched** (`BLOCK` | `FLAG`), not from how precisely the text matched — `match_type` (`SUBSTRING` | `WORD` | `REGEX`) is an independent column and every matching mode exists on both tiers. Prohibited taxonomy node or a `BLOCK` term → **422 at submit, no listing created**; a `FLAG` term → listing **created** as `FLAGGED` with an `admin.moderation_case` row (this is FR-A-03's queue input). Strictest matched tier wins. See D-14 in `phase-1/audits/2026-09-22-wave0-decisions.md`.
 
 ### B2B in V1
 Same UX as B2C. Differentiation is branding only (badge, business logo on invoice, "Business" header tag). No bulk pricing/invoicing yet.

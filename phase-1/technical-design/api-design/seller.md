@@ -63,26 +63,30 @@ Guard names are the ones defined in [api-conventions.md § Auth Guard Legend](..
 | `POST /seller/register` | Postgres | `identity.user` (insert, or add SELLER role to an existing row), `seller.seller_profile` (insert) |
 | `POST /seller/kyc` | Postgres | `seller.kyc_application` (insert), `platform.outbox_event` (`seller.kyc.submitted`) |
 | `GET /seller/profile` | Postgres | `seller.seller_profile` |
-| `PATCH /seller/profile` | Postgres | `seller.seller_profile` |
+| `PATCH /seller/profile` | Postgres | `seller.seller_profile`, `platform.outbox_event` (`seller.profile_changed`, only when `business_name` changed) |
 | `GET /seller/kyc` | Postgres | `seller.kyc_application` |
 | `POST /seller/kyc/resubmit` | Postgres | `seller.kyc_application` (insert new), `platform.outbox_event` (`seller.kyc.submitted` with `is_resubmission: true`) |
-| `POST /seller/offers` | Postgres | `catalog.offer`, `pricing.offer_price`, `inventory.stock`, `platform.outbox_event` (`offer.changed`, `inventory.changed`) |
-| `GET /seller/offers` | Postgres | `catalog.offer`, `pricing.offer_price`, `inventory.stock`, `admin.moderation_case` |
-| `GET /seller/offers/:offerId` | Postgres | `catalog.offer`, `pricing.offer_price`, `inventory.stock`, `admin.moderation_case` |
-| `PATCH /seller/offers/:offerId` | Postgres | `catalog.offer`, `platform.outbox_event` (`offer.changed`) |
-| `PUT /seller/offers/:offerId/prices/:priceType` | Postgres | `pricing.offer_price`, `platform.outbox_event` (`offer.changed`) |
-| `DELETE /seller/offers/:offerId/prices/:priceId` | Postgres | `pricing.offer_price` (set `inactive_at`), `platform.outbox_event` (`offer.changed`) |
-| `PATCH /seller/inventory/:offerId` | Postgres | `inventory.stock`, `platform.outbox_event` (`inventory.changed`, `inventory.low_stock` on a threshold crossing) |
-| `POST /seller/inventory/bulk` | Postgres | `inventory.stock` (batch update), `platform.outbox_event` (per changed offer) |
+| `POST /seller/offers` | Postgres | `CatalogApplicationService` (`catalog.offer` + `offer.changed`), `PricingApplicationService` (`pricing.offer_price`), `InventoryApplicationService` (`inventory.stock` + `inventory.changed`) |
+| `GET /seller/offers` | Postgres | `CatalogApplicationService`, `PricingApplicationService`, `InventoryApplicationService`, `ModerationApplicationService` (open case per offer) |
+| `GET /seller/offers/:offerId` | Postgres | `CatalogApplicationService`, `PricingApplicationService`, `InventoryApplicationService`, `ModerationApplicationService` |
+| `PATCH /seller/offers/:offerId` | Postgres | `CatalogApplicationService` (`catalog.offer` + `offer.changed`) |
+| `PUT /seller/offers/:offerId/prices/:priceType` | Postgres | `PricingApplicationService` (`pricing.offer_price`), `CatalogApplicationService` (`offer.changed`) |
+| `DELETE /seller/offers/:offerId/prices/:priceId` | Postgres | `PricingApplicationService` (`pricing.offer_price`, set `inactive_at`), `CatalogApplicationService` (`offer.changed`) |
+| `PATCH /seller/inventory/:offerId` | Postgres | `InventoryApplicationService` (`inventory.stock` + `inventory.changed`, + `inventory.low_stock` on a threshold crossing) |
+| `POST /seller/inventory/bulk` | Postgres | `InventoryApplicationService` (`inventory.stock` batch + one event set per changed offer) |
 | `GET /seller/orders` | Postgres | `orders.fulfillment` (where `seller_profile_id = :sellerProfileId`) |
 | `GET /seller/orders/:fulfillmentId` | Postgres | `orders.fulfillment`, `orders.fulfillment_item`, `orders.order` (shipping snapshot), `platform.outbox_event` (`pii.accessed`) |
 | `POST /seller/orders/:fulfillmentId/ship` | Postgres | `orders.fulfillment`, `platform.outbox_event` (`fulfillment.shipped`) — no inventory write; the shipment stock movement is the `inventory.fulfillment-shipped` consumer's |
 | `POST /seller/orders/:fulfillmentId/refund` | Postgres | `orders.fulfillment`, `platform.outbox_event` (`fulfillment.refunded`) — no inventory write |
 | `POST /seller/orders/:fulfillmentId/cancel` | Postgres | `orders.fulfillment`, `platform.outbox_event` (`fulfillment.cancelled`) — no inventory write |
-| `POST /seller/products` | Postgres | `catalog.product` (incl. `created_by_seller_id`), `catalog.product_variant`, `catalog.product_image`, `platform.outbox_event` (`product.changed`) |
-| `PATCH /seller/products/:productId` | Postgres | `catalog.product` (`WHERE created_by_seller_id = :sellerProfileId`), `catalog.product_variant`, `catalog.product_image`, `catalog.offer` (status → `FLAGGED` on a guard hit), `admin.moderation_case` (read for dismissed terms, insert on a guard hit), `platform.outbox_event` (`product.changed`, and `listing.flagged` + `offer.changed` on a guard hit) |
-| `DELETE /seller/products/:productId` | Postgres | `catalog.offer` (deactivate the caller's offers), `pricing.offer_price` (set `inactive_at`), `platform.outbox_event` (`listing.soft_deleted` per offer) — plus `catalog.product` (`status = 'REMOVED'`) and `product.changed` **only when no other seller holds a non-`REMOVED` offer** |
-| `GET /seller/dashboard/summary` | Postgres | `orders.fulfillment`, `catalog.offer`, `inventory.stock` (counts only) |
+| `POST /seller/products` | Postgres | `CatalogApplicationService` (`catalog.product` incl. `created_by_seller_id`, `catalog.product_variant`, `catalog.product_image`, + `product.changed`) |
+| `PATCH /seller/products/:productId` | Postgres | `CatalogApplicationService` (`catalog.product` scoped `WHERE created_by_seller_id = :sellerProfileId`, `catalog.product_variant`, `catalog.product_image`, `catalog.offer` → `FLAGGED` on a guard hit, + `product.changed` and `offer.changed`), `ModerationApplicationService` (dismissed-term screening, `admin.moderation_case` insert + `listing.flagged` on a guard hit) |
+| `DELETE /seller/products/:productId` | Postgres | `CatalogApplicationService` (deactivate the caller's `catalog.offer` rows + `listing.soft_deleted` per offer; `catalog.product` → `REMOVED` + `product.changed` **only when no other seller holds a non-`REMOVED` offer**), `PricingApplicationService` (`pricing.offer_price` → `inactive_at`) |
+| `GET /seller/dashboard/summary` | Postgres | `orders.fulfillment`, `CatalogApplicationService`, `InventoryApplicationService` (counts only) |
+
+**No row above writes a table outside the `seller` schema.** Every write into `catalog`, `pricing`, `inventory` or `admin` is reached through that module's application service, which writes its own rows *and its own outbox row* inside the caller's transaction — so `catalog.offer` and `offer.changed` move together and the producer of every topic stays its schema owner (Wave 0 decision D-03). The service list and the method signatures are in [backend-module-architecture.md § Ownership boundaries](../backend-module-architecture.md#ownership-boundaries).
+
+**The claim is scoped to `catalog`, `pricing`, `inventory` and `admin`, and two groups of rows sit outside it.** The five `/seller/orders/*` rows name `orders.fulfillment`, `orders.fulfillment_item` and `orders.order` directly, and `POST /seller/register` names `identity.user`. D-03's change list ([2026-09-22-wave0-decisions.md](../../audits/2026-09-22-wave0-decisions.md#d-03--sole-writer-rule-enforce)) names the four schemas above and not these two, so routing them was not part of this document's pass — the rows are written as they were. They are **not** an exemption from the rule: `orders` and `identity` each have exactly one owning module, and the ship, refund and cancel routes writing `orders.fulfillment` and its outbox rows from a seller handler is the same shape as the writes that were routed. Whoever closes them gets `OrdersApplicationService` and `IdentityApplicationService` methods for the five order routes and for registration, on the pattern above. Until then, the rows here state what the document specifies rather than what the rule requires, and an implementer should not read the absence of a service call as permission.
 
 ---
 
@@ -90,6 +94,8 @@ Guard names are the ones defined in [api-conventions.md § Auth Guard Legend](..
 ## Sequence Diagram Conventions
 
 > **Guards read claims, not tables.** Every `Guards` participant below performs a signature-and-expiry check, one Redis `GET auth:revoke_before:{sub}` for revocation, and then pure comparisons against the decoded JWT claims `roles`, `seller_kyc_status` and `seller_suspension_status` ([auth-jwt-design § 4](../../../conventions/auth-jwt-design.md#auth-guards)). No guard queries Postgres: the claims exist precisely so authorization costs no round trip, and a status change reaches the token within one request via the Redis revocation key rather than by re-reading a row every time. The `sellerProfileId` a handler needs is resolved **once, in the service layer**, from `jwt.sub`; the guard never resolves it.
+>
+> **Foreign schemas are reached through application services, never by SQL.** A diagram step drawn as `CatalogApplicationService`, `PricingApplicationService`, `InventoryApplicationService` or `ModerationApplicationService` is a call into the module that owns those tables, taking the caller's transaction handle; the `seller` module writes `seller.seller_profile` and `seller.kyc_application` and nothing else. The service that owns a table also writes that table's outbox row, which is why `offer.changed` appears in a Catalog step and `inventory.changed` in an Inventory one rather than both in a `SellerService` step. Where a sequence writes three schemas — listing creation — the transaction boundary belongs to the seller module and each write inside it belongs to its owner. Signatures: [backend-module-architecture.md § Ownership boundaries](../backend-module-architecture.md#ownership-boundaries).
 >
 > **Ownership scoping.** Every seller-scoped read and mutation filters on the authenticated seller explicitly — `WHERE offer.seller_profile_id = :sellerProfileId`, `WHERE fulfillment.seller_profile_id = :sellerProfileId`. The predicate is stated in each specification rather than left implied, because an unscoped `WHERE id = ?` on a shared table reaches another seller's rows. `seller_profile_id` is the column name everywhere a seller is referenced from a non-`identity` table (ERD § conventions); it is never shortened to `seller_id`.
 >
@@ -315,7 +321,8 @@ sequenceDiagram
     Note over P,KO: BEGIN TRANSACTION
     SS->>P: UPDATE seller.seller_profile SET business_name=:businessName, tax_id=:taxId, updated_at=NOW() WHERE id = :sellerProfileId
     SS->>P: INSERT seller.kyc_application (seller_profile_id, submitted_data, document_references=storage_keys, status='PENDING', submitted_at=NOW())
-    SS->>KO: INSERT platform.outbox_event (topic='seller.kyc.submitted', aggregate_type='seller.kyc_application', aggregate_id=applicationId, key=applicationId, payload={is_resubmission:false, seller_profile_id, kyc_application_id, business_name, seller_email, submitted_at})
+    SS->>KO: INSERT platform.outbox_event (topic='seller.kyc.submitted', aggregate_type='seller.seller_profile', aggregate_id=sellerProfileId, key=sellerProfileId, payload={is_resubmission:false, seller_id:sellerProfileId, seller_user_id:jwt.sub, kyc_application_id, business_name, seller_email, seller_name, submitted_at})
+    Note over P,KO: The aggregate is the seller profile, not the application: the topic's partition key is seller_id (kafka-events § 2.1) and the outbox contract makes key = aggregate_id, so keying on applicationId would put a resubmission on a different partition from the application it supersedes and let ET-14 and the audit record arrive out of order. seller_user_id addresses the per-admin in-app fan-out&#59; seller_name is the person's name ET-14 greets and ET-21 lists
     Note over P,KO: COMMIT
 
     Note right of KR: async — post-commit
@@ -462,7 +469,10 @@ Auth: SELLER (not suspended)
 A suspended seller may **read** the profile but not write it — editing a business identity while the account is under suspension is exactly the change an admin has paused.
 
 **Response 200** — updated seller profile (`data`-wrapped, same shape as [`GET /seller/profile`](#get-seller-profile))  
+Side effect: `seller.profile_changed` via the outbox, **only when `businessName` changed** ([kafka-events.md § 2.28](../kafka-events.md#228-sellerprofile_changed)).  
 **Errors:** 400 validation, 403 seller suspended
+
+**A rename has to reach the search index.** `business_name` is copied onto every one of the seller's `offers[]` entries as `seller_name` when the entry is created, and no `offer.changed` follows a profile edit — the offers did not change. Without an event here the index would serve the old name for as long as the seller left their listings alone, which for a seller who never edits one is permanently, and no later event would be obliged to repair it. The event is emitted on a `business_name` change only: a `submittedData`-only edit touches nothing indexed, and publishing on every `PATCH` would reindex every listing the seller holds to write the value already there.
 
 #### Sequence
 
@@ -473,6 +483,8 @@ sequenceDiagram
     participant G as Guards
     participant R as Redis
     participant P as Postgres
+    participant KO as Kafka Outbox
+    participant KR as Kafka Relay
 
     C->>A: PATCH /seller/profile { businessName?, submittedData? }
     Note over A,G: Guard: JWT + SELLER + not suspended (writes are blocked while suspended&#59; the matching read is not)
@@ -492,8 +504,21 @@ sequenceDiagram
         A-->>C: 400 Bad Request
     end
 
-    A->>P: UPDATE seller.seller_profile SET business_name=?, updated_at=NOW() WHERE id = :sellerProfileId
+    Note over P,KO: BEGIN TRANSACTION
+    A->>P: SELECT business_name FROM seller.seller_profile WHERE id = :sellerProfileId FOR UPDATE
+    A->>P: UPDATE seller.seller_profile SET business_name=?, submitted_data=?, updated_at=NOW() WHERE id = :sellerProfileId
+    alt business_name changed
+        A->>KO: INSERT platform.outbox_event (topic='seller.profile_changed', aggregate_type='seller.seller_profile', aggregate_id=:sellerProfileId, key=:sellerProfileId, payload={seller_id:sellerProfileId, seller_name:newBusinessName, changed_at:NOW()})
+        Note over A,KO: Emitted on a business_name change only. offers[].seller_name is a copy of this value and no offer.changed follows a profile edit, so this is the one event that corrects it
+    end
+    Note over P,KO: COMMIT
     P-->>A: updated seller_profile row
+
+    Note right of KR: async — post-commit
+    KR->>KO: SELECT WHERE publication_status = 'PENDING'
+    KR->>KR: serialize Avro + publish to seller.profile_changed topic
+    KR->>KO: UPDATE SET publication_status = 'PUBLISHED'
+    Note right of KO: search.seller-profile-changed sets seller_name on every offers[] entry whose seller_profile_id matches, by _update_by_query
 
     A-->>C: 200 OK { data: { id, businessName, kycStatus, suspensionStatus, suspendedUntil, suspensionReason, rejectionReason, createdAt } }
 ```
@@ -568,7 +593,8 @@ sequenceDiagram
     Note over P,KO: BEGIN TRANSACTION
     SS->>P: INSERT seller.kyc_application (seller_profile_id, submitted_data, document_references=storage_keys, status=PENDING, submitted_at=NOW())
     SS->>P: UPDATE seller.seller_profile SET kyc_status=PENDING_KYC, updated_at=NOW() WHERE id = :sellerProfileId
-    SS->>KO: INSERT platform.outbox_event (topic='seller.kyc.submitted', aggregate_type='seller.kyc_application', aggregate_id=applicationId, key=applicationId, event_type='seller.kyc.submitted', event_version=1, correlation_id, occurred_at=NOW(), created_at=NOW(), updated_at=NOW(), payload={is_resubmission:true, prior_application_id, prior_rejection_date, seller_profile_id, kyc_application_id, business_name, seller_email, submitted_at})
+    SS->>KO: INSERT platform.outbox_event (topic='seller.kyc.submitted', aggregate_type='seller.seller_profile', aggregate_id=sellerProfileId, key=sellerProfileId, event_type='seller.kyc.submitted', event_version=1, correlation_id, occurred_at=NOW(), created_at=NOW(), updated_at=NOW(), payload={is_resubmission:true, prior_application_id, prior_rejection_date, seller_id:sellerProfileId, seller_user_id:jwt.sub, kyc_application_id, business_name, seller_email, seller_name, submitted_at})
+    Note over P,KO: Same partition key as a first submission — sellerProfileId, not applicationId — so the resubmission is ordered behind the application it supersedes (kafka-events § 2.1)
     Note over P,KO: COMMIT
 
     Note right of KR: async — post-commit
@@ -609,7 +635,7 @@ Auth: SELLER_ACTIVE
 
 **One currency per offer.** `nativeCurrencyCode` is the offer's pricing currency and every price row inherits it — which is why the individual price entries carry no `currencyCode`. A seller who wants to sell the same product in a second currency creates a second offer. This is what makes an effective price unambiguous on the PDP and makes the per-seller/per-currency checkout grouping well-defined.
 
-**No `status` field, and no `DRAFT`.** A listing goes live on successful submit; the offer is created `ACTIVE` (US-S-10:190). `offer_status` is `ACTIVE | INACTIVE | REMOVED | FLAGGED` — a save-as-draft workflow is deferred, so accepting a `DRAFT` value here would create rows in a state no other endpoint, guard or consumer handles.
+**No `status` field, and no `DRAFT`.** A listing goes live on successful submit; the offer is created `ACTIVE` (US-S-10:190), or `FLAGGED` when the content trips the soft moderation tier — [see below](#offer-create-screening). Either way the status is the server's to decide and the request body carries no way to ask for one. `offer_status` is `ACTIVE | INACTIVE | REMOVED | FLAGGED` — a save-as-draft workflow is deferred, so accepting a `DRAFT` value here would create rows in a state no other endpoint, guard or consumer handles.
 
 At least one `LIST` price is required (US-S-03:53).
 
@@ -637,8 +663,23 @@ At least one `LIST` price is required (US-S-03:53).
 ```
 Every amount is a string, and each carries the `currencyCode` it is denominated in — the offer's native currency. Nothing here is converted.
 
-Side effects: `offer.changed` event, `inventory.changed` event via outbox.  
-**Errors:** 400 validation or no LIST price, 404 product not found, 409 offer already exists for this product+variant, 422 prohibited category, 422 currency not in the seller-priceable set, 422 keyword blocklist hit
+Side effects: `offer.changed` event, `inventory.changed` event via outbox; on a soft-tier screening hit also a `moderation_case` row and a `listing.flagged` event.  
+**Errors:** 400 validation or no LIST price, 404 product not found, 409 offer already exists for this product+variant, 422 prohibited category, 422 currency not in the seller-priceable set, 422 hard-blocklist (`BLOCK`) hit
+
+<a id="offer-create-screening"></a>
+**This is where the two tiers of D-05 produce a listing.** The offer is the listing: it is what a buyer sees, what search indexes, and what `admin.moderation_case.offer_id` points at. The content being screened is the product's stored `title` and `description` — the seller authored it at [`POST /seller/products`](#two-tier-moderation-guard), or another seller did on a shared product — so the screen runs again here rather than trusting the earlier pass, because the blocklist may have gained a term since.
+
+| Screening outcome | Result |
+|---|---|
+| Prohibited taxonomy node, or a matched term with `enforcement = 'BLOCK'` | **`422`.** No offer, no price rows, no stock row, no case, no event. |
+| Matched terms, all with `enforcement = 'FLAG'` | **`201`** with `status: "FLAGGED"` and a `LISTING_AUTO_FLAGGED` warning. In the same transaction: `catalog.offer.status = 'FLAGGED'` with `status_changed_reason = 'AUTO_MODERATION'`, an `admin.moderation_case` row with `source = 'KEYWORD_MATCH'` and the tripped terms in `matched_terms`, a `listing.flagged` outbox row with `admin_user_id = null`, and the `offer.changed` row carrying `status: 'FLAGGED'`. |
+| No match | `201` with `status: "ACTIVE"`. |
+
+The `FLAGGED` offer is created, priced and stocked exactly as an `ACTIVE` one — the status is the only difference, and it is what keeps the listing out of the index: `search.offer-changed` removes the `offers[]` entry whenever the payload's `status` is not `ACTIVE` ([search.md](./search.md#write-mechanisms)), so the flagged listing is invisible to buyers while the case is open without a second mechanism. An admin DISMISS returns it to `ACTIVE` and republishes; a REMOVE terminates it.
+
+**The case row is written by Admin, not here.** `admin` is the admin module's schema, so the insert and its `listing.flagged` outbox row both go through `ModerationApplicationService.flagListing(offerId, source, matchedTerms, tx)` inside this transaction — the same seam the edit path uses ([backend-module-architecture § Ownership boundaries](../backend-module-architecture.md#ownership-boundaries)).
+
+**The soft tier does not suppress the dismissed-term rule.** A term already dismissed on this offer cannot flag it again ([dismissed-term suppression](#dismissed-term-suppression)) — but a brand-new offer has no dismissal history, so on create the rule never fires and every `FLAG` term that matches counts.
 
 #### Sequence
 
@@ -648,7 +689,11 @@ sequenceDiagram
     participant A as API (NestJS)
     participant G as Guards
     participant R as Redis
-    participant OS as OfferService
+    participant OS as SellerService (offers)
+    participant CAS as CatalogApplicationService
+    participant PAS as PricingApplicationService
+    participant IAS as InventoryApplicationService
+    participant MAS as ModerationApplicationService
     participant P as Postgres
     participant KO as Kafka Outbox
     participant KR as Kafka Relay
@@ -669,44 +714,64 @@ sequenceDiagram
     G-->>A: authorized (claims only — no DB read)
 
     A->>OS: createOffer(dto, sellerProfileId)
-    OS->>P: SELECT pricing.currency WHERE code = :nativeCurrencyCode AND is_seller_price_allowed = true
+    OS->>PAS: assertSellerPriceableCurrency(nativeCurrencyCode)
+    PAS->>P: SELECT pricing.currency WHERE code = :nativeCurrencyCode AND is_seller_price_allowed = true
     alt currency not in the allowed set (USD, THB, JPY, SGD)
-        OS-->>C: 422 Unprocessable — currency not allowed for seller pricing
+        PAS-->>C: 422 Unprocessable — currency not allowed for seller pricing
     end
-    OS->>P: SELECT catalog.product JOIN catalog.category ON product.category_id = category.id WHERE product.id = productId AND product.status = 'ACTIVE'
+    OS->>CAS: getProductForListing(productId)
+    CAS->>P: SELECT catalog.product JOIN catalog.category ON product.category_id = category.id WHERE product.id = productId AND product.status = 'ACTIVE'
     alt product not found
-        OS-->>C: 404 Not Found — product not found
+        CAS-->>C: 404 Not Found — product not found
     else category.is_prohibited = true
-        OS-->>C: 422 Unprocessable — prohibited category
+        CAS-->>C: 422 Unprocessable — prohibited category
     end
-    OS->>OS: validate prices[] — at least one LIST, SALE bounds, B2B_TIER minQty >= 2
+    OS->>MAS: screenListingContent({ title, description, categoryId }) — the product's stored content, rescanned because the blocklist may have gained a term since it was written
+    MAS-->>OS: { outcome: CLEAN | FLAG | BLOCK, matchedTerms[], prohibitedCategory }
+    alt outcome = BLOCK
+        OS-->>C: 422 Unprocessable — content violates prohibited keyword policy
+        Note right of C: hard tier — no offer, no price rows, no stock row, no case, no event
+    end
+    OS->>OS: validate prices[] — at least one LIST, SALE time bounds
     alt validation fails
         OS-->>C: 400 / 422
     end
-    OS->>P: SELECT catalog.offer WHERE product_id=productId AND variant_id=variantId AND seller_profile_id = :sellerProfileId
+    OS->>CAS: getOfferForSeller({ productId, variantId }, sellerProfileId)
+    CAS->>P: SELECT catalog.offer WHERE product_id=productId AND variant_id=variantId AND seller_profile_id = :sellerProfileId
     alt offer already exists for this product+variant
-        OS-->>C: 409 Conflict — offer already exists
+        CAS-->>C: 409 Conflict — offer already exists
     end
 
-    Note over P,KO: BEGIN TRANSACTION
-    OS->>P: INSERT catalog.offer (seller_profile_id, product_id, variant_id, native_currency_code, status='ACTIVE')
-    OS->>P: INSERT inventory.stock (offer_id, on_hand_qty=initialStock, reserved_qty=0, low_stock_threshold=COALESCE(lowStockThreshold, 5), version=1)
-    loop for each price in prices[]
-        OS->>P: INSERT pricing.offer_price (offer_id, amount, price_type, min_qty, starts_at, ends_at)
-        Note over OS,P: no currency_code column — the currency is offer.native_currency_code
+    Note over P,KO: BEGIN TRANSACTION — owned by SellerService, orchestrating three modules' application services
+    OS->>CAS: createOffer({ productId, variantId, nativeCurrencyCode }, sellerProfileId, tx, status = outcome = FLAG ? 'FLAGGED' : 'ACTIVE')
+    CAS->>P: INSERT catalog.offer (seller_profile_id, product_id, variant_id, native_currency_code, status, status_changed_reason = 'AUTO_MODERATION' when FLAGGED else NULL)
+    alt outcome = FLAG
+        OS->>MAS: flagListing(offer_id, 'KEYWORD_MATCH', matchedTerms, tx)
+        MAS->>P: INSERT admin.moderation_case (offer_id, source='KEYWORD_MATCH', matched_terms=matchedTerms, reason, status='OPEN')
+        MAS->>KO: INSERT platform.outbox_event (topic='listing.flagged', aggregate_type='catalog.offer', aggregate_id=offer_id, key=offer_id, payload={offer_id, product_id, product_title, seller_id, seller_user_id, seller_email, seller_name, moderation_case_id, source:'KEYWORD_MATCH', matched_terms:matchedTerms, flag_reason, admin_user_id:null, flagged_at})
+        Note over MAS,KO: admin owns the admin schema, so admin writes both the case row and this outbox row (backend-module-architecture § Ownership boundaries). admin_user_id is null: the platform raised the flag, not a person
     end
-    OS->>KO: INSERT platform.outbox_event (topic='offer.changed', aggregate_type='catalog.offer', aggregate_id=offer_id, key=offer_id, payload={change_type:CREATED, offer_id, product_id, seller_id:sellerProfileId, currency_code, status:'ACTIVE', prices[]})
-    OS->>KO: INSERT platform.outbox_event (topic='inventory.changed', aggregate_type='inventory.stock', aggregate_id=offer_id, key=offer_id, payload={change_reason:MANUAL_UPDATE, delta:+initialOnHandQty, offer_id, on_hand_qty, reserved_qty, available_qty})
-    Note over OS,KO: delta is the signed change to on_hand_qty — the whole opening quantity here, since the row did not exist before
+    loop for each price in prices[]
+        OS->>PAS: upsertOfferPrice(offer_id, price.priceType, price, tx)
+        PAS->>P: INSERT pricing.offer_price (offer_id, amount, price_type, min_qty, starts_at, ends_at)
+        Note over PAS,P: no currency_code column — the currency is offer.native_currency_code
+    end
+    OS->>IAS: openStock(offer_id, initialStock, lowStockThreshold, tx)
+    IAS->>P: INSERT inventory.stock (offer_id, on_hand_qty=initialStock, reserved_qty=0, low_stock_threshold=COALESCE(lowStockThreshold, 5), version=1)
+    CAS->>KO: INSERT platform.outbox_event (topic='offer.changed', aggregate_type='catalog.offer', aggregate_id=offer_id, key=offer_id, payload={change_type:CREATED, offer_id, product_id, seller_id:sellerProfileId, seller_name, seller_active:true, currency_code, status, prices[], display_prices})
+    Note over CAS,KO: status is the offer's actual status — 'FLAGGED' on a soft-tier hit, in which case search.offer-changed removes the offers[] entry instead of writing it, so the flagged listing never becomes visible
+    Note over CAS,KO: Catalog owns catalog.offer, so Catalog writes this row — one producer per topic, which is the schema owner. seller_name and seller_active come from SellerApplicationService and display_prices from PricingApplicationService.toDisplayPrices(), both inside this transaction: the search consumer indexes all three and may read no table to get them
+    IAS->>KO: INSERT platform.outbox_event (topic='inventory.changed', aggregate_type='inventory.stock', aggregate_id=offer_id, key=offer_id, payload={change_reason:MANUAL_UPDATE, delta:+initialOnHandQty, offer_id, product_id, seller_id:sellerProfileId, on_hand_qty, reserved_qty, available_qty})
+    Note over IAS,KO: delta is the signed change to on_hand_qty — the whole opening quantity here, since the row did not exist before. product_id is the Elasticsearch document id the search consumer's write is addressed to
     Note over P,KO: COMMIT
 
     Note right of KR: async — post-commit
     KR->>KO: SELECT WHERE publication_status = 'PENDING'
-    KR->>KR: serialize Avro + publish to offer.changed and inventory.changed topics
+    KR->>KR: serialize Avro + publish to offer.changed, inventory.changed and — on a soft-tier hit — listing.flagged
     KR->>KO: UPDATE SET publication_status = 'PUBLISHED'
 
     OS-->>A: created offer with prices and stock
-    A-->>C: 201 Created { data: { id, productId, variantId, nativeCurrencyCode, status: "ACTIVE", prices[], stock{onHandQty, reservedQty, availableQty, lowStockThreshold} } }
+    A-->>C: 201 Created { data: { id, productId, variantId, nativeCurrencyCode, status: "ACTIVE" | "FLAGGED", prices[], stock{onHandQty, reservedQty, availableQty, lowStockThreshold} }, warnings: [ LISTING_AUTO_FLAGGED ] when FLAGGED }
 ```
 
 ---
@@ -871,7 +936,8 @@ sequenceDiagram
     participant A as API (NestJS)
     participant G as Guards
     participant R as Redis
-    participant OS as OfferService
+    participant OS as SellerService (offers)
+    participant CAS as CatalogApplicationService
     participant P as Postgres
     participant KO as Kafka Outbox
     participant KR as Kafka Relay
@@ -891,9 +957,10 @@ sequenceDiagram
     end
     G-->>A: authorized
 
-    OS->>P: SELECT catalog.offer WHERE id = :offerId AND seller_profile_id = :sellerProfileId
+    OS->>CAS: getOfferForSeller(:offerId, sellerProfileId)
+    CAS->>P: SELECT catalog.offer WHERE id = :offerId AND seller_profile_id = :sellerProfileId
     alt no row (unknown id, or another seller's offer)
-        OS-->>C: 404 Not Found
+        CAS-->>C: 404 Not Found
     end
     alt requested status NOT IN (ACTIVE, INACTIVE)
         OS-->>C: 422 Unprocessable — status not settable by a seller
@@ -902,8 +969,9 @@ sequenceDiagram
     end
 
     Note over P,KO: BEGIN TRANSACTION
-    OS->>P: UPDATE catalog.offer SET status=:status, status_changed_reason=(CASE :status WHEN 'INACTIVE' THEN 'SELLER_DEACTIVATED' ELSE 'SELLER_MANUAL' END), updated_at=NOW() WHERE id=:offerId AND seller_profile_id = :sellerProfileId
-    OS->>KO: INSERT platform.outbox_event (topic='offer.changed', aggregate_type='catalog.offer', aggregate_id=:offerId, key=:offerId, payload={change_type:(CASE :status WHEN 'INACTIVE' THEN 'DEACTIVATED' ELSE 'UPDATED' END), offer_id, product_id, seller_id:sellerProfileId, currency_code, status, prices:[current live rows]})
+    OS->>CAS: setOfferStatus(:offerId, :status, sellerProfileId, tx)
+    CAS->>P: UPDATE catalog.offer SET status=:status, status_changed_reason=(CASE :status WHEN 'INACTIVE' THEN 'SELLER_DEACTIVATED' ELSE 'SELLER_MANUAL' END), updated_at=NOW() WHERE id=:offerId AND seller_profile_id = :sellerProfileId
+    CAS->>KO: INSERT platform.outbox_event (topic='offer.changed', aggregate_type='catalog.offer', aggregate_id=:offerId, key=:offerId, payload={change_type:(CASE :status WHEN 'INACTIVE' THEN 'DEACTIVATED' ELSE 'UPDATED' END), offer_id, product_id, seller_id:sellerProfileId, seller_name, seller_active, currency_code, status, prices:[current live rows], display_prices})
     Note over P,KO: change_type mirrors the status_changed_reason above — INACTIVE is the DEACTIVATED transition (kafka-events § 2.11). Reactivation to ACTIVE has no symbol of its own and rides as UPDATED&#59; status carries the truth either way
     Note over P,KO: COMMIT
 
@@ -948,7 +1016,7 @@ Auth: SELLER_ACTIVE
 A `PUT` therefore **updates the addressed row in place** and creates one only where none exists — it does not upsert over a uniqueness key that ignores the time bounds, which is what made a second `SALE` row impossible and let a duplicate `LIST` overwrite the live price without a word.
 
 **Response 200** — the written price row (`data`-wrapped), with `currencyCode` echoed from the offer  
-**Errors:** 404 offer not found or not owned by the caller, 409 duplicate active `LIST`, 409 overlapping `SALE` window, 422 `SALE` without valid time bounds, 422 `B2B_TIER` with `minQty < 2`
+**Errors:** 404 offer not found or not owned by the caller, 409 duplicate active `LIST`, 409 overlapping `SALE` window, 422 `SALE` without valid time bounds, 422 unknown `priceType` (`LIST` and `SALE` are the V1 price types — Wave 0 decision D-02)
 
 Price changes take effect immediately and do **not** affect in-flight orders: a `PENDING` fulfillment carries the unit price snapshotted at checkout (FR-P-03). The seller portal shows that warning on save (US-S-04b:93).
 
@@ -960,7 +1028,9 @@ sequenceDiagram
     participant A as API (NestJS)
     participant G as Guards
     participant R as Redis
-    participant OS as OfferService
+    participant OS as SellerService (pricing)
+    participant CAS as CatalogApplicationService
+    participant PAS as PricingApplicationService
     participant P as Postgres
     participant KO as Kafka Outbox
     participant KR as Kafka Relay
@@ -980,27 +1050,28 @@ sequenceDiagram
     end
     G-->>A: authorized
 
-    OS->>P: SELECT catalog.offer WHERE id = :offerId AND seller_profile_id = :sellerProfileId
+    OS->>CAS: getOfferForSeller(:offerId, sellerProfileId)
+    CAS->>P: SELECT catalog.offer WHERE id = :offerId AND seller_profile_id = :sellerProfileId
     alt no row (unknown id, or another seller's offer)
-        OS-->>C: 404 Not Found
+        CAS-->>C: 404 Not Found
     end
     Note over OS,P: currency comes from offer.native_currency_code — it was validated against pricing.currency at offer creation and is not re-supplied here
     alt priceType = SALE AND (startsAt IS NULL OR endsAt IS NULL OR startsAt >= endsAt)
         OS-->>C: 422 Unprocessable — SALE price requires valid time bounds (startsAt < endsAt)
     end
-    alt priceType = B2B_TIER AND minQty < 2
-        OS-->>C: 422 Unprocessable — B2B_TIER requires minQty >= 2
-    end
 
     Note over P,KO: BEGIN TRANSACTION
-    OS->>P: SELECT pricing.offer_price WHERE offer_id=:offerId AND price_type=:priceType AND min_qty=:minQty AND inactive_at IS NULL FOR UPDATE
+    OS->>PAS: upsertOfferPrice(:offerId, :priceType, dto, tx)
+    PAS->>P: SELECT pricing.offer_price WHERE offer_id=:offerId AND price_type=:priceType AND min_qty=:minQty AND inactive_at IS NULL FOR UPDATE
     alt live row exists
-        OS->>P: UPDATE pricing.offer_price SET amount=?, starts_at=?, ends_at=?, updated_at=NOW() WHERE id=:existingPriceId
+        PAS->>P: UPDATE pricing.offer_price SET amount=?, starts_at=?, ends_at=?, updated_at=NOW() WHERE id=:existingPriceId
     else no live row
-        OS->>P: INSERT pricing.offer_price (offer_id, amount, price_type, min_qty, starts_at, ends_at)
-        Note over OS,P: partial unique index rejects a second live LIST/B2B_TIER → 409&#59; the SALE EXCLUDE constraint rejects an overlapping window → 409. Neither surfaces as a 500.
+        PAS->>P: INSERT pricing.offer_price (offer_id, amount, price_type, min_qty, starts_at, ends_at)
+        Note over PAS,P: partial unique index rejects a second live LIST → 409&#59; the SALE EXCLUDE constraint rejects an overlapping window → 409. Neither surfaces as a 500.
     end
-    OS->>KO: INSERT platform.outbox_event (topic='offer.changed', aggregate_type='catalog.offer', aggregate_id=:offerId, key=:offerId, payload={change_type:UPDATED, offer_id, product_id, seller_id:sellerProfileId, currency_code, status, prices:[current live rows]})
+    OS->>CAS: republishOffer(:offerId, tx)
+    CAS->>KO: INSERT platform.outbox_event (topic='offer.changed', aggregate_type='catalog.offer', aggregate_id=:offerId, key=:offerId, payload={change_type:UPDATED, offer_id, product_id, seller_id:sellerProfileId, seller_name, seller_active, currency_code, status, prices:[current live rows], display_prices})
+    Note over CAS,KO: A price change publishes offer.changed, and Catalog publishes it: the topic has one producer and it is catalog.offer's owner. Pricing supplies the price rows and the converted display_prices through its own service rather than writing a payload against a schema it does not own
     Note over P,KO: COMMIT
 
     Note right of KR: async — post-commit
@@ -1022,7 +1093,7 @@ DELETE /seller/offers/:offerId/prices/:priceId
 Tag: Seller
 Auth: SELLER_ACTIVE
 ```
-US-S-04b:90 lets a seller remove a `SALE` or `B2B_TIER` row without touching the product or the LIST price.
+US-S-04b:90 lets a seller remove a `SALE` row without touching the product or the LIST price. `SALE` is the only non-`LIST` price type in V1 (Wave 0 decision D-02).
 
 **Withdrawal, not deletion.** The handler sets `inactive_at = now()`; the row stays. A withdrawn row never participates in effective-price resolution and is excluded from both uniqueness constraints, so the slot it occupied is immediately reusable — while any historical reference to it remains readable. `:priceId` is the row's own `pricing.offer_price.id`, since price type and `min_qty` alone do not identify one row once sequential SALE windows exist.
 
@@ -1040,7 +1111,9 @@ sequenceDiagram
     participant A as API (NestJS)
     participant G as Guards
     participant R as Redis
-    participant OS as OfferService
+    participant OS as SellerService (pricing)
+    participant CAS as CatalogApplicationService
+    participant PAS as PricingApplicationService
     participant P as Postgres
     participant KO as Kafka Outbox
     participant KR as Kafka Relay
@@ -1060,8 +1133,11 @@ sequenceDiagram
     end
     G-->>A: authorized (claims only — no DB read)
 
-    OS->>P: SELECT pricing.offer_price pr JOIN catalog.offer o ON o.id = pr.offer_id WHERE pr.id = :priceId AND pr.offer_id = :offerId AND o.seller_profile_id = :sellerProfileId AND pr.inactive_at IS NULL
-    alt no row (unknown id, already withdrawn, or another seller's offer)
+    OS->>CAS: getOfferForSeller(:offerId, sellerProfileId)
+    CAS->>P: SELECT catalog.offer WHERE id = :offerId AND seller_profile_id = :sellerProfileId
+    OS->>PAS: listLivePrices(:offerId)
+    PAS->>P: SELECT pricing.offer_price WHERE offer_id = :offerId AND inactive_at IS NULL
+    alt no such price row (unknown id, already withdrawn) or the offer is not the caller's
         OS-->>C: 404 Not Found
     end
     alt price_type = 'LIST' AND it is the only live LIST row for the offer
@@ -1069,8 +1145,11 @@ sequenceDiagram
     end
 
     Note over P,KO: BEGIN TRANSACTION
-    OS->>P: UPDATE pricing.offer_price SET inactive_at=NOW(), updated_at=NOW() WHERE id=:priceId
-    OS->>KO: INSERT platform.outbox_event (topic='offer.changed', aggregate_type='catalog.offer', aggregate_id=:offerId, key=:offerId, payload={change_type:UPDATED, offer_id, product_id, seller_id:sellerProfileId, currency_code, status, prices:[remaining live rows]})
+    OS->>PAS: deactivateOfferPrice(:offerId, :priceId, tx)
+    PAS->>P: UPDATE pricing.offer_price SET inactive_at=NOW(), updated_at=NOW() WHERE id=:priceId
+    OS->>CAS: republishOffer(:offerId, tx)
+    CAS->>KO: INSERT platform.outbox_event (topic='offer.changed', aggregate_type='catalog.offer', aggregate_id=:offerId, key=:offerId, payload={change_type:UPDATED, offer_id, product_id, seller_id:sellerProfileId, seller_name, seller_active, currency_code, status, prices:[remaining live rows], display_prices})
+    Note over CAS,PAS: The ownership join the old read performed — pricing.offer_price to catalog.offer — is now two service calls: Pricing answers for its rows, Catalog for the offer and its ownership
     Note over P,KO: COMMIT
 
     Note right of KR: async — post-commit
@@ -1119,7 +1198,9 @@ sequenceDiagram
     participant A as API (NestJS)
     participant G as Guards
     participant R as Redis
-    participant IS as InventoryService
+    participant IS as SellerService (inventory)
+    participant CAS as CatalogApplicationService
+    participant IAS as InventoryApplicationService
     participant P as Postgres
     participant KO as Kafka Outbox
     participant KR as Kafka Relay
@@ -1139,25 +1220,27 @@ sequenceDiagram
     end
     G-->>A: authorized
 
-    IS->>P: SELECT catalog.offer WHERE id = :offerId AND seller_profile_id = :sellerProfileId
+    IS->>CAS: getOfferForSeller(:offerId, sellerProfileId)
+    CAS->>P: SELECT catalog.offer WHERE id = :offerId AND seller_profile_id = :sellerProfileId
     alt no row (unknown id, or another seller's offer)
-        IS-->>C: 404 Not Found
+        CAS-->>C: 404 Not Found
     end
 
     Note over P,KO: BEGIN TRANSACTION
-    IS->>P: SELECT inventory.stock WHERE offer_id = :offerId FOR UPDATE
-    P-->>IS: current row (on_hand_qty, reserved_qty, low_stock_threshold)
-    IS->>IS: priorAvailable = on_hand_qty - reserved_qty&#59; newAvailable = newOnHandQty - reserved_qty&#59; newThreshold = COALESCE(:lowStockThreshold, low_stock_threshold)
+    IS->>IAS: adjustStock(:offerId, { onHandQty, lowStockThreshold, reason }, sellerProfileId, tx)
+    IAS->>P: SELECT inventory.stock WHERE offer_id = :offerId FOR UPDATE
+    P-->>IAS: current row (on_hand_qty, reserved_qty, low_stock_threshold)
+    IAS->>IAS: priorAvailable = on_hand_qty - reserved_qty&#59; newAvailable = newOnHandQty - reserved_qty&#59; newThreshold = COALESCE(:lowStockThreshold, low_stock_threshold)
     alt newOnHandQty < reserved_qty
-        IS->>P: ROLLBACK
-        IS-->>C: 422 Unprocessable — cannot set on-hand below the 5 units reserved by pending orders
+        IAS->>P: ROLLBACK
+        IAS-->>C: 422 Unprocessable — cannot set on-hand below the 5 units reserved by pending orders
     end
-    IS->>P: UPDATE inventory.stock SET on_hand_qty=:newOnHandQty, low_stock_threshold=:newThreshold, version=version+1, updated_at=NOW() WHERE offer_id=:offerId
-    IS->>KO: INSERT platform.outbox_event (topic='inventory.changed', aggregate_type='inventory.stock', aggregate_id=:offerId, key=:offerId, payload={change_reason:MANUAL_UPDATE, delta:(newOnHandQty - on_hand_qty), offer_id, seller_id:sellerProfileId, on_hand_qty, reserved_qty, available_qty:newAvailable, low_stock_threshold:newThreshold, adjustment_reason:reason})
-    Note over IS,KO: delta is the signed change to on_hand_qty, negative on a drawdown — an audit reader must not have to diff consecutive documents to learn what changed
+    IAS->>P: UPDATE inventory.stock SET on_hand_qty=:newOnHandQty, low_stock_threshold=:newThreshold, version=version+1, updated_at=NOW() WHERE offer_id=:offerId
+    IAS->>KO: INSERT platform.outbox_event (topic='inventory.changed', aggregate_type='inventory.stock', aggregate_id=:offerId, key=:offerId, payload={change_reason:MANUAL_UPDATE, delta:(newOnHandQty - on_hand_qty), offer_id, product_id, seller_id:sellerProfileId, on_hand_qty, reserved_qty, available_qty:newAvailable, low_stock_threshold:newThreshold, adjustment_reason:reason})
+    Note over IAS,KO: delta is the signed change to on_hand_qty, negative on a drawdown — an audit reader must not have to diff consecutive documents to learn what changed. product_id is the Elasticsearch document id the search consumer's _update is addressed to (kafka-events § 2.12)
     alt priorAvailable >= newThreshold AND newAvailable < newThreshold
-        IS->>KO: INSERT platform.outbox_event (topic='inventory.low_stock', aggregate_type='inventory.stock', aggregate_id=:offerId, key=:offerId, payload={offer_id, seller_id:sellerProfileId, available_qty:newAvailable, low_stock_threshold:newThreshold, seller_email})
-        Note over IS,KO: edge-triggered — fires only on the downward crossing, re-arms when available rises back to the threshold (US-S-08:163)
+        IAS->>KO: INSERT platform.outbox_event (topic='inventory.low_stock', aggregate_type='inventory.stock', aggregate_id=:offerId, key=:offerId, payload={offer_id, seller_id:sellerProfileId, seller_user_id, product_title, sku_label, sku_id, available_qty:newAvailable, low_stock_threshold:newThreshold, on_hand_qty:newOnHandQty, reserved_qty, seller_email, seller_name})
+        Note over IAS,KO: edge-triggered — fires only on the downward crossing, re-arms when available rises back to the threshold (US-S-08:163). Eleven fields, because ET-15 renders eleven: the product title, the variant label and the SKU come from CatalogApplicationService and the seller's name, email and user id from SellerApplicationService, both inside this transaction — the notification consumer may read neither schema (kafka-events § 2.13)
     end
     Note over P,KO: COMMIT
 
@@ -1216,7 +1299,9 @@ sequenceDiagram
     participant A as API (NestJS)
     participant G as Guards
     participant R as Redis
-    participant IS as InventoryService
+    participant IS as SellerService (inventory)
+    participant CAS as CatalogApplicationService
+    participant IAS as InventoryApplicationService
     participant P as Postgres
     participant KO as Kafka Outbox
     participant KR as Kafka Relay
@@ -1244,7 +1329,11 @@ sequenceDiagram
 
     Note over IS: phase 1 — row-level validation (outside transaction)
     loop for each CSV row
-        IS->>P: SELECT catalog.product_variant v JOIN catalog.offer o ON o.variant_id = v.id JOIN inventory.stock s ON s.offer_id = o.id WHERE v.sku = row.sku AND o.seller_profile_id = :sellerProfileId
+        IS->>CAS: resolveSkuForSeller(row.sku, sellerProfileId)
+        CAS->>P: SELECT catalog.product_variant v JOIN catalog.offer o ON o.variant_id = v.id WHERE v.sku = row.sku AND o.seller_profile_id = :sellerProfileId
+        IS->>IAS: getStock(offer_id)
+        IAS->>P: SELECT inventory.stock WHERE offer_id = :offerId
+        Note over IS,IAS: The three-schema join is now two service calls — Catalog resolves the SKU to an offer it owns, Inventory answers for the stock row
         alt SKU not found or not owned by this seller
             IS->>IS: collect error { row, sku, code: SKU_NOT_FOUND } — never processed, whatever the seller confirms
         else offer status != ACTIVE
@@ -1257,12 +1346,13 @@ sequenceDiagram
     end
 
     Note over P,KO: BEGIN TRANSACTION (batch all valid rows)
+    IS->>IAS: adjustStockBulk(validRows, sellerProfileId, tx)
     loop for each valid row
-        IS->>P: UPDATE inventory.stock SET on_hand_qty=new_qty, low_stock_threshold=COALESCE(?, low_stock_threshold), version=version+1, updated_at=NOW() WHERE offer_id=?
-        IS->>KO: INSERT platform.outbox_event (topic='inventory.changed', aggregate_type='inventory.stock', aggregate_id=offer_id, key=offer_id, payload={change_reason:BULK_UPDATE, delta:(new_on_hand_qty - prior_on_hand_qty), offer_id, seller_id:sellerProfileId, on_hand_qty, reserved_qty, available_qty, low_stock_threshold, adjustment_reason:null})
+        IAS->>P: UPDATE inventory.stock SET on_hand_qty=new_qty, low_stock_threshold=COALESCE(?, low_stock_threshold), version=version+1, updated_at=NOW() WHERE offer_id=?
+        IAS->>KO: INSERT platform.outbox_event (topic='inventory.changed', aggregate_type='inventory.stock', aggregate_id=offer_id, key=offer_id, payload={change_reason:BULK_UPDATE, delta:(new_on_hand_qty - prior_on_hand_qty), offer_id, product_id, seller_id:sellerProfileId, on_hand_qty, reserved_qty, available_qty, low_stock_threshold, adjustment_reason:null})
         alt priorAvailable >= threshold AND newAvailable < threshold
-            IS->>KO: INSERT platform.outbox_event (topic='inventory.low_stock', aggregate_type='inventory.stock', aggregate_id=offer_id, key=offer_id, payload={offer_id, seller_id:sellerProfileId, available_qty, low_stock_threshold, seller_email})
-            Note over IS,KO: same edge-triggered rule as the single-row path — a bulk file does not become an inbox full of alerts
+            IAS->>KO: INSERT platform.outbox_event (topic='inventory.low_stock', aggregate_type='inventory.stock', aggregate_id=offer_id, key=offer_id, payload={offer_id, seller_id:sellerProfileId, seller_user_id, product_title, sku_label, sku_id, available_qty, low_stock_threshold, on_hand_qty, reserved_qty, seller_email, seller_name})
+            Note over IAS,KO: same edge-triggered rule as the single-row path — a bulk file does not become an inbox full of alerts — and the same eleven fields, because it renders the same ET-15. The product title, variant label and SKU are already in hand from the row's own SKU resolution above
         end
     end
     Note over P,KO: COMMIT
@@ -1426,7 +1516,7 @@ The `buyerCurrency*` fields are the amounts the buyer was actually charged, conv
 
 **404, not 403, for another seller's fulfillment** — the lookup is scoped, so a `403` would confirm the id exists and let a seller enumerate the platform's order volume.
 
-**The buyer's unmasked shipping address is PII (NFR-09).** Reading it emits a `pii.accessed` outbox row — `resource_type = BUYER_ADDRESS`, `resource_id` = the fulfillment id, `subject_user_id` = the buyer, `accessor_user_id` = the seller's user id, `accessor_role = SELLER` — written in the transaction that serves the request; the `audit` consumer writes the `pii_access_logs` document ([kafka-events.md § 2.26](../kafka-events.md#226-piiaccessed)). The handler does not write MongoDB, and the event carries no address data: the record is *that* the address was read, by whom, and when.
+**The buyer's unmasked shipping address is PII (NFR-09).** Reading it emits a `pii.accessed` outbox row — `resource_type = BUYER_ADDRESS`, `resource_id` = the fulfillment id, `subject_user_id` = the buyer, `accessor_user_id` = the seller's user id, `accessor_role = SELLER` — written in the transaction that serves the request; the `platform.audit` consumer writes the `pii_access_logs` document ([kafka-events.md § 2.26](../kafka-events.md#226-piiaccessed)). The handler does not write MongoDB, and the event carries no address data: the record is *that* the address was read, by whom, and when.
 
 #### Sequence
 
@@ -1546,7 +1636,8 @@ sequenceDiagram
     Note over P,KO: BEGIN TRANSACTION
     OrdS->>P: UPDATE orders.fulfillment SET status='SHIPPED', shipped_at=NOW(), updated_at=NOW() WHERE id=:fulfillmentId AND seller_profile_id = :sellerProfileId AND status='PENDING'
     Note over OrdS: tracking_number was issued at fulfillment creation (PENDING) — preserved, never regenerated
-    OrdS->>KO: INSERT platform.outbox_event (topic='fulfillment.shipped', aggregate_type='orders.fulfillment', aggregate_id=:fulfillmentId, key=order_id, payload={fulfillment_id, display_id, order_id, buyer_id, seller_id:sellerProfileId, tracking_number, estimated_delivery_at, shipped_at, items[]})
+    OrdS->>KO: INSERT platform.outbox_event (topic='fulfillment.shipped', aggregate_type='orders.fulfillment', aggregate_id=:fulfillmentId, key=order_id, payload={fulfillment_id, display_id, order_id, buyer_id, buyer_email, buyer_name, seller_id:sellerProfileId, seller_name, tracking_number, estimated_delivery_at, shipped_at, items[]})
+    Note over OrdS,KO: buyer_email and buyer_name are snapshots the checkout captured on orders.order — ET-02 is addressed to the one and greets with the other, and the notification consumer may not read identity.user (kafka-events § 2.5)
     Note over P,KO: COMMIT
 
     Note right of KR: async — post-commit
@@ -1654,7 +1745,8 @@ sequenceDiagram
     Note over P,KO: BEGIN TRANSACTION
     OrdS->>P: UPDATE orders.fulfillment SET status='REFUNDED', refunded_at=NOW(), updated_at=NOW() WHERE id=:fulfillmentId AND seller_profile_id = :sellerProfileId
     Note over OrdS,P: no inventory write here — stock restoration belongs to the inventory consumer, keyed on fulfillment_id (D-16). Writing it in this transaction as well restored the stock twice.
-    OrdS->>KO: INSERT platform.outbox_event (topic='fulfillment.refunded', aggregate_type='orders.fulfillment', aggregate_id=:fulfillmentId, key=order_id, payload={fulfillment_id, order_id, buyer_id, seller_id:sellerProfileId, prior_status, stock_restored:(prior_status='PENDING'), reason, refund_amount, currency_code, buyer_currency_refund_amount, buyer_display_currency, items[]})
+    OrdS->>KO: INSERT platform.outbox_event (topic='fulfillment.refunded', aggregate_type='orders.fulfillment', aggregate_id=:fulfillmentId, key=order_id, payload={fulfillment_id, display_id, order_id, buyer_id, buyer_email, buyer_name, seller_id:sellerProfileId, seller_name, prior_status, stock_restored:(prior_status='PENDING'), refunded_at, refund_amount, currency_code, buyer_currency_total, buyer_display_currency, items[]})
+    Note over OrdS,KO: Field names are the schema's (kafka-events § 2.7): buyer_currency_total, not buyer_currency_refund_amount — the refunded total is the captured fulfillment total and the payload calls it what orders.fulfillment calls it. buyer_email and buyer_name address and greet ET-04
     Note over OrdS,KO: stock_restored is false when prior_status = SHIPPED — the goods have left the warehouse (US-S-07:148)
     Note over P,KO: COMMIT
 
@@ -1704,12 +1796,25 @@ Auth: SELLER_ACTIVE
 
 **Response 201**
 ```json
-{ "data": { "productId": "uuid", "status": "ACTIVE" } }
+{
+  "data": { "productId": "uuid", "status": "ACTIVE" },
+  "warnings": [{ "code": "LISTING_PENDING_REVIEW", "matchedTerms": ["string"] }]
+}
 ```
+`warnings[]` is present only on a soft-tier screening hit — see below — and absent otherwise.
 
-**A moderation guard hit on create is a hard reject.** If the title or description trips the keyword blocklist, or the category is prohibited, the response is `422` and **no product row is written** — nothing is created, so there is nothing to flag or review. This differs deliberately from [`PATCH`](#update-product), where the row already exists and the edit commits before the listing is flagged.
+<a id="two-tier-moderation-guard"></a>
+**A moderation guard hit on create has two outcomes, not one.** The tiers are D-05's and are defined on [`admin.keyword_blocklist.enforcement`](../data-model-erd.md#table-admin-keyword-blocklist); `ModerationApplicationService.screenListingContent()` returns the strictest one that matched ([backend-module-architecture § Ownership boundaries](../backend-module-architecture.md#ownership-boundaries)).
 
-**Errors:** 400 validation, 404 category not found, 422 prohibited category, 422 keyword blocklist hit
+| Screening outcome | Result |
+|---|---|
+| Prohibited taxonomy node, or a matched term with `enforcement = 'BLOCK'` | **`422`, and no product row is written.** Nothing is created, so there is nothing to flag or review. |
+| Matched terms, all with `enforcement = 'FLAG'` | **`201`, product created.** The product row is written normally and the response carries a `LISTING_PENDING_REVIEW` warning naming the matched terms. |
+| No match | `201`, no warning. |
+
+**The soft tier opens no case at this endpoint, because there is no listing yet.** `admin.moderation_case.offer_id` is a required FK to `catalog.offer` ([data-model-erd.md](../data-model-erd.md#table-admin-moderation-case)) and this endpoint creates no offer — a product with no offer is not listed, is not returned by catalog list or search, and is not something an admin can be asked to decide on. The screen runs again at [`POST /seller/offers`](#create-offer), which is the moment the content becomes a listing, and that is where the `FLAGGED` offer and the `moderation_case` row are written. Flagging here instead would have put a case in the admin's queue pointing at nothing a buyer could see, and left the queue holding products that may never get an offer at all.
+
+**Errors:** 400 validation, 404 category not found, 422 prohibited category, 422 hard-blocklist (`BLOCK`) hit — a `FLAG`-only match is not an error
 
 #### Sequence
 
@@ -1719,7 +1824,9 @@ sequenceDiagram
     participant A as API (NestJS)
     participant G as Guards
     participant R as Redis
-    participant PS as ProductService
+    participant PS as SellerService (products)
+    participant CAS as CatalogApplicationService
+    participant MAS as ModerationApplicationService
     participant P as Postgres
     participant KO as Kafka Outbox
     participant KR as Kafka Relay
@@ -1744,28 +1851,33 @@ sequenceDiagram
     alt validation fails
         PS-->>C: 400 Bad Request {errors[]}
     end
-    PS->>P: SELECT catalog.category WHERE id = :categoryId
+    CAS->>P: SELECT catalog.category WHERE id = :categoryId
     alt category not found
         PS-->>C: 404 Not Found — category not found
     else category.is_prohibited = true
         PS-->>C: 422 Unprocessable — prohibited category
     end
-    PS->>PS: scan title + description against the in-process keyword-blocklist cache (admin.keyword_blocklist active terms, TTL KEYWORD_BLOCKLIST_CACHE_TTL)
-    alt prohibited keyword match
+    PS->>MAS: screenListingContent({ title, description, categoryId })
+    MAS->>MAS: scan title + description against the in-process keyword-blocklist cache (admin.keyword_blocklist active terms, TTL KEYWORD_BLOCKLIST_CACHE_TTL) — admin owns the blocklist, so admin owns the scan
+    MAS-->>PS: { outcome: CLEAN | FLAG | BLOCK, matchedTerms[], prohibitedCategory }
+    Note over PS,MAS: outcome is the strictest enforcement among the matched terms — one BLOCK term outranks any number of FLAG ones (D-05)
+    alt outcome = BLOCK
         PS-->>C: 422 Unprocessable — content violates prohibited keyword policy
-        Note right of C: hard reject on create — no product row, no moderation case, no event
+        Note right of C: hard tier — no product row, no moderation case, no event
     end
+    Note over PS,MAS: outcome = FLAG falls through: the product is created below and the response carries LISTING_PENDING_REVIEW with matchedTerms. No moderation case opens here — admin.moderation_case.offer_id is required and this endpoint creates no offer
 
     Note over P,KO: BEGIN TRANSACTION
-    PS->>P: INSERT catalog.product (category_id, title, description, status='ACTIVE', created_by_seller_id=:sellerProfileId, created_at, updated_at)
+    CAS->>P: INSERT catalog.product (category_id, title, description, status='ACTIVE', created_by_seller_id=:sellerProfileId, created_at, updated_at)
     P-->>PS: product.id
     loop for each variant in variants[]
-        PS->>P: INSERT catalog.product_variant (product_id, sku, attributes)
+        CAS->>P: INSERT catalog.product_variant (product_id, sku, attributes)
     end
     loop for each image storage key in images[] (position = array index, 0 = primary)
-        PS->>P: INSERT catalog.product_image (product_id, storage_key, position, created_at)
+        CAS->>P: INSERT catalog.product_image (product_id, storage_key, position, created_at)
     end
-    PS->>KO: INSERT platform.outbox_event (topic='product.changed', aggregate_type='catalog.product', aggregate_id=product_id, key=product_id, event_type='product.changed', event_version=1, correlation_id, occurred_at=NOW(), created_at=NOW(), updated_at=NOW(), payload={product_id, seller_id:sellerProfileId, change_type:'CREATED'}, publication_status='PENDING')
+    CAS->>KO: INSERT platform.outbox_event (topic='product.changed', aggregate_type='catalog.product', aggregate_id=product_id, key=product_id, event_type='product.changed', event_version=1, correlation_id, occurred_at=NOW(), created_at=NOW(), updated_at=NOW(), payload={product_id, change_type:'CREATED', category_id, category_path, title, brand, description, status:'ACTIVE', created_at, variants[], images[]}, publication_status='PENDING')
+    Note over PS,KO: The payload is the whole set of fields Catalog owns on the product document, not an id and a change type: the search consumer writes title, brand, description, category_id, category_path, status, created_at, variants and images, and may read no catalog table to obtain them (api-design/search.md § Document composition). category_path is resolved from catalog.category in this transaction — the consumer cannot walk the tree
     Note over P,KO: COMMIT
 
     Note right of KR: async — post-commit
@@ -1773,8 +1885,8 @@ sequenceDiagram
     KR->>KR: serialize Avro + publish to product.changed topic
     KR->>KO: UPDATE SET publication_status = 'PUBLISHED'
 
-    PS-->>A: { productId }
-    A-->>C: 201 Created { data: { productId, status: "ACTIVE" } }
+    PS-->>A: { productId, screening }
+    A-->>C: 201 Created { data: { productId, status: "ACTIVE" }, warnings: [ LISTING_PENDING_REVIEW with matchedTerms ] when outcome was FLAG }
 ```
 
 ---
@@ -1831,7 +1943,7 @@ The consumers then de-index the offer from Elasticsearch (`search.listing-flagge
 <a id="dismissed-term-suppression"></a>
 **A dismissed term never flags that offer again** (US-A-04b:95). The scan skips any `(offer_id, term)` pair for which a `DISMISSED` `admin.moderation_case` already records that term in `matched_terms`, and raises a case only for terms not previously dismissed on that offer. Without the skip, an admin clearing a false positive would see the same case reopen on the seller's next edit, forever. Suppression is per term, not per offer: a term the admin has never dismissed still flags normally, so a seller cannot use one cleared word as cover for adding another. A `REMOVE` decision suppresses nothing — the offer is terminal.
 
-**Create is unchanged: still a hard `422`, and no row.** Only edit auto-flags.
+**An edit flags on both tiers; only create distinguishes them.** D-05's hard tier is "no listing is created", and on an edit the listing already exists, so the `422` has nothing to prevent — refusing the save would leave live content unchanged and unreviewed, which is strictly worse than persisting it flagged and de-indexed. A `BLOCK` match and a `FLAG` match therefore produce the same outcome here: `200`, the edit saved, the offer `FLAGGED`, a case open. The distinction is recorded rather than discarded — the case's `matched_terms` holds the terms, and the moderation queue can see that a hard-tier term was among them. Create is where the tiers diverge, at [`POST /seller/products`](#two-tier-moderation-guard) and [`POST /seller/offers`](#offer-create-screening).
 
 **Errors:** 400 validation, 403 the caller did not create this product, 404 product not found or already removed, 422 prohibited category on create-equivalent content — see the note above for why an edit does not `422`
 
@@ -1843,7 +1955,9 @@ sequenceDiagram
     participant A as API (NestJS)
     participant G as Guards
     participant R as Redis
-    participant PS as ProductService
+    participant PS as SellerService (products)
+    participant CAS as CatalogApplicationService
+    participant MAS as ModerationApplicationService
     participant P as Postgres
     participant KO as Kafka Outbox
     participant KR as Kafka Relay
@@ -1864,7 +1978,7 @@ sequenceDiagram
     G-->>A: authorized
 
     A->>PS: updateProduct(productId, dto, sellerProfileId)
-    PS->>P: SELECT catalog.product p WHERE p.id = :productId AND p.status = 'ACTIVE'
+    CAS->>P: SELECT catalog.product p WHERE p.id = :productId AND p.status = 'ACTIVE'
     alt no row (unknown id, or already removed)
         PS-->>C: 404 Not Found
     else p.created_by_seller_id IS NULL (platform-owned, including every seeded product)
@@ -1874,36 +1988,37 @@ sequenceDiagram
         Note over PS,P: selling an offer on a shared product is not permission to rewrite its content
     end
     alt categoryId provided
-        PS->>P: SELECT catalog.category WHERE id = :categoryId
+        CAS->>P: SELECT catalog.category WHERE id = :categoryId
         alt category not found
             PS-->>C: 404 Not Found — category not found
         end
     end
-    PS->>PS: re-run the keyword-blocklist and prohibited-category guards on the updated title/description/category
-    PS->>P: SELECT DISTINCT unnest(matched_terms) FROM admin.moderation_case WHERE offer_id IN (this seller's offers on the product) AND status = 'DISMISSED'
+    PS->>MAS: screenListingContent({ title, description, categoryId }) — re-run the keyword-blocklist and prohibited-category guards on the updated content
+    MAS->>P: SELECT DISTINCT unnest(matched_terms) FROM admin.moderation_case WHERE offer_id IN (this seller's offers on the product) AND status = 'DISMISSED'
     P-->>PS: dismissedTerms[]
     PS->>PS: matchedTerms = scan hits MINUS dismissedTerms&#59; guardHit = matchedTerms non-empty OR category.is_prohibited
 
     Note over P,KO: BEGIN TRANSACTION
-    PS->>P: UPDATE catalog.product SET title=?, description=?, category_id=?, updated_at=NOW() WHERE id=:productId AND created_by_seller_id = :sellerProfileId
+    CAS->>P: UPDATE catalog.product SET title=?, description=?, category_id=?, updated_at=NOW() WHERE id=:productId AND created_by_seller_id = :sellerProfileId
     Note over PS,P: the edit commits even when a guard fired — the flag follows the save, it does not replace it (US-S-04:74)
     loop for each variant in variants[] (upsert by sku)
-        PS->>P: INSERT catalog.product_variant (...) ON CONFLICT (product_id, sku) DO UPDATE SET attributes=?, updated_at=NOW()
+        CAS->>P: INSERT catalog.product_variant (...) ON CONFLICT (product_id, sku) DO UPDATE SET attributes=?, updated_at=NOW()
     end
     loop for each image update
-        PS->>P: UPDATE catalog.product_image SET storage_key=?, alt_text=?, updated_at=NOW() WHERE product_id=? AND position=?
+        CAS->>P: UPDATE catalog.product_image SET storage_key=?, alt_text=?, updated_at=NOW() WHERE product_id=? AND position=?
     end
 
     alt guardHit
-        PS->>P: UPDATE catalog.offer SET status='FLAGGED', status_changed_reason='AUTO_MODERATION', updated_at=NOW() WHERE product_id=:productId AND seller_profile_id = :sellerProfileId AND status='ACTIVE' RETURNING id
+        CAS->>P: UPDATE catalog.offer SET status='FLAGGED', status_changed_reason='AUTO_MODERATION', updated_at=NOW() WHERE product_id=:productId AND seller_profile_id = :sellerProfileId AND status='ACTIVE' RETURNING id
         Note over PS,P: only this seller's offers — a co-seller on a shared product did not write the content
         loop for each flagged offer
-            PS->>P: INSERT admin.moderation_case (offer_id, source=('KEYWORD_MATCH' | 'PROHIBITED_CATEGORY'), matched_terms=(matchedTerms for a keyword hit, NULL for a category hit), reason=the same detail written for a human reader, status='OPEN')
-            PS->>KO: INSERT platform.outbox_event (topic='listing.flagged', aggregate_type='catalog.offer', aggregate_id=offer_id, key=offer_id, payload={offer_id, product_id, product_title, seller_id:sellerProfileId, seller_email, seller_name, moderation_case_id, source, matched_terms:(matchedTerms, or [] for a category hit), flag_reason, admin_user_id:null, flagged_at})
-            PS->>KO: INSERT platform.outbox_event (topic='offer.changed', aggregate_type='catalog.offer', aggregate_id=offer_id, key=offer_id, payload={offer_id, product_id, seller_id:sellerProfileId, change_type:'UPDATED', currency_code, status:'FLAGGED', prices:[current live rows]})
+            MAS->>P: INSERT admin.moderation_case (offer_id, source=('KEYWORD_MATCH' | 'PROHIBITED_CATEGORY'), matched_terms=(matchedTerms for a keyword hit, NULL for a category hit), reason=the same detail written for a human reader, status='OPEN')
+            MAS->>KO: INSERT platform.outbox_event (topic='listing.flagged', aggregate_type='catalog.offer', aggregate_id=offer_id, key=offer_id, payload={offer_id, product_id, product_title, seller_id:sellerProfileId, seller_user_id, seller_email, seller_name, moderation_case_id, source, matched_terms:(matchedTerms, or [] for a category hit), flag_reason, admin_user_id:null, flagged_at})
+            CAS->>KO: INSERT platform.outbox_event (topic='offer.changed', aggregate_type='catalog.offer', aggregate_id=offer_id, key=offer_id, payload={offer_id, product_id, seller_id:sellerProfileId, seller_name, seller_active, change_type:'UPDATED', currency_code, status:'FLAGGED', prices:[current live rows], display_prices})
         end
     end
-    PS->>KO: INSERT platform.outbox_event (topic='product.changed', aggregate_type='catalog.product', aggregate_id=:productId, key=:productId, payload={product_id, seller_id:sellerProfileId, change_type:'UPDATED'})
+    CAS->>KO: INSERT platform.outbox_event (topic='product.changed', aggregate_type='catalog.product', aggregate_id=:productId, key=:productId, payload={product_id, change_type:'UPDATED', category_id, category_path, title, brand, description, status, created_at, variants[], images[]})
+    Note over PS,KO: The full owned field set on every change, not a diff: the consumer applies a partial document merge and writes whatever the payload carries, so a field left out of an UPDATE keeps whatever the last event left in the index — including a title the seller has just replaced
     Note over PS,KO: the product event is unconditional — without it an edit never reaches Elasticsearch, so the 5s reindex requirement (NFR-13) went unmet on every update
     Note over P,KO: COMMIT
 
@@ -1954,7 +2069,11 @@ sequenceDiagram
     participant A as API (NestJS)
     participant G as Guards
     participant R as Redis
-    participant PS as ProductService
+    participant PS as SellerService (products)
+    participant CAS as CatalogApplicationService
+    participant MAS as ModerationApplicationService
+    participant PAS as PricingApplicationService
+    participant OAS as OrdersApplicationService
     participant P as Postgres
     participant KO as Kafka Outbox
     participant KR as Kafka Relay
@@ -1974,32 +2093,37 @@ sequenceDiagram
     end
     G-->>A: authorized
 
-    PS->>P: SELECT catalog.product p WHERE p.id = :productId AND p.status = 'ACTIVE'
+    CAS->>P: SELECT catalog.product p WHERE p.id = :productId AND p.status = 'ACTIVE'
     alt no row (unknown id, or already removed)
         PS-->>C: 404 Not Found
     else p.created_by_seller_id IS NULL OR p.created_by_seller_id != :sellerProfileId
         PS-->>C: 403 Forbidden — the caller did not create this product
     end
-    PS->>P: SELECT 1 FROM orders.fulfillment f JOIN orders.fulfillment_item fi ON fi.fulfillment_id = f.id JOIN catalog.offer o ON o.id = fi.offer_id WHERE o.product_id = :productId AND o.seller_profile_id = :sellerProfileId AND f.status = 'PENDING'
+    PS->>OAS: hasPendingFulfillmentsForProduct(:productId, sellerProfileId)
+    OAS->>P: SELECT 1 FROM orders.fulfillment f JOIN orders.fulfillment_item fi ON fi.fulfillment_id = f.id WHERE fi.offer_id IN (the caller's offers on this product) AND f.status = 'PENDING'
+    Note over PS,OAS: Orders answers for its own tables. The old form joined orders.fulfillment_item to catalog.offer in one statement, which is a join across two modules' schemas — Catalog supplies the offer ids, Orders matches on them
     alt a PENDING fulfillment exists
         PS-->>C: 409 Conflict — refund, cancel or ship the pending orders on this listing first (US-S-04:76)
     end
-    PS->>P: SELECT catalog.offer WHERE product_id = :productId AND seller_profile_id = :sellerProfileId AND status = 'ACTIVE'
-    P-->>PS: activeOffers[] (may be empty)
-    PS->>P: SELECT EXISTS (SELECT 1 FROM catalog.offer WHERE product_id = :productId AND seller_profile_id != :sellerProfileId AND status != 'REMOVED')
-    P-->>PS: otherSellerPresent (true / false)
-    Note over PS,P: the co-seller test is non-REMOVED, wider than the caller's own ACTIVE scope — an INACTIVE or FLAGGED co-seller offer is still a seller on this product
+    CAS->>P: SELECT catalog.offer WHERE product_id = :productId AND seller_profile_id = :sellerProfileId AND status = 'ACTIVE'
+    P-->>CAS: activeOffers[] (may be empty)
+    CAS->>P: SELECT EXISTS (SELECT 1 FROM catalog.offer WHERE product_id = :productId AND seller_profile_id != :sellerProfileId AND status != 'REMOVED')
+    P-->>CAS: otherSellerPresent (true / false)
+    Note over CAS,P: the co-seller test is non-REMOVED, wider than the caller's own ACTIVE scope — an INACTIVE or FLAGGED co-seller offer is still a seller on this product
 
     Note over P,KO: BEGIN TRANSACTION
-    PS->>P: UPDATE catalog.offer SET status='INACTIVE', status_changed_reason='SELLER_DEACTIVATED', updated_at=NOW() WHERE product_id=:productId AND seller_profile_id = :sellerProfileId AND status='ACTIVE'
-    PS->>P: UPDATE pricing.offer_price SET inactive_at=NOW(), updated_at=NOW() WHERE offer_id IN (activeOffers) AND inactive_at IS NULL
-    Note over PS,P: all price_types deactivated (US-S-04:78) — the SALE scheduler and the PDP resolver skip rows with a non-null inactive_at
+    PS->>CAS: withdrawSellerListings(:productId, sellerProfileId, tx)
+    CAS->>P: UPDATE catalog.offer SET status='INACTIVE', status_changed_reason='SELLER_DEACTIVATED', updated_at=NOW() WHERE product_id=:productId AND seller_profile_id = :sellerProfileId AND status='ACTIVE'
+    PS->>PAS: deactivateOfferPrices(activeOffers, tx)
+    PAS->>P: UPDATE pricing.offer_price SET inactive_at=NOW(), updated_at=NOW() WHERE offer_id IN (activeOffers) AND inactive_at IS NULL
+    Note over PAS,P: all price_types deactivated (US-S-04:78) — the SALE scheduler and the PDP resolver skip rows with a non-null inactive_at
     loop for each active offer deactivated
-        PS->>KO: INSERT platform.outbox_event (topic='listing.soft_deleted', aggregate_type='catalog.offer', aggregate_id=offer_id, key=offer_id, payload={product_id, offer_id, seller_id:sellerProfileId, deleted_at})
+        CAS->>KO: INSERT platform.outbox_event (topic='listing.soft_deleted', aggregate_type='catalog.offer', aggregate_id=offer_id, key=offer_id, payload={product_id, offer_id, seller_id:sellerProfileId, deleted_at})
     end
     alt otherSellerPresent = false — the caller was the last seller on this product
-        PS->>P: UPDATE catalog.product SET status='REMOVED', updated_at=NOW() WHERE id=:productId AND created_by_seller_id = :sellerProfileId
-        PS->>KO: INSERT platform.outbox_event (topic='product.changed', aggregate_type='catalog.product', aggregate_id=product_id, key=product_id, event_type='product.changed', event_version=1, correlation_id, occurred_at=NOW(), created_at=NOW(), updated_at=NOW(), payload={product_id, seller_id:sellerProfileId, change_type:'REMOVED'}, publication_status='PENDING')
+        CAS->>P: UPDATE catalog.product SET status='REMOVED', updated_at=NOW() WHERE id=:productId AND created_by_seller_id = :sellerProfileId
+        CAS->>KO: INSERT platform.outbox_event (topic='product.changed', aggregate_type='catalog.product', aggregate_id=product_id, key=product_id, event_type='product.changed', event_version=1, correlation_id, occurred_at=NOW(), created_at=NOW(), updated_at=NOW(), payload={product_id, change_type:'REMOVED', category_id, category_path, title, brand, description, status:'REMOVED', created_at, variants[], images[]}, publication_status='PENDING')
+        Note over PS,KO: The owned field set travels on REMOVED too, even though the consumer deletes the document and reads none of it: one payload shape per topic keeps the Avro record single and the audit document complete
         Note over PS,KO: product-level event fires even when the caller had no offers left to deactivate. change_type is REMOVED — the row's new status, and the only ProductChangeType symbol for this transition
         Note over PS,P: the created_by_seller_id predicate re-asserts the authorization already enforced at the 403 above&#59; it is defence in depth, not a live branch — a product the caller did not create never reaches this transaction
     else otherSellerPresent = true — another seller still lists this product
@@ -2105,7 +2229,8 @@ sequenceDiagram
     Note over P,KO: BEGIN TRANSACTION
     OrdS->>P: UPDATE orders.fulfillment SET status='CANCELLED', cancelled_at=NOW(), updated_at=NOW() WHERE id=:fulfillmentId AND seller_profile_id = :sellerProfileId AND status='PENDING'
     Note over OrdS,P: no inventory write here — the inventory consumer is the sole writer of stock restoration (D-16). Releasing reservations in this transaction as well released them twice, and the old release was scoped WHERE order_id, which freed every other seller's reserved stock in the same checkout.
-    OrdS->>KO: INSERT platform.outbox_event (topic='fulfillment.cancelled', aggregate_type='orders.fulfillment', aggregate_id=:fulfillmentId, key=order_id, payload={fulfillment_id, display_id, order_id, seller_id:sellerProfileId, buyer_id, reason, cancelled_at, stock_restored:true, refund_amount, currency_code, buyer_currency_refund_amount, buyer_display_currency, items[]})
+    OrdS->>KO: INSERT platform.outbox_event (topic='fulfillment.cancelled', aggregate_type='orders.fulfillment', aggregate_id=:fulfillmentId, key=order_id, payload={fulfillment_id, display_id, order_id, seller_id:sellerProfileId, seller_name, buyer_id, buyer_email, buyer_name, reason, cancelled_at, total_amount, currency_code, buyer_currency_total, buyer_display_currency, items[]})
+    Note over OrdS,KO: Field names are the schema's (kafka-events § 2.16): the cancelled figure is the captured total_amount with its buyer_currency_total, not a refund_amount — there is no separate refund capture, and no stock_restored field, because a cancel always restores. buyer_email and buyer_name address and greet ET-16
     Note over P,KO: COMMIT
 
     Note right of KR: async — post-commit
