@@ -101,10 +101,10 @@ only. Tier 2 services may inject `Repository<T>` directly; Tier 3 has no reposit
 
 Two tiers, stated once and referenced from both sides.
 
-| Trigger | Behaviour |
+| Trigger (as signed off — **superseded by D-14**, read that instead) | Behaviour (stands) |
 |---|---|
-| Prohibited taxonomy node, or exact hit on the hard blocklist | **422 at submit.** Listing is not created. |
-| Fuzzy / keyword-suspicion match | Listing is **created** with offer status `FLAGGED` and a `admin.moderation_case` row. |
+| *(superseded, see D-14)* Prohibited taxonomy node, or exact hit on the hard blocklist | **422 at submit.** Listing is not created. |
+| *(superseded, see D-14)* Fuzzy / keyword-suspicion match | Listing is **created** with offer status `FLAGGED` and a `admin.moderation_case` row. |
 
 > **The Trigger column above is superseded by [D-14](#d-14--d-05s-tier-discriminator-the-matched-terms-stored-enforcement-not-the-precision-of-the-match).**
 > The two *Behaviour* cells stand unchanged and are what FR-A-03 depends on. What changed is
@@ -116,7 +116,7 @@ Two tiers, stated once and referenced from both sides.
 > what was signed off and D-14 carries the amendment.
 
 **Required changes:**
-- `BRD.md:145` — restate as the two-tier rule above; the flag path is what feeds FR-A-03.
+- `BRD.md:145` — restate as the two-tier rule, **taking the trigger wording from [D-14](#d-14--d-05s-tier-discriminator-the-matched-terms-stored-enforcement-not-the-precision-of-the-match) and the behaviours from the table above**; the flag path is what feeds FR-A-03. (Originally "the two-tier rule above", which now points a checklist reader at the superseded Trigger column.)
 - `api-design/seller.md:56` — keep the 422 but scope it to the hard tier, and document
   the soft tier's `FLAGGED` outcome as a success response.
 - FR-A-03's flagged-listing queue keeps its input source (the soft tier), so
