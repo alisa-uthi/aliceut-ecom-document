@@ -10,3 +10,6 @@
 /dataSources.local.xml
 
 .idea
+
+# Superpowers session scratch (wave briefs, reports, ledger, review packages)
+.superpowers/

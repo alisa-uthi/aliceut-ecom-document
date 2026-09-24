@@ -1,7 +1,7 @@
 ﻿# Development Flow
 
 **Status:** Draft  
-**Source of truth:** [BRD v1.2](../phase-1/requirements/BRD.md), [architecture-overview](../architecture-overview.md)
+**Source of truth:** [BRD v1.3](../phase-1/requirements/BRD.md), [architecture-overview](../architecture-overview.md)
 
 This document is the developer's starting point for AliceUT. Read it once when onboarding; return to it when you need to understand how the pieces connect. It does not duplicate the detailed conventions ─ it maps the full workflow and points to the right document for each concern.
 
@@ -15,12 +15,12 @@ This document is the developer's starting point for AliceUT. Read it once when o
 | 2 | [Local development setup](#2-local-development-setup) | Prerequisites, `.env`, frontend build, docker compose, seed data |
 | 3 | [Daily development workflow](#3-daily-development-workflow) | Branch , code , test , PR , merge cycle |
 | 4 | [Conventions map](#4-conventions-map) | Which convention to read for which concern |
-| 5 | [Technology decisions reference](#5-technology-decisions-reference) | Stack summary and locked decisions |
+| 5 | [Technology decisions reference](#5-technology-decisions-reference) | Stack summary and resolved decisions |
 | 6 | [API client generation](#6-api-client-generation) | When and how to regenerate the Angular client |
 | 7 | [Database changes](#7-database-changes) | Migration authoring and deployment |
 | 8 | [MongoDB usage rules](#8-mongodb-usage-rules) | What lives in Mongo vs Postgres |
 | 9 | [MinIO usage rules](#9-minio-usage-rules) | File storage conventions |
-| 10 | [Cross-cutting non-negotiables](#10-cross-cutting-non-negotiables) | Rules enforced project-wide (money, events, auth) |
+| 10 | [Cross-cutting rules](#10-cross-cutting-rules) | Rules enforced project-wide (money, events, auth) |
 | 11 | [Pre-merge checklist](#11-pre-merge-checklist) | Gate before any PR is merged |
 
 ---
@@ -293,7 +293,7 @@ One logical change per commit. Compile and pass tests at each commit. No `WIP` c
 <a id="5-technology-decisions-reference"></a>
 ## 5. Technology decisions reference
 
-All decisions below are signed off in BRD §12 ─ treat as constraints.
+All decisions below come from BRD §12 ─ follow them by default; change one by amending the BRD.
 
 | Layer | Technology                               | Notes |
 |-------|------------------------------------------|-------|
@@ -403,8 +403,8 @@ MinIO (`MINIO_ENDPOINT`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`) stores binary o
 
 ---
 
-<a id="10-cross-cutting-non-negotiables"></a>
-## 10. Cross-cutting non-negotiables
+<a id="10-cross-cutting-rules"></a>
+## 10. Cross-cutting rules
 
 These rules apply project-wide. Violating any one of them is a PR blocker.
 

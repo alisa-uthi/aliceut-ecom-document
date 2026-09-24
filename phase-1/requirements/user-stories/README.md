@@ -1,7 +1,7 @@
 # User Stories — AliceUT V1
 
 **Author:** Senior Business Analyst
-**Source:** BRD.md v1.1 (signed off 2026-08-19)
+**Source:** BRD.md v1.3 (dated 2026-09-22; §12 decisions agreed 2026-08-19, amended 2026-09-14 and 2026-09-22). Stories below reflect all amendments in BRD § Amendments — notably offer-level pricing currency, the `FulfillmentItem` snapshot rename, removal of the rating filter and display, and the drop of the `B2B_TIER` price type.
 **Format:** Connextra + INVEST + Gherkin acceptance criteria
 **Scope:** V1 Must + Should items only. Out-of-scope (BRD §3.2) excluded.
 

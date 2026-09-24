@@ -1,7 +1,7 @@
 # Git Workflow
 
 **Status:** Draft
-**Source of truth:** [BRD v1.2](../phase-1/requirements/BRD.md)
+**Source of truth:** [BRD v1.3](../phase-1/requirements/BRD.md)
 
 This document establishes Git conventions for AliceUT to ensure a clean, auditable history suitable for a learning/portfolio project while maintaining production discipline. Solo developer context: self-review gates and CI enforcement replace team oversight.
 
@@ -359,7 +359,7 @@ Annotated tags (not lightweight) are recommended for releases; they include tagg
 
 ### 5.3 CHANGELOG
 
-Maintain `CHANGELOG.md` at repo root. Update when releasing:
+`CHANGELOG.md` is created at each code repo's first tagged release and maintained at that repo's root — `aliceut-ecom-backend` and `aliceut-ecom-frontend`. Neither repo exists yet, so no `CHANGELOG.md` exists yet and this section describes what to create rather than what to update. This documentation repo is not released or tagged and keeps no changelog; its running record is `PROGRESS.md`. Update on release:
 
 ```markdown
 # Changelog
@@ -385,7 +385,7 @@ All notable changes to AliceUT are documented here.
 - Project initialization and documentation
 ```
 
-Update `CHANGELOG.md` from squash-merged PR titles (Conventional Commits makes this mechanical).
+Build `CHANGELOG.md` entries from squash-merged PR titles (Conventional Commits makes this mechanical).
 
 ---
 
@@ -733,7 +733,7 @@ BREAKING CHANGE: Login response no longer includes refresh_token in body; client
 <a id="related-documents"></a>
 ## 11. Related Documents
 
-- [BRD v1.2 — Locked Decisions §12](../phase-1/requirements/BRD.md)
+- [BRD v1.3 — Resolved Decisions §12](../phase-1/requirements/BRD.md)
 - [Architecture Overview](../architecture-overview.md)
 - [API Conventions](../conventions/api-conventions.md)
 - [Database Migrations](../conventions/database-migrations.md)

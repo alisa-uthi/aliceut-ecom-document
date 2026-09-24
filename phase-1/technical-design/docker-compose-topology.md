@@ -1,7 +1,7 @@
 # Docker Compose Topology — Phase 1
 
 **Status:** Complete  
-**Source of truth:** [BRD v1.2 §12](../requirements/BRD.md), [architecture-overview §8](../../architecture-overview.md)
+**Source of truth:** [BRD v1.3 §12](../requirements/BRD.md), [architecture-overview §8](../../architecture-overview.md)
 
 ---
 
@@ -60,13 +60,13 @@ The three `./config/` paths resolve inside the infra repository itself, not a si
 | `buyer-nginx` | `nginx:1.27-alpine` (+ built Angular dist) | `4200:80` | Serves buyer Angular app |
 | `seller-nginx` | `nginx:1.27-alpine` (+ built Angular dist) | `4201:80` | Serves seller Angular app |
 | `admin-nginx` | `nginx:1.27-alpine` (+ built Angular dist) | `4202:80` | Serves admin Angular app |
-| `api` | `./backend` (Dockerfile) | `3000:3000` | NestJS HTTP API |
-| `workers` | `./backend` (Dockerfile, worker entrypoint) | — | Outbox relay + Kafka consumers |
+| `api` | `../aliceut-ecom-backend` (Dockerfile) | `3000:3000` | NestJS HTTP API |
+| `workers` | `../aliceut-ecom-backend` (Dockerfile, worker entrypoint) | — | Outbox relay + Kafka consumers |
 | `postgres` | `postgres:16-alpine` | `5432:5432` | Primary PostgreSQL database |
 | `mongodb` | `mongo:7` | `27017:27017` | Audit and activity log store |
 | `elasticsearch` | `docker.elastic.co/elasticsearch/elasticsearch:8.14.0` | `9200:9200` | Search index |
 | `kafka` | `apache/kafka:3.8.0` | `29092:29092` | Kafka broker (KRaft mode); `kafka:9092` in-network, `localhost:29092` from the host |
-| `kafka-init` | `apache/kafka:3.8.0` | — | One-shot topic provisioning: creates all 29 event topics, the 39 consumer-group DLQ topics and `email.outbound.dlq`, each with its documented retention, partition count and replication factor |
+| `kafka-init` | `apache/kafka:3.8.0` | — | One-shot topic provisioning: creates every event topic in [kafka-events.md § 1](./kafka-events.md#topic-summary), one DLQ per consumer group, and `email.outbound.dlq`, each with its documented retention, partition count and replication factor |
 | `schema-registry` | `confluentinc/cp-schema-registry:7.7.0` | `8081:8081` | Confluent Schema Registry (Community) |
 | `kafka-ui` | `provectus/kafka-ui:v0.7.2` | `8080:8080` | Kafka management UI |
 | `minio` | `minio/minio:RELEASE.2024-11-07T00-52-20Z` | `9000:9000`, `9001:9001` | S3-compatible object storage (product images, KYC docs, user assets) |
@@ -133,6 +133,11 @@ PORT_WORKERS=3001
 SERVICE_NAME=aliceut-api
 LOG_LEVEL=info
 LOG_MAX_BODY_BYTES=4096
+# Comma-separated, case- and separator-insensitive. Overrides the built-in
+# DEFAULT_SENSITIVE_KEYS list entirely — see conventions/observability.md § 2 (config/log.config.ts)
+# for the list. Any override must keep at minimum password, token, authorization,
+# cookie, taxid, secret and refreshtoken.
+LOG_SENSITIVE_KEYS=password,newpassword,currentpassword,passwordhash,token,accesstoken,refreshtoken,idtoken,verificationtoken,resettoken,secret,apikey,privatekey,clientsecret,authorization,cookie,ssn,cardnumber,cvv,taxid
 
 # ── JWT ──────────────────────────────────────────────────
 JWT_SECRET=change_me_to_a_32_char_random_string
@@ -753,7 +758,7 @@ services:
         for g in $$DLQ; do create \"$$g.dlq\" \"$$KAFKA_TOPIC_RETENTION_MS\"; done;
         for g in $$AUTH_DLQ; do create \"$$g.dlq\" \"$$KAFKA_AUTH_TOPIC_RETENTION_MS\"; done;
         create email.outbound.dlq \"$$KAFKA_TOPIC_RETENTION_MS\";
-        echo 'Topics ready: 29 event topics, 39 consumer-group dead-letter topics, email.outbound.dlq.'
+        echo 'Topics ready: event topics, one dead-letter topic per consumer group, email.outbound.dlq.'
       "
 
   # ── Confluent Schema Registry ────────────────────────────
@@ -1008,7 +1013,7 @@ services:
 <a id="backend-dockerfile"></a>
 ## 7. Backend Dockerfile (multi-stage, multi-target)
 
-Node 22 matches the locked stack (Angular 22, NestJS 11). The runtime targets copy from `prod-deps`, not from `build`, so devDependencies never reach an image.
+Node 22 matches the stack (Angular 22, NestJS 11). The runtime targets copy from `prod-deps`, not from `build`, so devDependencies never reach an image.
 
 ```dockerfile
 # syntax=docker/dockerfile:1
@@ -1117,7 +1122,7 @@ prometheus ──┘
 
 `api` waits for postgres, mongodb, elasticsearch, kafka, schema-registry, redis and minio to report `service_healthy`, and for `minio-init` and `kafka-init` to report `service_completed_successfully` — the application's MinIO service account and the three buckets must exist before the first upload request, and every Kafka topic must exist with its own retention before the relay publishes to one or a consumer subscribes to one. `workers` waits for postgres, mongodb, kafka, schema-registry, elasticsearch and mailpit, plus the same `kafka-init` completion. nginx containers wait for `api` to be healthy.
 
-**`kafka-init` runs once and is idempotent.** It creates the 29 event topics and 39 consumer-group dead-letter topics of [kafka-events.md § 1](./kafka-events.md#topic-summary) and [§ 4](./kafka-events.md#dlq-topics), plus `email.outbound.dlq` — the one dead-letter topic that is not a consumer group's, holding emails whose SMTP delivery failed three times — with `--if-not-exists`, one partition and replication factor 1 each, at 7-day retention — except the three `auth.*` topics and the three DLQs fed only by them, which are created at 24 hours because those payloads carry a raw single-use credential token.
+**`kafka-init` runs once and is idempotent.** It creates every event topic in [kafka-events.md § 1](./kafka-events.md#topic-summary) and one dead-letter topic per consumer group [§ 4](./kafka-events.md#dlq-topics), plus `email.outbound.dlq` — the one dead-letter topic that is not a consumer group's, holding emails whose SMTP delivery failed three times — with `--if-not-exists`, one partition and replication factor 1 each, at 7-day retention — except the three `auth.*` topics and the three DLQs fed only by them, which are created at 24 hours because those payloads carry a raw single-use credential token.
 
 **The `AUTH_DLQ` list is why the DLQ loop is two loops.** A dead-lettered message carries the original envelope and payload ([conventions/kafka-events.md § DLQ](../../conventions/kafka-events.md#dlq-topology)), so a `notification.password-reset` failure parks a live `reset_token` in `notification.password-reset.dlq`. Provisioned from `KAFKA_TOPIC_RETENTION_MS` with the rest, that token would sit in the broker log for seven days — on the one path where the notification never reached the user and an operator is therefore going to open the topic and read it, which is the exposure the 24-hour `auth.*` retention exists to close. The rule is a DLQ takes the **longest** of its source topics' retentions ([kafka-events.md § 3](./kafka-events.md#topic-retention)); `notification.email-verification`, `notification.password-reset` and `notification.password-changed` each subscribe to exactly one 24-hour topic, so for them the longest is 24 hours. `platform.audit.dlq` stays at seven days because that group also consumes 7-day topics and a genuine maximum is what the rule asks for. Broker auto-creation is off (§6), so this container is the only thing that creates a topic: with auto-creation on, the first producer to reach an unprovisioned `auth.*` topic would have created it at the broker default of 7 days and held live password-reset tokens in the log for seven times the intended window, with nothing in the topology to notice. Running to completion before `api` and `workers` start also keeps it clear of the migrations.
 
@@ -1241,7 +1246,7 @@ Logging, correlation-ID propagation and the collector stack are governed by [con
 | Outbox relay lag | oldest `PENDING` row in `platform.outbox_event` older than **30 s** | The workers process computes the lag as `now() - min(created_at) WHERE publication_status = 'PENDING'` and reports it on its health endpoint (`GET :$PORT_WORKERS/api/v1/health`, §11). The same value is exposed as `aliceut_outbox_oldest_pending_age_seconds` on `workers`' `METRICS_PATH`, scraped by the `prometheus` service, so the alert is a threshold rule on that gauge and the history is queryable in Grafana (http://localhost:3200). Age is the gauge the rule fires on, not `aliceut_outbox_pending`: a steady small pending count with a climbing age is a stuck relay, while a large count with a flat age is a busy one, so alerting on depth would page on throughput. Read `aliceut_outbox_pending` beside it for the size of the backlog once the rule has fired. The health endpoint remains the container-level probe: a non-200 means the relay is stalled or lagging. |
 | DLQ non-empty | **any** message on any `<consumer_group>.dlq` topic | Kafka UI (http://localhost:8080) → cluster `aliceut-dev` → Topics, filtered to `*.dlq`: any topic with a non-zero message count is a live alert. Consumer lag per group is on the same screen. DLQ naming and the alert requirement come from [conventions/kafka-events.md §5](../../conventions/kafka-events.md). This one is screen-only in V1 and deliberately so: no gauge in [api-design/health.md](./api-design/health.md#workers-health-check) reports DLQ depth, and the `consumers` check passes with an assignment held even while that group is dead-lettering every message, so a green probe is not evidence of an empty DLQ. |
 
-The `*.dlq` filter is expected to match **forty** topics, all of them created by `kafka-init` at start-up rather than on first failure: thirty-nine consumer-group DLQs — one per consumer group in [backend-module-architecture.md](./backend-module-architecture.md#module-summary-table). A dead-letter topic is per *consumer group*, not per event topic, and two groups subscribe to more than one topic — `platform.audit` to nearly every topic, and `inventory.fulfillment-refunded` to both `fulfillment.refunded` and `fulfillment.refund_suspended_seller` — so this count is deliberately **not** the twenty-nine-topic count in [kafka-events.md §1](./kafka-events.md#topic-summary) and the two numbers must not be reconciled against each other. The fortieth is `email.outbound.dlq`, which belongs to no group: it holds the *email* after three failed SMTP attempts, while the event that produced it was processed correctly and is not dead-lettered ([kafka-events.md § 4](./kafka-events.md#dlq-topics)). A group with no `.dlq` topic on that screen is a wiring defect, not a quiet success.
+The `*.dlq` filter is expected to match one topic per consumer group in [backend-module-architecture.md](./backend-module-architecture.md#module-summary-table), plus `email.outbound.dlq`, all of them created by `kafka-init` at start-up rather than on first failure. A dead-letter topic is per *consumer group*, not per event topic, and two groups subscribe to more than one topic — `platform.audit` to nearly every topic, and `inventory.fulfillment-refunded` to both `fulfillment.refunded` and `fulfillment.refund_suspended_seller` — so the DLQ count is deliberately **not** the event-topic count in [kafka-events.md §1](./kafka-events.md#topic-summary) and the two must not be reconciled against each other. `email.outbound.dlq` belongs to no group: it holds the *email* after three failed SMTP attempts, while the event that produced it was processed correctly and is not dead-lettered ([kafka-events.md § 4](./kafka-events.md#dlq-topics)). A group with no `.dlq` topic on that screen is a wiring defect, not a quiet success.
 
 Neither condition is self-clearing. A non-empty DLQ stays non-empty until an operator replays or discards the messages, so the alert is a work queue, not a transient.
 

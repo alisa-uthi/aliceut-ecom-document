@@ -3,7 +3,7 @@
 Cross-phase REST API conventions for all AliceUT services.
 
 **Status:** Complete  
-**Source of truth:** [BRD v1.2](../phase-1/requirements/BRD.md)
+**Source of truth:** [BRD v1.3](../phase-1/requirements/BRD.md)
 
 ---
 

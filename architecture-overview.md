@@ -52,12 +52,12 @@ Signed requirements currently cover Phase 1 only. This overview defines the arch
 | Phase 1 | Angular clients + NestJS modular monolith. One PostgreSQL database partitioned by module schema. Kafka event bus with transactional outbox. Elasticsearch for search. MongoDB for audit/activity. Docker Compose deployment. |
 | Phase 2+ | Modules extracted incrementally into independently deployed Kubernetes services. Database-per-service. Kafka via Strimzi. Service mesh via Istio. Real payment gateway, carrier shipping, and advanced features per approved requirements. |
 
-Future product scope is governed by its phase requirements document. This overview does not itself approve a new feature or reopen signed requirements.
+Future product scope is governed by its phase requirements document. This overview does not itself approve a new feature or reopen requirements already agreed.
 
 <a id="technology-stack"></a>
 ## 4. Technology stack
 
-Locked in BRD §12. Not revisable without a BRD amendment.
+Per BRD §12. These are the choices currently in force, not permanent ones — change one by amending the BRD in the same pass, so the design documents follow.
 
 | Concern | Choice                                                                          |
 |---|---------------------------------------------------------------------------------|
@@ -237,5 +237,6 @@ Detailed design evolves within each phase's directory.
 | Docker Compose topology | `phase-1/technical-design/docker-compose-topology.md` |
 | NestJS module architecture | `phase-1/technical-design/backend-module-architecture.md` |
 | UI design and screen specs | `phase-1/ui-design/` |
+| Exported Figma screen images referenced by the UI design docs | `phase-1/screens/` |
 | Flow and lifecycle diagrams | `phase-1/diagrams/` — buyer journey, seller lifecycle, fulfillment lifecycle, admin moderation, pricing model, auth portals |
-| Cross-document alignment audits and their fix decisions | `phase-1/audits/` |
+| Cross-document alignment audits and their fix decisions | `phase-1/audits/` — `README.md` indexes every audit; audits run before this directory existed landed their fixes inline and are listed there by commit |

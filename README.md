@@ -13,7 +13,7 @@ conventions — produced before implementation begins.
 
 This is a **design-only repository**. Everything needed to start coding is here; the documents capture:
 
-- A signed Business Requirements Document (BRD v1.2)
+- A signed Business Requirements Document (BRD v1.3)
 - User stories across all roles (buyer, seller, admin, platform)
 - Full data model (PostgreSQL ERD + MongoDB collections)
 - REST API contracts for all endpoints across modules, with sequence diagrams
@@ -35,6 +35,8 @@ aliceut-ecom-document/
 ├── PROGRESS.md                        Daily progress log (newest entry on top)
 ├── architecture-overview.md           Project-level architecture and evolution path
 │                                      (cross-phase reference; read this first)
+├── architecture-overview.html         Rendered HTML export of the two documents above,
+├── event-dataflow.html                standalone diagram viewers — regenerate by hand, no build step
 │
 ├── conventions/                       Stable cross-phase technical decisions
 │   ├── api-conventions.md             REST naming, money serialization, pagination, error shape
@@ -58,8 +60,15 @@ aliceut-ecom-document/
 │       └── frontend-CLAUDE.md         CLAUDE.md template — copy to aliceut-ecom-frontend/ on clone
 │
 ├── phase-1/
+│   ├── audits/                        Cross-document alignment audits and decision records
+│   │   ├── 2026-09-22-wave0-decisions.md          Wave 0 decision gate — D-01 … D-14
+│   │   └── 2026-09-22-alignment-audit-fix-plan.md 8-wave fix plan + findings index
+│   │
+│   ├── screens/                       Design mock exports referenced by the UI design docs
+│   │   └── AliceUT_Buyer_Portal.png   Buyer portal mock (source of truth is the Figma file)
+│   │
 │   ├── requirements/
-│   │   ├── BRD.md                     Business Requirements Document v1.2 (signed off 2026-08-19)
+│   │   ├── BRD.md                     Business Requirements Document v1.3 (agreed 2026-08-19)
 │   │   └── user-stories/
 │   │       ├── README.md              Story index, dependency graph, sprint plan
 │   │       ├── buyer.md               Buyer stories (US-B-*) — counts in the story index
@@ -104,7 +113,7 @@ aliceut-ecom-document/
 │       ├── navigation-routing.md      Route trees, auth guards, guard matrix, TitleStrategy
 │       └── shared-components.md       libs/ui/ Angular component library spec
 │
-└── phase-2/                           Future — K8s, real payments, reviews, analytics
+└── phase-2/                           Planned, not yet on disk — V2 scope: K8s, real payments, reviews, analytics
 ```
 
 `conventions/` holds decisions that apply to every phase. `guidelines/` holds developer process docs. `phase-N/` directories hold requirements and design for that specific delivery. Numeric prefix sorts phases by delivery order.
@@ -113,7 +122,7 @@ aliceut-ecom-document/
 
 ## Technology stack
 
-All choices are locked in BRD §12. Changes require a BRD amendment.
+All choices come from BRD §12. Change one by amending the BRD.
 
 | Concern | Choice |
 |---------|--------|
@@ -150,7 +159,7 @@ All choices are locked in BRD §12. Changes require a BRD amendment.
 ## New developer start
 
 1. Read [`architecture-overview.md`](architecture-overview.md) — project-level architecture.
-2. Read [`phase-1/requirements/BRD.md`](phase-1/requirements/BRD.md) §12 — locked decisions.
+2. Read [`phase-1/requirements/BRD.md`](phase-1/requirements/BRD.md) §12 — resolved decisions.
 3. Follow [`guidelines/development-flow.md`](guidelines/development-flow.md) — local setup, daily workflow.
 4. Install Claude Code subagents: [`guidelines/claude-code-subagents.md`](guidelines/claude-code-subagents.md).
 

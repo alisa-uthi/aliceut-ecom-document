@@ -57,9 +57,8 @@ graph TD
     AD -- Yes --> AE[Checkout page]
     R -- Yes --> AE
     AE --> AF[Step 1: Shipping address]
-    AF --> AG[Step 2: Shipping method]
-    AG --> AH[Step 3: Payment method - mock]
-    AH --> AI[Review order summary]
+    AF --> AG[Step 2: Payment method - mock]
+    AG --> AI[Step 3: Review order summary]
     AI --> AJ[Submit: Place Order]
     AJ --> AK[Validate address]
     AK --> AL[Exclude inactive-offer items as skipped_items\nSkipped items remain in cart]

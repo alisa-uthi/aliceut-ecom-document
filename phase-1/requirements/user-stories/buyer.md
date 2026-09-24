@@ -92,12 +92,12 @@ Priority: Must — trace: FR-B-03
 - Filters applied combine via AND.
 - Price range shown in buyer's display currency; display-only estimate (FR-P-02).
 - "In stock only" filter hides offers with no available stock.
-- Rating is an imported product attribute in V1 and supports a minimum-rating filter; creating or submitting reviews remains out of scope.
-- **UI layout:** left-side sidebar (min-width 240px) with collapsible filter groups: Category (multi-select checkbox tree), Price range (slider with input boxes or configured price bands), Rating (minimum stars), and In-stock (toggle). Mobile: sticky bottom sheet or drawer. Clear all / Apply buttons at bottom.
+- **No rating filter and no rating display.** FR-B-03 was amended 2026-09-14 to drop both from V1 (reviews are out of scope, BRD §3.2). No `minRating` parameter exists in the search contract, no rating field exists in the search index, the ERD or any result object, and no star widget is rendered.
+- **UI layout:** left-side sidebar (min-width 240px) with collapsible filter groups: Category (multi-select checkbox tree), Price range (slider with input boxes or configured price bands), and In-stock (toggle) — no Rating group. Mobile: sticky bottom sheet or drawer. Clear all / Apply buttons at bottom.
 - Selected filters show as chips in results header with individual close (×) buttons.
 - **Price filter implementation:** The price range filter is applied against the buyer's preferred-currency display price as pre-indexed in Elasticsearch. The search index maintains a `display_prices` map keyed by ISO currency code, updated whenever a price or FX rate changes (via Kafka consumers consuming price-write and FX-rate events). Filter bounds are applied against this pre-converted value at query time; filter results may lag FX rate changes by up to the search index freshness window (NFR-13).
 
-**Notes:** The mock also depicts Brand Partner and Shipping Speed facets. They are design candidates only: add them to V1 only with a BRD change that defines their data and behaviour. The mock's rating displays do not imply review authoring. Rating stars are imported product attributes from the catalog seed data — the UI displays a tooltip on the star widget: "Based on third-party data — reviews not available in V1."
+**Notes:** The mock also depicts Brand Partner, Shipping Speed and rating-star facets. They are **not** V1: rating was dropped from FR-B-03 on 2026-09-14, and the other two are design candidates only — add them to V1 only with a BRD change that defines their data and behaviour.
 
 ---
 
@@ -123,10 +123,10 @@ Priority: Must — trace: FR-B-05, FR-P-01, FR-P-05
 **Acceptance criteria**
 - PDP shows: title, gallery (≥ 1 image), description, category breadcrumb, variant selector (color/size), effective price (with strikethrough on SALE), currency, seller name, availability badge (in stock / out of stock).
 - Variant selection updates the availability badge and add-to-cart CTA to reflect the selected variant's available quantity. Out-of-stock variant: add-to-cart is disabled, badge shows "Out of stock." On page load, default variant is the first in-stock variant; if all variants are OOS, the first variant is shown with the OOS badge.
-- For B2B accounts: if a B2B_TIER price exists for the selected offer, PDP shows the tier threshold and tier price below the effective price (e.g., "Buy 10 or more: $Y each"). Tier price applies automatically when buyer sets quantity ≥ minimum.
-- Rating display (imported product attribute) includes a tooltip on the star widget: "Based on third-party data — reviews not available in V1." No review tab or review count link rendered.
+- No B2B tier row on the PDP. `B2B_TIER` was dropped from V1 (BRD § Amendments, D-02) — B2B differentiation is branding only (FR-P-06d), and quantity-break pricing is deferred to Phase 2. B2C and B2B accounts see the same effective price.
+- No rating display and no star widget. No review tab or review count link rendered (FR-B-03 amended 2026-09-14).
 - If multiple sellers offer same product → "Other sellers" section listing offers sorted by lowest price in buyer currency (FR-P-05).
-- Effective price resolved by: account type (B2C uses LIST or SALE; B2B_TIER only if qty ≥ min_qty) × current time × selected qty.
+- Effective price resolved by price type and current time only: `SALE` if a live window covers now, otherwise `LIST`. Account type and quantity are **not** inputs (BRD § Amendments, D-02).
 - If price in buyer currency missing: show cheapest available price converted via FX with "≈" prefix and tooltip "Estimated in <currency>".
 - Product description is rendered as formatted HTML from the Markdown source (bold, italic, ordered/unordered lists, headings, safe links). Rendering uses a sanitised parser (e.g. `marked` + `DOMPurify`) that strips disallowed HTML tags; raw Markdown characters are never displayed to buyers. US-P-09 DTO validation enforces the 5000-character input limit at write time.
 - **UI layout:** show category breadcrumbs, a thumbnail gallery with a primary image, seller name, price/list-price treatment, availability/fulfilment message, quantity control, and the add-to-cart CTA. Specifications may be shown in a product-details tab.
@@ -187,8 +187,8 @@ Priority: Should — trace: FR-B-08
 Priority: Must — trace: FR-B-09, FR-P-03, FR-P-04, NFR-14
 
 **Acceptance criteria**
-- Checkout page shows: cart line items, shipping form, a mock shipping-method choice with its displayed cost and delivery estimate, fake payment selector, order total per currency, and "Place order" button.
-- The page presents the stages in the mock's order: Shipping Address, Shipping Method, then Payment Method. Exact mock shipping-service names, fees, and estimates are seeded configuration — not a real carrier integration.
+- Checkout page shows: cart line items, shipping form, fake payment selector, a review step with the order total per currency, and "Place order" button. The shipping line is a structural `"0.00"` — the mock shipping-service name and delivery estimate recorded on the fulfillment come from seeded platform configuration, not from a buyer choice.
+- **Three stepper steps, not four:** Shipping Address, Payment Method, Review. There is no shipping-method step — `POST /orders` accepts no `shippingMethodId` and no endpoint lists shipping methods (`phase-1/ui-design/buyer-portal.md` § Screen 5, `api-design/orders.md`). V1 has mock shipping only (BRD §3.2).
 - Multi-currency carts: system groups all per-seller-currency fulfillments under one order. Buyer submits once and sees a single confirmation page listing placed and failed fulfillments. Each fulfillment progresses independently; seller sees only their own fulfillment and currency.
 - **Order ID format:** `ORD-` prefix + 9 zero-padded digits drawn from the dedicated `orders.order_display_seq` PostgreSQL sequence (e.g. `ORD-000001042`). The fulfillment display id and the mock tracking number follow the same scheme from their own sequences: `FUL-` + 9 digits (e.g. `FUL-000003871`) and `TRK-` + 9 digits (e.g. `TRK-000003871`). Display ids are **not** derived from the row's UUID — the leading hex characters of a UUIDv7 are its millisecond timestamp, so any prefix of it collides for rows created close together and leaks the key's internal structure. Gaps in these sequences are expected and acceptable: a rolled-back transaction consumes its value and does not return it, and no job renumbers or compacts them. UI shows the id without a `#` prefix; `#` is a display-only convention in copy.
 - On submit:
@@ -305,11 +305,11 @@ Priority: Must — trace: FR-B-10, FR-B-11
 
 | Trigger event | To | Template | Key content |
 |---|---|---|---|
-| Order placement finalized | Buyer | [ET-01](email-templates.md#et-01----order-summary-orderfinalized) | Order ID and placement outcome; placed fulfillments with snapshot pricing, mock tracking numbers, and ETAs; skipped items section (if any) with reason "No longer available"; failed groups section (if partially placed). One email per order regardless of fulfillment count. |
-| Fulfillment shipped | Buyer | [ET-02](email-templates.md#et-02----fulfillment-shipped-fulfillmentshipped) | Order `ORD-000001042`, seller name, tracking number `TRK-000003871`, ETA, items in shipment. |
-| Fulfillment delivered | Buyer | [ET-03](email-templates.md#et-03----fulfillment-delivered-fulfillmentdelivered) | Order `ORD-000001042`, seller name, items delivered. |
-| Fulfillment refunded | Buyer | [ET-04](email-templates.md#et-04----fulfillment-refunded-fulfillmentrefunded) | Order `ORD-000001042`, seller name, refunded items with snapshot pricing, refund amount. |
-| Order fully completed | Buyer | [ET-05](email-templates.md#et-05----order-completed-ordercompleted) | Order `ORD-000001042` complete — all items delivered. Only sent when order had ≥ 2 fulfillments; single-fulfillment orders rely on ET-03. |
+| Order placement finalized | Buyer | [ET-01](email-templates.md#et-01--order-summary-orderfinalized) | Order ID and placement outcome; placed fulfillments with snapshot pricing, mock tracking numbers, and ETAs; skipped items section (if any) with reason "No longer available"; failed groups section (if partially placed). One email per order regardless of fulfillment count. |
+| Fulfillment shipped | Buyer | [ET-02](email-templates.md#et-02--fulfillment-shipped-fulfillmentshipped) | Order `ORD-000001042`, seller name, tracking number `TRK-000003871`, ETA, items in shipment. |
+| Fulfillment delivered | Buyer | [ET-03](email-templates.md#et-03--fulfillment-delivered-fulfillmentdelivered) | Order `ORD-000001042`, seller name, items delivered. |
+| Fulfillment refunded | Buyer | [ET-04](email-templates.md#et-04--fulfillment-refunded-fulfillmentrefunded) | Order `ORD-000001042`, seller name, refunded items with snapshot pricing, refund amount. |
+| Order fully completed | Buyer | [ET-05](email-templates.md#et-05--order-completed-ordercompleted) | Order `ORD-000001042` complete — all items delivered. Only sent when order had ≥ 2 fulfillments; single-fulfillment orders rely on ET-03. |
 
 **Notes:**
 - Order placement email fires once per order regardless of fulfillment count.

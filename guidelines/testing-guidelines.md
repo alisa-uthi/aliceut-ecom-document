@@ -1,7 +1,7 @@
 ﻿# Testing Guidelines
 
 **Status:** Draft  
-**Source of truth:** [BRD v1.2](../phase-1/requirements/BRD.md), [module-architecture](../conventions/backend-module-architecture.md)
+**Source of truth:** [BRD v1.3](../phase-1/requirements/BRD.md), [module-architecture](../conventions/backend-module-architecture.md)
 
 ---
 
@@ -679,7 +679,7 @@ Run fixtures after `npm run migration:run` in the `beforeAll` hook. Roll them ba
 
 ### 9.3 Kaggle data exclusion
 
-The 100-product Kaggle seed in `phase-1/seed/` is for local developer setup only. It must never be imported into test fixtures, nor referenced in any `*.spec.ts` or Playwright spec file. Tests that need product data build it with factories or minimal SQL seeds.
+The 100-product Kaggle seed is for local developer setup only. It lives in `aliceut-ecom-backend` — loaded by `npm run seed:dev`, which calls `POST /internal/dev/seed` on a running API ([development-flow.md § Step 6](./development-flow.md#step-6--seed-development-data)) — not in this documentation repo. It must never be imported into test fixtures, nor referenced in any `*.spec.ts` or Playwright spec file. Tests that need product data build it with factories or minimal SQL seeds.
 
 ---
 

@@ -2,7 +2,7 @@
 
 **Module:** `Identity` / `Auth`  
 **Parent:** [API Design Index](../api-design.md)  
-**Source of truth:** [BRD v1.2](../../requirements/BRD.md), [auth-jwt-design](../../../conventions/auth-jwt-design.md), [ERD](../data-model-erd.md)
+**Source of truth:** [BRD v1.3](../../requirements/BRD.md), [auth-jwt-design](../../../conventions/auth-jwt-design.md), [ERD](../data-model-erd.md)
 
 > **Conventions:** every endpoint below accepts an `X-Correlation-ID` request header, generates a UUIDv7 when it is absent, echoes it on the response, and carries the same value into every log line and into the `correlation_id` of every `platform.outbox_event` row and Kafka envelope it writes — see [observability.md § Correlation ID Propagation](../../../conventions/observability.md#correlation-id). Error bodies use the envelope and code table in [api-conventions.md § Standard Error Shape](../../../conventions/api-conventions.md#standard-error-shape); throttled endpoints return `X-RateLimit-Limit`, `X-RateLimit-Remaining` and, on `429`, `Retry-After`. Passwords, tokens, cookies and authorization headers are masked out of every log line by the sanitizer's `DEFAULT_SENSITIVE_KEYS`.
 

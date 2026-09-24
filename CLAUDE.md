@@ -4,33 +4,46 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Current Project State
 
-**Pre-implementation.** Repo contains `architecture-overview.md`, `phase-1/requirements/BRD.md` (v1.3, signed off 2026-08-19; amended 2026-09-14 and 2026-09-22), and `phase-1/requirements/user-stories/` (split by role: buyer/seller/admin/platform). No source code or build system yet. Next phase per BRD §12 (Resolved Decisions): detailed design (→ `phase-1/technical-design/`) + backlog decomposition. Do not scaffold code unless user explicitly asks.
+**Phase 1 design complete; implementation not started.** Requirements (`phase-1/requirements/BRD.md` v1.3, agreed 2026-08-19; amended 2026-09-14 and 2026-09-22 + `user-stories/`), technical design (`phase-1/technical-design/`) and UI design (`phase-1/ui-design/`) are all written and cross-aligned; open alignment work is tracked in `phase-1/audits/`. No source code or build system yet.
+
+**This repo holds specs, not task state.** Implementation status belongs in GitHub Issues + Milestones + a Project board, never in a checked-in backlog file — the static backlog under `phase-1/backlog/` was deleted for that reason (c805aed, 2026-09-19). No issues have been created yet, so backlog decomposition must be redone straight into GitHub Issues before implementation starts. The `scripts/create-github-issues.ps1` generator read that deleted directory and was removed with it.
+
+Do not scaffold code unless user explicitly asks.
 
 ## Repo Layout
 
 ```
 architecture-overview.md     project-level architecture and evolution path
-conventions/                 cross-phase technical conventions (auth/JWT, module structure,
-│                            Kafka event envelope, Angular Material design system,
+README.md                    repo guide and document index
+PROGRESS.md                  daily progress log
+conventions/                 cross-phase technical conventions (API, auth/JWT, module structure,
+│                            data lifecycle, DB migrations, Kafka event envelope, observability,
+│                            Angular Material design system,
 │                            aliceut-ecom-backend / aliceut-ecom-frontend coding standards)
 guidelines/                  developer process docs (git workflow, testing guidelines,
-│                            development flow / onboarding)
+│                            development flow / onboarding, subagent routing)
+└── templates/               CLAUDE.md templates copied into the backend / frontend repos
 phase-1/
-├── requirements/
-│   ├── BRD.md
-│   └── user-stories/
-├── technical-design/    phase-specific designs (ERD, API specs, module inventory, event catalog)
-└── ui-design/           phase-specific UI designs (portal wireframes, navigation routing)
-phase-2/                 (future: V2 scope — K8s, real payments, etc.)
+├── requirements/        BRD.md + user-stories/ (buyer / seller / admin / platform)
+├── technical-design/    phase-specific designs (ERD, API specs, module inventory, event catalog,
+│                        compose topology, cleanup jobs, consumer field matrix)
+├── ui-design/           phase-specific UI designs (portal wireframes, shared components,
+│                        navigation routing)
+├── diagrams/            Mermaid flow and lifecycle diagrams (01–06)
+├── screens/             exported Figma screen images
+└── audits/              cross-document alignment audits and their fix decisions
+phase-2/                 (planned, not yet on disk: V2 scope — K8s, real payments, etc.)
 ```
 
 Numeric `phase-N/` prefix sorts by delivery order. `conventions/` holds stable cross-phase technical decisions. `guidelines/` holds developer process docs (git, testing, onboarding). Requirements and technical design cleanly separated per phase.
+
+**Sibling repos.** This document repo is one of four that must be cloned side by side: `aliceut-ecom-document`, `aliceut-ecom-backend`, `aliceut-ecom-frontend`, `aliceut-ecom-infra`. The `docker-compose.yml` and every config it mounts live in `aliceut-ecom-infra`, and its bind mounts are relative to that repo root — a different layout breaks compose (`architecture-overview.md § 10`, `guidelines/development-flow.md § 1`).
 
 Solo developer, learning/portfolio project, no deadline — quality over speed.
 
 ## Authoritative Reference
 
-`architecture-overview.md` is the project-level architecture and evolution reference. `phase-1/requirements/BRD.md` is the single source of truth for Phase 1 scope, stack, and locked decisions. Always read both before proposing Phase 1 architecture, entities, or scope changes. Every BRD decision in §12 is signed off — treat as constraints, not suggestions.
+`architecture-overview.md` is the project-level architecture and evolution reference. `phase-1/requirements/BRD.md` is the single source of truth for Phase 1 scope, stack, and resolved decisions. Always read both before proposing Phase 1 architecture, entities, or scope changes. §12 records the decisions currently in force: follow them by default rather than reopening them ad hoc, and when one genuinely needs to change, amend the BRD in the same pass so every document that cites it stays aligned.
 
 ## Design Reference
 
@@ -45,7 +58,7 @@ When UI/screen/component work is requested without a specified source, default t
 
 `PROGRESS.md` at repo root is the daily progress log. Read it at session start to see recent activity. Update it at session end (or when a meaningful milestone lands) with a new dated entry at the top. Keep entries concise — one bulleted list per section.
 
-## Locked Stack (BRD §12)
+## Current Stack (BRD §12)
 
 - **Frontend:** Angular 22+ + Angular Material
 - **Backend:** NestJS 11+ (modular monolith, microservice-ready)
@@ -59,7 +72,7 @@ When UI/screen/component work is requested without a specified source, default t
 
 Kafka runs in KRaft mode (no Zookeeper) to keep the local footprint down. Redpanda is not a substitute.
 
-## Non-Negotiable Rules
+## Core Rules
 
 ### Money handling (FR-P-04, Risks §9)
 - Storage: Postgres `NUMERIC(19,4)` + ISO 4217 code column. FX rates use `NUMERIC(19,8)`.
@@ -101,8 +114,4 @@ Kaggle "Amazon Product Data" dataset, curated to **100 products** across major c
 
 ## Explicitly Out of Scope in V1 (BRD §3.2)
 
-Do not implement unless user reopens scope: real payment gateway, real shipping, reviews/ratings, wishlist, recommendations, seller analytics, dispute mediation, commission/payout, i18n, native mobile, K8s.
-
-## Prior-Session Context
-
-Previous session (2026-08-19 21:09–22:01) ran BRD gathering with user acting as product owner. Session ended with "I'll continue in next session." Next expected activity: design phase kickoff or task decomposition. Confirm direction before writing code.
+Do not implement unless user reopens scope: real payment gateway, real shipping, reviews/ratings, wishlist, recommendations, seller analytics, dispute mediation, commission/payout, i18n, native mobile, K8s, buyer email address change.

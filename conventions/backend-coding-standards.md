@@ -1,7 +1,7 @@
 # Backend Coding Standards
 
 **Status:** Complete  
-**Source of truth:** [BRD v1.2](../phase-1/requirements/BRD.md), [module-architecture](backend-module-architecture.md)
+**Source of truth:** [BRD v1.3](../phase-1/requirements/BRD.md), [module-architecture](backend-module-architecture.md)
 
 ---
 
@@ -204,10 +204,10 @@ export class Money {
 
 ### 3.2 Currency scale cache (DB-sourced)
 
-`minor_unit_scale` drives display rounding and `toFixed()` precision. The authoritative source is `pricing.currency.minor_unit_scale` — **do not hardcode a `CURRENCY_SCALE` constant**. Scale values are ISO 4217 standard and never change between restarts, so a startup-loaded in-memory cache is correct: no per-request DB hit, and admin can add new currencies without a code deploy.
+`minor_unit_scale` drives display rounding and `toFixed()` precision. The authoritative source is `pricing.currency.minor_unit_scale` — **do not hardcode a `CURRENCY_SCALE` constant**. Scale values are ISO 4217 standard and never change between restarts, so a startup-loaded in-memory cache is correct: no per-request DB hit, and admin can add new currencies without a code deploy. Calling `get()` with an absent code is an operations fault, never caller error — `pricing.currency` is unseeded, or the row was added since the last refresh — so `get()` throws `CurrencyScaleUnavailableError` (an `AppError` subclass) rather than returning a default. It maps to `500`, not to the `APP_ERROR_STATUS_MAP` default of `422` (§5.2). A default of 2 is not safe: JPY has `minor_unit_scale = 0`, and `"1000.00"` is the wrong amount for a JPY price (FR-P-04).
 
 ```typescript
-// libs/shared/src/money/currency-scale.cache.ts
+// libs/pricing/src/infrastructure/currency-scale.cache.ts
 import { Injectable, OnApplicationBootstrap, OnApplicationShutdown } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 
@@ -230,7 +230,13 @@ export class CurrencyScaleCache implements OnApplicationBootstrap, OnApplication
   }
 
   get(code: string): number {
-    return this.scales.get(code) ?? 2;
+    const scale = this.scales.get(code);
+    if (scale === undefined) {
+      // Client message stays generic; the operator diagnosis rides in `context`,
+      // which GlobalExceptionFilter logs and never returns (§5.2).
+      throw new CurrencyScaleUnavailableError(code);
+    }
+    return scale;
   }
 
   private async refresh(): Promise<void> {
@@ -244,7 +250,25 @@ export class CurrencyScaleCache implements OnApplicationBootstrap, OnApplication
 }
 ```
 
-Register `CurrencyScaleCache` in the `SharedModule` and export it. Any service that formats money for JSON output injects it. The cache loads on startup and refreshes every 24 hours — adding a new `pricing.currency` row takes effect within one day without a restart.
+```typescript
+// libs/pricing/src/domain/errors/currency-scale-unavailable.error.ts
+export class CurrencyScaleUnavailableError extends AppError {
+  readonly code = 'CURRENCY_SCALE_UNAVAILABLE';
+
+  constructor(currencyCode: string) {
+    super('Currency configuration is unavailable. Please try again later.', {
+      currencyCode,
+      diagnosis: 'pricing.currency is unseeded or CurrencyScaleCache has not refreshed',
+    });
+  }
+}
+```
+
+This is a **server** fault, not a validation failure, so it maps to `500` in `APP_ERROR_STATUS_MAP` (§5.2) rather than falling through to that map's `?? 422` default. The caller did nothing wrong and has nothing to correct, so a `422` would be a lie, and the operator detail that makes the fault diagnosable — which currency was asked for, and that the seed or the refresh is the suspect — belongs in the log `context`, never in the response body (§5.3).
+
+Register `CurrencyScaleCache` in `PricingModule` only — **not** `SharedModule` (D-03: sole-writer ENFORCE, `architecture-overview.md:111`). `libs/shared` holds technical primitives; it never holds code that reads a module-owned table (`architecture-overview.md:203`). The cache reads `pricing.currency` by raw SQL, so it belongs to the module that owns that schema. Expose it outside `PricingModule` only through `PricingApplicationService.getCurrencyScale(code: string): number`. Other modules that need a currency scale call that method; they do not inject `CurrencyScaleCache` directly.
+
+The 24-hour refresh is a scheduler, and D-03 binds schedulers the same way it binds writes: the scheduler reads `pricing.currency` from inside its owning module, which is legal precisely because `CurrencyScaleCache` now lives there. A scheduler in `libs/shared` or any other module reading `pricing.currency` would still be the same sole-writer violation.
 
 **Seed data** — the `pricing.currency` migration must insert all supported currencies (and any reference currencies) before the app starts:
 
@@ -256,7 +280,7 @@ Register `CurrencyScaleCache` in the `SharedModule` and export it. Any service t
 | `JPY` | 0 | `true` |
 | `BHD` | 3 | `false` |
 
-V1 seller-pricing currencies are `USD`, `THB`, `JPY`, `SGD` only (BRD §12). The cache reloads at each restart; adding a new row to `pricing.currency` takes effect after the next deploy with no code change.
+V1 seller-pricing currencies are `USD`, `THB`, `JPY`, `SGD` only (BRD §12). The cache loads at startup and reloads on the 24-hour `TTL_MS` timer above, so a row added to `pricing.currency` takes effect at the next refresh — **no code change and no deploy**, which is the point of sourcing scale from the table. Until that refresh the new code is absent from the cache and `get()` throws (§5.2 maps it to `500`), so a currency is seeded before anything is priced in it, not alongside the first price.
 
 ### 3.3 DB ↔ application ↔ JSON mapping
 
@@ -273,8 +297,10 @@ const total = money.multiply(new Decimal(quantity));
 // back to DB string (always 4dp for storage)
 const storageValue: string = total.amount.toFixed(4);
 
-// JSON response — scale-aware (inject CurrencyScaleCache; see §3.2)
-const scale = this.currencyScaleCache.get(total.currency);
+// JSON response — scale-aware.
+// Inside PricingModule: inject CurrencyScaleCache directly (sole owner).
+// From any other module: inject PricingApplicationService and call .getCurrencyScale() (see §3.2).
+const scale = this.pricingApplicationService.getCurrencyScale(total.currency);
 const jsonValue: string = total.toJSON(scale); // '1000' for JPY, '9.99' for USD
 ```
 
@@ -316,7 +342,7 @@ app.useGlobalPipes(
 ### 4.2 Monetary fields — use `@IsNumberString()`, not `@IsNumber()`
 
 ```typescript
-import { IsNumberString, IsIn, IsISO8601, IsInt, Min } from 'class-validator';
+import { IsNumberString, IsIn, IsISO8601, IsOptional } from 'class-validator';
 
 export class CreateOfferDto {
   @IsNumberString()        // accepts "9.99" — rejects number 9.99
@@ -325,12 +351,9 @@ export class CreateOfferDto {
   @IsIn(['USD', 'THB', 'JPY', 'SGD'])
   currency: string;
 
+  @IsOptional()                 // without this, the validator runs on undefined and fails (§ 4.4)
   @IsISO8601({ strict: true })  // rejects non-UTC or missing timezone
-  saleStartAt?: string;
-
-  @IsInt()
-  @Min(1)
-  minQty: number;
+  saleStartAt?: string | undefined;
 }
 ```
 
@@ -418,10 +441,16 @@ export class GlobalExceptionFilter implements ExceptionFilter {
 
     if (exception instanceof AppError) {
       const status = APP_ERROR_STATUS_MAP[exception.code] ?? 422;
+      if (status >= 500) {
+        // Server-side AppError: the operator needs the diagnosis, the client must not see it.
+        this.logger.error({ err: exception, context: exception.context }, exception.code);
+      }
       response.status(status).json({
         statusCode: status,
         error: exception.code,
-        message: exception.message,  // safe — domain errors have caller-facing messages
+        // safe — every AppError message is caller-facing by construction (§5.3);
+        // operator-only detail lives in `exception.context`, which is logged, never returned.
+        message: exception.message,
       });
       return;
     }
@@ -444,9 +473,12 @@ export const APP_ERROR_STATUS_MAP: Record<string, number> = {
   OFFER_NOT_FOUND: 404,
   INSUFFICIENT_INVENTORY: 409,
   FORBIDDEN_OPERATION: 403,
+  CURRENCY_SCALE_UNAVAILABLE: 500,  // server fault, not a validation failure (§3.2)
   // ... extend per module
 };
 ```
+
+**Every `AppError` code must have an entry here.** The `?? 422` default is a safety net, not a policy: an unmapped code is reported to the client as a validation failure, which is wrong for any fault the caller cannot correct. A `500` mapping is how a server-side `AppError` — an unseeded reference table, a cache that has not loaded — reaches the client as a server error instead of as bad input.
 
 ### 5.3 Rules
 
@@ -455,6 +487,8 @@ export const APP_ERROR_STATUS_MAP: Record<string, number> = {
 - **Infrastructure layer:** translate infrastructure exceptions (TypeORM `EntityNotFoundError`, `QueryFailedError`) into `AppError` before surfacing to the application layer.
 - **HTTP layer (controllers):** never catch exceptions — let `GlobalExceptionFilter` handle them.
 - **Never** include a stack trace, SQL query, or internal service name in a client-facing error response.
+- **An `AppError`'s `message` is returned to the client verbatim, so write it for the caller** — no table or column names, no cache or deploy state, no remediation the caller cannot perform. Anything an operator needs and a caller must not see goes in the `context` argument, which the filter logs and never returns.
+- **Register every `AppError` code in `APP_ERROR_STATUS_MAP`.** Relying on the `?? 422` default mislabels a server fault as bad input.
 
 ---
 
@@ -732,7 +766,7 @@ Gate these before approving any backend PR:
 - [ ] All monetary arithmetic uses `decimal.js` / `Money.multiply()` / `Money.add()` — no JS `+`, `*`, `/` operators on monetary values
 - [ ] TypeORM monetary columns declared as `string` with `numericStringTransformer`
 - [ ] JSON response monetary fields are strings, not numbers
-- [ ] Currency scale resolved via injected `CurrencyScaleCache`, not a hardcoded `CURRENCY_SCALE` constant
+- [ ] Currency scale resolved via `PricingApplicationService.getCurrencyScale()` (or, inside `PricingModule` only, direct `CurrencyScaleCache` injection) — never a hardcoded `CURRENCY_SCALE` constant, and never direct `CurrencyScaleCache` injection outside `PricingModule` (D-03)
 
 ### Event-driven integrity
 - [ ] Outbox event written in the same `DataSource.transaction()` as the domain state change
@@ -741,7 +775,7 @@ Gate these before approving any backend PR:
 
 ### Cross-module boundaries
 - [ ] No cross-module DB joins (each module queries only its own tables)
-- [ ] No cross-module service injection (communicate via Kafka events or the module's public `index.ts` API)
+- [ ] No cross-module injection of another module's **internal** services — communicate via Kafka events, or call the module's exported ApplicationService through its public `index.ts` (the latter is the permitted synchronous route; see §13 design decision on cross-module synchronous calls)
 
 ### Validation and security
 - [ ] No `ValidationPipe` re-registered at controller/handler level

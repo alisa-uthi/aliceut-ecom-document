@@ -1,7 +1,7 @@
 # Phase 1 — Scheduled Cleanup Jobs
 
 **Status:** Complete  
-**Source of truth:** [BRD v1.2](../requirements/BRD.md)
+**Source of truth:** [BRD v1.3](../requirements/BRD.md)
 
 Phase 1 implementation of the data lifecycle convention. Every job runs in the `workers` NestJS process using `@nestjs/schedule`. There is **no in-database scheduler**: PostgreSQL is the stock `postgres:16-alpine` image with no `pg_cron` and no scheduling extension, and nothing in this document may require one.
 
@@ -24,6 +24,8 @@ Phase 1 implementation of the data lifecycle convention. Every job runs in the `
 | [`cleanup-processed-events`](#cleanup-processed-events) | `platform.processed_event` | `30 3 * * *` | `CLEANUP_PROCESSED_EVENTS_CRON` | `pg_advisory_lock` |
 | [`cleanup-read-notifications`](#cleanup-read-notifications) | `notifications.in_app_notification` | `35 3 * * *` | `CLEANUP_IN_APP_NOTIFICATIONS_CRON` | `pg_advisory_lock` |
 | [`lift-expired-suspensions`](#lift-expired-suspensions) | `seller.seller_profile` | `0 * * * *` | `SUSPENSION_EXPIRY_CRON` | `pg_advisory_lock` |
+
+**This table is the retention and lifecycle view, not the whole scheduled set.** The jobs missing from it — the ET-09 listing-removed digest, the hourly FX refresh, the delivery mock and the suspended-seller auto-refund — schedule domain work rather than deletes and live in [backend-module-architecture.md § Scheduled tasks](./backend-module-architecture.md#scheduled-tasks). `GET /health` reports `registeredJobs` over the whole registry, so that figure is larger than this table ([api-design/health.md](./api-design/health.md#workers-health-check)).
 
 - [Job conventions](#job-conventions)
 - [Stores with no job here](#no-job)

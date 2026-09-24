@@ -1,7 +1,7 @@
 # Database Migrations Convention
 
 **Status:** Complete  
-**Source of truth:** [BRD v1.2](../phase-1/requirements/BRD.md), [module-architecture](backend-module-architecture.md)
+**Source of truth:** [BRD v1.3](../phase-1/requirements/BRD.md), [module-architecture](backend-module-architecture.md)
 
 Migration scripts live in the backend repository — **`aliceut-ecom-backend`** — under `migrations/`. The backend never runs migrations automatically; all migrations are intentional, operator-triggered actions.
 

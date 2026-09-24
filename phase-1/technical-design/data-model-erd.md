@@ -3,7 +3,7 @@
 **Status:** Complete  
 **Version:** 1.1  
 **Last updated:** 2026-09-14  
-**Source of truth:** [BRD v1.2](../requirements/BRD.md), [architecture overview](../../architecture-overview.md), and Phase 1 user stories.  
+**Source of truth:** [BRD v1.3](../requirements/BRD.md), [architecture overview](../../architecture-overview.md), and Phase 1 user stories.  
 **Scope:** Logical data design for V1. It defines ownership and constraints; physical indexes and migration order follow in the database-migration design.
 
 ---
@@ -98,7 +98,7 @@ All application enums are defined as PostgreSQL custom types before any schema m
 | `portal_type` | `identity` | `BUYER`, `SELLER`, `ADMIN` |
 | `product_status` | `catalog` | `ACTIVE`, `REMOVED` |
 | `offer_status` | `catalog` | `ACTIVE`, `INACTIVE`, `REMOVED`, `FLAGGED` |
-| `price_type` | `pricing` | `LIST`, `SALE`, `B2B_TIER` |
+| `price_type` | `pricing` | `LIST`, `SALE` — two values only; `B2B_TIER` is not a V1 price type (BRD § Amendments D-02) |
 | `reservation_status` | `inventory` | `ACTIVE`, `CONSUMED`, `RELEASED`, `EXPIRED` |
 | `placement_outcome` | `orders` | `FULLY_PLACED`, `PARTIALLY_PLACED` |
 | `fulfillment_status` | `orders` | `PENDING`, `SHIPPED`, `DELIVERED`, `REFUNDED`, `CANCELLED` |
@@ -242,7 +242,7 @@ Storing only `token_hash` is a **PostgreSQL storage rule**, and it applies equal
 | `title`, `description`, `brand` | `TEXT` | Buyer-visible catalog attributes; `title` required |
 | `status` | `product_status` | Required catalog lifecycle state |
 | `source_reference` | `TEXT` | Nullable seed-dataset traceability |
-| `attributes` | `JSONB` | Nullable; V1 only: `{ "rating": 4.3 }` populated at seed import time. No mutation endpoint exists in V1 — rating display is read-only from seed data. |
+| `attributes` | `JSONB` | Nullable; flat key/value catalog attributes imported at seed time (e.g. `{ "material": "aluminium", "weight": "250 g" }`), rendered as a read-only list on the PDP. **No `rating` key** — the rating filter and display were dropped from V1 on 2026-09-14 (BRD § Amendments, FR-B-03); nothing writes one and nothing reads one. No mutation endpoint exists in V1 (`api-design/seller.md` § No `attributes` on the product). |
 | `created_at`, `updated_at` | `TIMESTAMPTZ` | Required audit timestamps |
 
 `catalog.product` has no price. It is a **shared catalogue entry**: one product carries offers from many sellers, and that sharing is deliberate and unchanged.
@@ -327,8 +327,8 @@ Status transitions, each paired with the `status_changed_reason` it records:
 | `id` | `UUID` | PK; `DEFAULT uuidv7()` |
 | `offer_id` | `UUID` | Required FK → `catalog.offer(id)` |
 | `amount` | `NUMERIC(19,4)` | Required; `CHECK (amount >= 0)` |
-| `price_type` | `price_type` | Required: `LIST`, `SALE`, or `B2B_TIER` |
-| `min_qty` | `INT` | Required; `DEFAULT 1`; `CHECK (min_qty >= 1)`; `CHECK (price_type <> 'B2B_TIER' OR min_qty > 1)` |
+| `price_type` | `price_type` | Required: `LIST` or `SALE` |
+| `min_qty` | `INT` | Required; `DEFAULT 1`; `CHECK (min_qty = 1)`. V1 writes nothing but `1` — the column carried `B2B_TIER` quantity breaks, which are deferred to Phase 2 (D-02). It is kept because the `LIST` uniqueness index below is declared on it; relaxing the `CHECK` is the only schema change a future quantity break needs. |
 | `starts_at`, `ends_at` | `TIMESTAMPTZ` | Required bounded valid interval for `SALE`; null for other price types |
 | `inactive_at` | `TIMESTAMPTZ` | Nullable; set when a price row is superseded or withdrawn. A row with a non-null value never participates in effective-price resolution and is excluded from the uniqueness constraints below. |
 | `created_at`, `updated_at` | `TIMESTAMPTZ` | Required audit timestamps |
@@ -337,7 +337,7 @@ Status transitions, each paired with the `status_changed_reason` it records:
 
 Uniqueness is enforced by two constraints, both scoped to live rows, because a unique key that ignores the time bounds would make a scheduled `SALE` alongside a live one impossible (FR-P-06b):
 
-- `LIST` and `B2B_TIER` — partial unique index on `(offer_id, price_type, min_qty) WHERE price_type <> 'SALE' AND inactive_at IS NULL`.
+- `LIST` — partial unique index on `(offer_id, price_type, min_qty) WHERE price_type = 'LIST' AND inactive_at IS NULL`. Since `min_qty` is always `1`, the key is effectively `(offer_id)` for this price type, so at most one active `LIST` row exists per offer. Matches `api-design/pricing.md` § Uniqueness.
 - `SALE` — `EXCLUDE USING gist (offer_id WITH =, tstzrange(starts_at, ends_at) WITH &&) WHERE (price_type = 'SALE' AND inactive_at IS NULL)`. This puts US-S-04b:91 ("overlapping SALE periods are rejected") in the database rather than in application code, while still permitting any number of sequential, non-overlapping SALE rows.
 
 The `EXCLUDE` constraint requires the `btree_gist` extension, created by `CREATE EXTENSION IF NOT EXISTS btree_gist;` in migration `0001_create_extensions`, which runs before the `pricing` migration. `offer_id` is a `uuid`, core PostgreSQL 16 ships no GiST operator class for that type, and `gist_uuid_ops` arrives only with `btree_gist` — without the extension the migration fails outright with `data type uuid has no default operator class for access method "gist"`. The extension is bundled contrib, present in the official image and trusted from PostgreSQL 13 onwards, so it needs no custom image and no superuser. The NFR-18 portability caveat is that a managed PostgreSQL forbidding contrib extensions also forbids this constraint.

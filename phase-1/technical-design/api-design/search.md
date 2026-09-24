@@ -3,7 +3,7 @@
 **Status:** Complete  
 **Module:** `Search`  
 **Parent:** [API Design Index](../api-design.md)  
-**Source of truth:** [BRD v1.2](../../requirements/BRD.md), [ERD](../data-model-erd.md)  
+**Source of truth:** [BRD v1.3](../../requirements/BRD.md), [ERD](../data-model-erd.md)  
 **Conventions:** [api-conventions.md](../../../conventions/api-conventions.md) — `operationId` naming (`<Module>_<verb><Resource>`), response envelope, cursor pagination, error shape, money-as-string  
 **Correlation:** every endpoint accepts an `X-Correlation-ID` request header, generates a UUIDv7 when it is absent, echoes it on the response, and carries the same value into every log line and into the `correlation_id` field of every Kafka event envelope it produces — see [observability.md § Correlation ID](../../../conventions/observability.md#correlation-id).
 
@@ -71,10 +71,11 @@ PUT /products
           "attributes":             { "type": "object", "enabled": false }
         }
       },
-      "lowest_offer_id":            { "type": "keyword" },
-      "lowest_offer_price_type":    { "type": "keyword" },
-      "lowest_offer_currency_code": { "type": "keyword" },
-      "lowest_offer_amount":        { "type": "scaled_float", "scaling_factor": 10000 },
+      "lowest_offer_id":                { "type": "keyword" },
+      "lowest_offer_price_type":        { "type": "keyword" },
+      "lowest_offer_currency_code":     { "type": "keyword" },
+      "lowest_offer_amount":            { "type": "scaled_float", "scaling_factor": 10000 },
+      "lowest_offer_compare_at_amount": { "type": "scaled_float", "scaling_factor": 10000 },
       "display_prices": {
         "properties": {
           "USD":                    { "type": "scaled_float", "scaling_factor": 10000 },
@@ -94,6 +95,7 @@ PUT /products
           "native_currency_code":   { "type": "keyword" },
           "amount":                 { "type": "scaled_float", "scaling_factor": 10000 },
           "price_type":             { "type": "keyword" },
+          "compare_at_amount":      { "type": "scaled_float", "scaling_factor": 10000 },
           "available_qty":          { "type": "integer" },
           "display_prices": {
             "properties": {
@@ -113,7 +115,7 @@ PUT /products
 **Notes on the shape**
 
 - `display_prices` is declared per V1 currency (`USD`, `THB`, `JPY`, `SGD` — the seller-price allowlist) rather than as a dynamic map, so each key gets the money type explicitly. The product-level copy is the lowest indexable offer's converted price and is what `priceMin`/`priceMax`, the price sorts and the `priceRange` aggregation read; the nested copy is per offer.
-- There is **no rating, review count or review field**, in keeping with reviews being out of V1 scope (BRD §3.2) and with the absence of a `minRating` param.
+- There is **no rating, review count or review field**, in keeping with reviews being out of V1 scope (BRD §3.2) and with FR-B-03's 2026-09-14 amendment dropping the rating filter and display. No `minRating` param exists, and `catalog.product.attributes` carries no `rating` key (`data-model-erd.md` § `catalog.product`).
 - `price_type` holds `LIST` or `SALE`. There is no third value and no `min_qty` field on an offer entry: `B2B_TIER` is not a V1 price type (Wave 0 decision D-02), and `min_qty` existed only to carry its quantity break, so `offer.changed` no longer publishes one and nothing writes one here.
 - Amounts cross the wire to clients as decimal strings, unchanged. `scaled_float` is a storage and comparison type: values are read back and re-rendered with `decimal.js`, and no floating-point arithmetic is performed on a monetary value at any point (FR-P-04a).
 - `images` and `variants.attributes` are `enabled: false` — stored in `_source` and returned, never indexed, because nothing queries them.
@@ -166,6 +168,7 @@ The story text at US-B-04:112 writes the sort token as `?sort=price_asc`; that p
       "amount": "99.99",
       "currency": "USD",
       "priceType": "LIST | SALE",
+      "compareAtAmount": "119.99 | null",
       "displayAmount": "3440.00",
       "displayCurrency": "THB",
       "fxRate": "34.40000000",
@@ -185,7 +188,7 @@ The story text at US-B-04:112 writes the sort token as `?sort=price_asc`; that p
 
 **Notes:**
 - `lowestOffer.amount` / `lowestOffer.currency` = the offer's price in its `native_currency_code`. Each offer has exactly one pricing currency, so the "lowest offer" comparison is made on the indexed `display_prices[currency]` value for the requested currency and there is no per-offer currency choice to make.
-- `lowestOffer.priceType` is `LIST` or `SALE` only. `B2B_TIER` is never the indexed price: search is `PUBLIC`, so no account type is known, and a tier price would be shown to buyers who cannot have it. B2B tiers resolve on the PDP, which reads the account type from the JWT — see [catalog.md](catalog.md#offer-currency-and-price-resolution).
+- `lowestOffer.priceType` is `LIST` or `SALE` only (D-02). `compareAtAmount` is the offer's live `LIST` amount when `priceType = 'SALE'`, enabling struck-through original price display on the search card (US-B-05). It is `null` when `priceType = 'LIST'`. Effective-price resolution is by price type and current time only — account type and quantity are not inputs. See [catalog.md § Offer currency and price resolution](catalog.md#offer-currency-and-price-resolution).
 - `displayAmount` / `displayCurrency` / `fxRate` / `fxAsOf` / `fxStale` follow the single nullability contract documented in [catalog.md § Get product offers](catalog.md#get-product-offers): same currency → display echoes native with `fxRate: null` and `fxStale: false`; FX row present → converted, carrying the row's `as_of` and `fxStale = now() - as_of > FX_STALE_AFTER_HOURS` (env, default 24); no FX row for the pair → `displayAmount: null`, `fxRate: null`, `fxAsOf: null`, `fxStale: null`, and the client shows the native amount alone. `fxRate` is never `"1.00000000"` for the same-currency case — that would imply a stored rate exists.
 - `facets.priceRange` `displayMin` / `displayMax` / `displayCurrency` follow the same rule, and `displayMin`/`displayMax` are `null` together when the pair has no rate.
 - Same-currency shape example (`currency=USD`, offer priced in USD):
@@ -195,6 +198,7 @@ The story text at US-B-04:112 writes the sort token as `?sort=price_asc`; that p
     "amount": "99.99",
     "currency": "USD",
     "priceType": "LIST",
+    "compareAtAmount": null,
     "displayAmount": "99.99",
     "displayCurrency": "USD",
     "fxRate": null,

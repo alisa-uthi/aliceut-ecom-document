@@ -1,7 +1,7 @@
 # Frontend Coding Standards
 
 **Status:** Complete  
-**Source of truth:** [BRD v1.2](../phase-1/requirements/BRD.md), [design-system](design-system.md)
+**Source of truth:** [BRD v1.3](../phase-1/requirements/BRD.md), [design-system](design-system.md)
 
 ---
 
@@ -397,7 +397,7 @@ export const routes: Routes = [
 
 | Guard | Condition | Failure redirect |
 |-------|-----------|-----------------|
-| `authGuard` | Valid access token present in `AuthService` | `/auth/login?returnUrl=<current>` |
+| `authGuard` | Valid access token present in `AuthService` | `/login?returnUrl=<current>` — the portal login route: `/login` in the buyer app, `/seller/login` in the seller app, `/admin/login` in the admin app |
 | `emailVerifiedGuard` | `currentUser.emailVerified === true` | `/account/verify-email` |
 | `sellerApprovedGuard` | `currentUser.sellerKycStatus === 'APPROVED'` | `/seller/kyc` |
 | `roleGuard` | `currentUser.roles` contains required role | `/403` |
@@ -409,7 +409,7 @@ export const authGuard: CanActivateFn = (route, state) => {
   const auth = inject(AuthService);
   const router = inject(Router);
   if (auth.isAuthenticated()) return true;
-  return router.createUrlTree(['/auth/login'], { queryParams: { returnUrl: state.url } });
+  return router.createUrlTree(['/login'], { queryParams: { returnUrl: state.url } });
 };
 ```
 

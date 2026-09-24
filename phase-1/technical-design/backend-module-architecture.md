@@ -56,7 +56,7 @@ The Postgres schema column is the module's **sole-writer** claim: no other modul
 
 **Eleven module libs, two apps.** `libs/contracts` (OpenAPI DTOs, Avro schemas) and `libs/shared` (money, errors, logger, guards) are support libraries, not modules, and own no domain state.
 
-**Thirty-nine consumer groups** are named in the last column, all of them running in `workers`: four on `inventory`, one on `orders`, twelve on `search`, twenty-one on `notifications` and one on `platform`. That total is the number of dead-letter topics to expect, since a DLQ is per group ([Outbox relay and consumer wiring](#outbox-and-consumers)) — it is not the event-topic count, because two groups subscribe to more than one topic: `platform.audit` to nearly every topic, and `inventory.fulfillment-refunded` to both refund topics.
+**Every consumer group is named in the last column**, all of them running in `workers`, on `inventory`, `orders`, `search`, `notifications` and `platform`. That column is the list of dead-letter topics to expect, since a DLQ is per group ([Outbox relay and consumer wiring](#outbox-and-consumers)) — it is not the event-topic count, because two groups subscribe to more than one topic: `platform.audit` to nearly every topic, and `inventory.fulfillment-refunded` to both refund topics.
 
 **The audit group is named `platform.audit`, once, everywhere.** `consumer_group` is half the primary key of `platform.processed_event` ([data-model-erd.md](./data-model-erd.md#table-platform-processed-event)) and it names the DLQ topic, so two spellings are not two names for one group but two groups: each would keep its own dedupe rows and its own offsets, so every event would be projected into MongoDB twice, and the dead-letter topic one of them wrote to would be a topic nothing consumed and no operator was watching. The short form `audit` is not an alias.
 
@@ -132,6 +132,8 @@ Every interval, TTL and batch size is env-configurable, and the env var name is 
 | `cleanup.scheduler.ts` | `identity`, `inventory`, `orders`, `platform`, `notifications` | per job — see [cleanup-jobs.md](./cleanup-jobs.md) | Retention deletes for expired refresh sessions, credential tokens, terminal stock reservations, idempotency keys, published outbox rows, processed-event rows and read in-app notifications |
 
 All cron expressions are UTC. The per-job schedule, retention window, env var name and advisory-lock key are recorded with each job in [cleanup-jobs.md](./cleanup-jobs.md); this table is the ownership view.
+
+**More registered jobs than scheduler files.** The table above lists *files*; `@nestjs/schedule`'s registry counts *decorated methods*, and `cleanup.scheduler.ts` carries one per retention target while every other file here holds a single job. `GET /health` reports the registry size as `registeredJobs` ([api-design/health.md § Checks](./api-design/health.md#workers-health-check)), so that figure is larger than this table's row count and the two are not a mismatch. [cleanup-jobs.md § Summary](./cleanup-jobs.md) is the retention and lifecycle view and omits the jobs that schedule domain work rather than deletes — the digest, FX refresh, delivery mock and auto-refund jobs, which are documented here and with their owning module.
 
 ---
 

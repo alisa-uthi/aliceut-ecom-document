@@ -49,7 +49,10 @@ Every component in this portal is **standalone**, uses `ChangeDetectionStrategy.
 
 Every monetary amount arrives from the API as a **string** and is rendered by `PriceDisplay` or the `currencyDisplay` pipe, which format with `Intl.NumberFormat` at the render boundary only. **No component multiplies, adds, or rounds a monetary value** — line totals, group subtotals, the item subtotal and the grand total are all server-computed fields, and there is no FX conversion anywhere in the client ([frontend-coding-standards.md § 5](../../conventions/frontend-coding-standards.md#5-money-display-patterns), FR-P-04a). Currency scale comes from `Currency.minor_unit_scale` (JPY 0, BHD 3, others 2), so no template hardcodes two decimal places. Monetary input uses `CurrencyInput`, never `<input type="number">` and never a numeric `mat-slider`. Seller pricing currencies in V1 are `USD`, `THB`, `JPY`, `SGD`.
 
-`PriceDisplay` binding from an API `effectivePrice` object: `amount` ← `displayAmount` when it is non-null, otherwise `amount`; `currency` ← the currency the chosen amount is denominated in; `isFxEstimate` ← true when `displayAmount` is a conversion (`fxRate` non-null); `offerCurrency` ← the offer's native `currency`. When `displayAmount` is `null` no rate exists for the pair, and the native amount is shown alone. A `fxStale` rate is still displayed, labelled as indicative. The three-case nullability contract is defined once, in [catalog.md § Get product offers](../technical-design/api-design/catalog.md#get-product-offers).
+`PriceDisplay`'s prop surface is owned by [design-system.md § PriceDisplay](../../conventions/design-system.md#83-pricedisplay) and the Phase-1 binding source for each input by [shared-components.md § 4.3](shared-components.md#43-pricedisplay). Neither is restated here. Two things are specific to this portal and stated only here:
+
+- **Every buyer surface prefers the display-currency figure** — `displayAmount` / `displayCurrency` — and falls back to the native `amount` / `currency` when `displayAmount` is `null`, which is the no-rate case. The fallback follows the three-case FX nullability contract in [catalog.md § Get product offers](../technical-design/api-design/catalog.md#get-product-offers).
+- **`converted` is derived in the template, never read from the response.** It is `true` when a non-null display amount is denominated in a currency other than the native one. No API response carries a `converted` flag, so the expression is the contract.
 
 <a id="pagination"></a>
 ### Pagination
@@ -88,12 +91,11 @@ No screen, control or empty state in this portal designs for reviews or ratings,
 <a id="open-contract-dependencies"></a>
 ## Open contract dependencies
 
-Two bindings this portal needs are required by a user story but have no field in the API contract that would supply them. They are recorded here rather than bound to an invented field name.
+One binding this portal needs is required by a user story but has no field in the API contract that would supply it. It is recorded here rather than bound to an invented field name.
 
 | Need | Required by | Gap |
 |---|---|---|
 | Cart line thumbnail and a link to the product | US-B-06 — "Cart page shows each line item's image, product and seller" | [cart.md § Get cart](../technical-design/api-design/cart.md#get-cart) items carry `offerId`, `productTitle`, `variantLabel`, `sellerId`, `sellerName`, `quantity`, `effectivePrice`, `lineTotal`, `availableQty`, `offerStatus` — no image reference and no product id. Product images cross catalog responses as `images[].storageKey`, which the client resolves; the cart item shape needs the same. Until it has one, the cart line renders the image slot as a placeholder and the product title is plain text rather than a link to the PDP. |
-| List price struck through when a SALE resolves | US-B-05 — "effective price (with strikethrough on SALE)" | `catalog.md` and `pricing.md` return the **resolved** `effectivePrice` only. When the resolved `priceType` is `SALE` no response carries the offer's `LIST` amount beside it, so `PriceDisplay.listAmount` has no source and is bound `null`. The SALE chip and countdown, which come from `saleEndsAt`, still render. |
 
 ---
 
@@ -308,7 +310,7 @@ div.search-layout [display: flex; gap: 24px]
 
 ### Data source and mapping
 
-`GET /search/products`. Each result carries `productId`, `title`, `brand`, `categoryId`, `categoryPath`, `images[].storageKey`, `lowestOffer`, `inStock` and `score`. `lowestOffer` maps to `ProductCard.effectivePrice`; its `displayAmount` / `displayCurrency` / `fxRate` / `fxAsOf` / `fxStale` fields drive the `≈` prefix and the indicative-rate tooltip inside `PriceDisplay`. `lowestOffer.priceType` is only ever `LIST` or `SALE` — `B2B_TIER` is never indexed, because search is public and no account type is known, so a tier price is resolved on the PDP instead.
+`GET /search/products`. Each result carries `productId`, `title`, `brand`, `categoryId`, `categoryPath`, `images[].storageKey`, `lowestOffer`, `inStock` and `score`. `lowestOffer` maps to `ProductCard.effectivePrice`; its `displayAmount` / `displayCurrency` / `fxRate` / `fxAsOf` / `fxStale` fields drive the `≈` prefix and the indicative-rate tooltip inside `PriceDisplay`. `lowestOffer.priceType` is only ever `LIST` or `SALE` — `B2B_TIER` is not a V1 price type (D-02).
 
 `facets.categories` supplies the per-category counts beside the tree checkboxes. `facets.priceRange` supplies `displayMin` / `displayMax`, which bound the two `CurrencyInput` fields; both are `null` together when no FX rate exists for the pair, and the fields then have no bounds.
 
@@ -339,12 +341,10 @@ div.search-layout [display: flex; gap: 24px]
 
 ### Data sources
 
-Two reads, because the display-currency fields and the seller name live on one form of the offer resource and the B2B tiers on the other:
+Two reads, because the display-currency fields and the seller name are returned only by the second form of the offer resource:
 
-- `GET /catalog/products/:productId?qty=N` — title, brand, description, `attributes`, `variants[]`, `images[]`, and `offers[]` with `effectivePrice` (native currency), `b2bTiers[]`, `availableQty`, `status`.
-- `GET /catalog/products/:productId/offers?currency=&qty=N` — the same offers with `sellerName` and the `displayAmount` / `displayCurrency` / `fxRate` / `fxAsOf` / `fxStale` fields. `currency` defaults to the caller's `preferredCurrency`, then `USD`.
-
-`qty` is re-sent when the quantity selector changes, so a B2B buyer sees the tier that applies to the quantity they intend to buy. Account type comes from the JWT server-side; the client passes no `accountType`.
+- `GET /catalog/products/:productId` — title, brand, description, `attributes`, `variants[]`, `images[]`, and `offers[]` with `effectivePrice` (native currency), `availableQty`, `status`.
+- `GET /catalog/products/:productId/offers?currency=` — the same offers with `sellerName` and the `displayAmount` / `displayCurrency` / `fxRate` / `fxAsOf` / `fxStale` fields. `currency` defaults to the caller's `preferredCurrency`, then `USD`.
 
 ### Layout
 
@@ -386,7 +386,11 @@ div.pdp-layout [display: grid; grid-template-columns: 1fr 380px; gap: 32px; alig
           span mat-list-item-title — {{ offer.sellerName }}
           <aliceut-price-display matListItemMeta
             [amount]="priceOf(offer)" [currency]="currencyOf(offer)"
-            [isFxEstimate]="isFxEstimate(offer)" [offerCurrency]="offer.effectivePrice.currency">
+            [priceType]="offer.effectivePrice.priceType"
+            [compareAtAmount]="offer.effectivePrice.compareAtAmount"
+            [converted]="isFxEstimate(offer)" [estimatedFrom]="offer.effectivePrice.currency"
+            [fxAsOf]="offer.effectivePrice.fxAsOf" [fxStale]="offer.effectivePrice.fxStale"
+            [saleEndsAt]="offer.effectivePrice.saleEndsAt">
           button mat-stroked-button (click)="selectOffer(offer)" *ngIf="offer.id !== selectedOffer.id" — Select
           mat-chip *ngIf="offer.id === selectedOffer.id" color="primary" — Selected
 
@@ -402,11 +406,13 @@ div.pdp-layout [display: grid; grid-template-columns: 1fr 380px; gap: 32px; alig
 
       <aliceut-price-display
         [amount]="priceOf(selectedOffer)" [currency]="currencyOf(selectedOffer)"
-        [listAmount]="null"
-        [isFxEstimate]="isFxEstimate(selectedOffer)"
-        [offerCurrency]="selectedOffer.effectivePrice.currency"
-        [saleEndsAt]="selectedOffer.effectivePrice.saleEndsAt"
-        [tierMinQty]="nextTier?.minQty ?? null" [tierAmount]="nextTier?.amount ?? null">
+        [priceType]="selectedOffer.effectivePrice.priceType"
+        [compareAtAmount]="selectedOffer.effectivePrice.compareAtAmount"
+        [converted]="isFxEstimate(selectedOffer)"
+        [estimatedFrom]="selectedOffer.effectivePrice.currency"
+        [fxAsOf]="selectedOffer.effectivePrice.fxAsOf"
+        [fxStale]="selectedOffer.effectivePrice.fxStale"
+        [saleEndsAt]="selectedOffer.effectivePrice.saleEndsAt">
 
       <!-- Variant selector -->
       div.variant-selectors *ngIf="variantGroups.length > 0" [margin-top: 16px]
@@ -448,7 +454,7 @@ There is no `variantGroups` field in the catalog contract. The selector is deriv
 
 ### Effective price
 
-Resolution is server-side and reduces to picking a `price_type` — `B2B_TIER` (B2B account and `qty >= min_qty`, highest qualifying tier) → `SALE` (live window) → `LIST`. **There is no currency ambiguity:** an offer has exactly one pricing currency, `effectivePrice.currency`, and a seller wanting a second currency publishes a second offer. `b2bTiers[]` holds the tiers the request did *not* resolve to, and the highest one below the current quantity drives the "Buy N+ at X each" hint through `tierMinQty` / `tierAmount`.
+Resolution is server-side and picks a `price_type` by current time only — `SALE` (live window) → `LIST` fallback. Account type and quantity are not inputs (BRD FR-P-06b, D-02). **There is no currency ambiguity:** an offer has exactly one pricing currency, `effectivePrice.currency`, and a seller wanting a second currency publishes a second offer. When the resolved `priceType` is `SALE`, `compareAtAmount` holds the live LIST amount and is bound to `PriceDisplay` for struck-through display (US-B-05).
 
 ### Add to cart
 
@@ -463,8 +469,7 @@ Resolution is server-side and reduces to picking a `price_type` — `B2B_TIER` (
 - **All variants out of stock:** first variant selected, out-of-stock badge, CTA disabled.
 - **FX estimate:** `PriceDisplay` renders the `≈` prefix and the info tooltip naming both currencies. A stale rate is still shown, labelled indicative.
 - **No rate for the pair:** `displayAmount` is `null`; the native amount is shown alone with no `≈`.
-- **SALE:** SALE chip with countdown from `saleEndsAt`. The struck-through list price is not rendered — see [Open contract dependencies](#open-contract-dependencies).
-- **B2B tier:** tier hint below the effective price when a tier exists above the current quantity.
+- **SALE:** SALE chip with countdown from `saleEndsAt`. The struck-through list price is rendered from `compareAtAmount` — bound to `PriceDisplay.[compareAtAmount]`.
 - **Error:** product load failure renders an error banner with a Retry action; a `404` routes to the not-found page.
 
 ### Mobile (< 960px)
@@ -532,8 +537,10 @@ div.cart-layout [display: grid; grid-template-columns: 1fr 340px; gap: 24px; ali
           <aliceut-price-display
             [amount]="item.lineTotal.displayAmount ?? item.lineTotal.amount"
             [currency]="item.lineTotal.displayAmount ? item.lineTotal.displayCurrency : item.lineTotal.currency"
-            [isFxEstimate]="!!item.lineTotal.displayAmount && item.lineTotal.displayCurrency !== item.lineTotal.currency"
-            [offerCurrency]="item.lineTotal.currency">
+            [priceType]="'LIST'"
+            [converted]="!!item.lineTotal.displayAmount && item.lineTotal.displayCurrency !== item.lineTotal.currency"
+            [estimatedFrom]="item.lineTotal.currency"
+            [fxAsOf]="item.lineTotal.fxAsOf" [fxStale]="item.lineTotal.fxStale">
           button mat-button color="warn" (click)="removeItem(item)" — Remove
 
   <!-- Order summary -->
@@ -547,25 +554,37 @@ div.cart-layout [display: grid; grid-template-columns: 1fr 340px; gap: 24px; ali
         div.summary-row *ngFor="let group of cart.groups; trackBy: trackByGroupKey"
           [display: flex; justify-content: space-between; margin-bottom: 8px]
           span mat-body-2 — {{ group.sellerName }} ({{ group.currency }})
-          <aliceut-price-display [amount]="group.subtotal" [currency]="group.currency">
+          <aliceut-price-display
+            [amount]="group.displaySubtotal ?? group.subtotal"
+            [currency]="group.displaySubtotal ? group.displayCurrency : group.currency"
+            [priceType]="'LIST'"
+            [converted]="!!group.displaySubtotal && group.displayCurrency !== group.currency"
+            [estimatedFrom]="group.currency"
+            [fxAsOf]="group.fxAsOf" [fxStale]="group.fxStale">
 
         mat-divider [margin: 12px 0]
 
         div.summary-row [display: flex; justify-content: space-between; margin-bottom: 8px]
           span mat-body-2 — Item subtotal
-          <aliceut-price-display [amount]="cart.itemSubtotal.displayAmount" [currency]="cart.itemSubtotal.displayCurrency">
+          <aliceut-price-display [amount]="cart.itemSubtotal.displayAmount" [currency]="cart.itemSubtotal.displayCurrency" [priceType]="'LIST'">
         div.summary-row [display: flex; justify-content: space-between; margin-bottom: 8px]
           span mat-body-2 — Shipping
-          <aliceut-price-display [amount]="cart.shippingTotal.displayAmount" [currency]="cart.shippingTotal.displayCurrency">
+          <aliceut-price-display [amount]="cart.shippingTotal.displayAmount" [currency]="cart.shippingTotal.displayCurrency" [priceType]="'LIST'">
         div.summary-row [display: flex; justify-content: space-between; margin-bottom: 8px]
           span mat-body-2 — Tax
-          <aliceut-price-display [amount]="cart.taxTotal.displayAmount" [currency]="cart.taxTotal.displayCurrency">
+          <aliceut-price-display [amount]="cart.taxTotal.displayAmount" [currency]="cart.taxTotal.displayCurrency" [priceType]="'LIST'">
 
       mat-divider [margin: 16px 0]
 
       div.summary-row.total [display: flex; justify-content: space-between; font-weight: 500]
         span mat-body-1 — Total
-        <aliceut-price-display [amount]="cart.grandTotal.displayAmount" [currency]="cart.grandTotal.displayCurrency">
+        <aliceut-price-display [amount]="cart.grandTotal.displayAmount" [currency]="cart.grandTotal.displayCurrency" [priceType]="'LIST'">
+
+      <!-- FR-P-02 disclosure for the two cross-group totals; see Totals below -->
+      p mat-caption color="secondary" *ngIf="cart.grandTotal.fxAsOf" [margin-top: 8px]
+        mat-icon [font-size: 14px] — info_outline
+        span — Estimated total in {{ cart.displayCurrency }} — includes converted amounts, at rates as of {{ cart.grandTotal.fxAsOf | date:'medium' }}.
+        span *ngIf="cart.grandTotal.fxStale" — These rates are indicative.
 
       p mat-caption color="warn" *ngIf="!cart.grandTotal.complete" [margin-top: 8px]
         mat-icon [font-size: 14px] — warning_amber
@@ -591,13 +610,19 @@ Every figure in the summary is a server-computed string. **Nothing on this page 
 
 | Row | Field | Notes |
 |---|---|---|
-| Per-seller row | `groups[].subtotal` in `groups[].currency` | The sum of that group's line totals, in the group's own currency. `displaySubtotal` / `displayCurrency` carry the same figure in the buyer's display currency. `cartItemIds` lets the page group lines without regrouping client-side. |
+| Per-seller row | `groups[].displaySubtotal`, falling back to `subtotal` | The sum of that group's line totals. It is rendered in the buyer's display currency (`displaySubtotal` / `displayCurrency`) with the group's own `currency` as `estimatedFrom`, so a converted group subtotal carries the FR-P-02 label — exactly as a line total does. The group's native `subtotal` in `groups[].currency` is the fallback when no rate exists. `cartItemIds` lets the page group lines without regrouping client-side. |
 | Item subtotal | `itemSubtotal.displayAmount` | The sum of every group's display subtotal, in the display currency — the only currency all groups share. `complete: false` means one group could not be converted, and the caption above says so instead of presenting the figure as the cart total. |
 | Shipping | `shippingTotal.displayAmount` | Always `"0.00"` in V1, seeded from platform configuration. Real shipping is out of scope (BRD § 3.2). |
 | Tax | `taxTotal.displayAmount` | Always `"0.00"` in V1. Phase 1 defines no tax engine, tax-rate table or jurisdiction model. |
 | Total | `grandTotal.displayAmount` | `itemSubtotal + shippingTotal + taxTotal`, summed on the server, and it carries its own `complete` flag. |
 
 `grandTotal` means the **grand total**. The sum of the line items is `itemSubtotal`. While shipping and tax are zero the two figures are numerically equal, which is exactly why every binding is to the field it means rather than to whichever one happens to match today. Neither zero field carries a `complete` flag — a constant needs no conversion.
+
+**How FR-P-02's "estimated" disclosure reaches each row.** Three of the five rows are converted amounts and each discloses it differently, because only two of them have a single native currency to name:
+
+- **Line totals and per-seller subtotals** have one native currency each, so they bind the full FX prop set on `PriceDisplay` — `[converted]`, `[estimatedFrom]` (the native code), `[fxAsOf]`, `[fxStale]` — and the component renders the `≈` prefix and the info tooltip itself. `converted` is derived in the template, never read from the response: a non-null display amount whose `displayCurrency` differs from the native `currency`. There is no server-side `converted` flag ([cart.md § Get cart](../technical-design/api-design/cart.md#get-cart)). When no rate exists for the pair the display field is `null` and `fxAsOf` / `fxStale` are `null` with it; the fallback binds the native amount, `converted` evaluates to `false`, and the figure is shown alone with no `≈` — the same three-case behaviour as [§ Money](#money).
+- **`itemSubtotal` and `grandTotal`** carry `fxAsOf` / `fxStale` / `complete` and so are converted amounts too, but they are sums *across* groups with no single native currency, and `estimatedFrom` is required whenever `converted = true` ([design-system.md § PriceDisplay](../../conventions/design-system.md#83-pricedisplay)). Rather than invent a native code these totals do not have, the disclosure is the **caption on the summary block**, shown whenever `grandTotal.fxAsOf` is non-null. Per `cart.md`, that `fxAsOf` is the **oldest** constituent rate, so the caption says "rates as of" it rather than implying one rate governed the whole total; `fxStale` adds the indicative sentence. `[converted]` stays unbound on both rows for this reason and this reason only.
+- **Shipping and tax** are structural `"0.00"` constants and their response objects carry no FX fields at all, so nothing is disclosed and nothing is bound beyond `amount` / `currency` / `priceType`.
 
 Shipping and tax are labelled with their `"0.00"` value, not with "Calculated at checkout": there is nothing further to calculate, and the checkout totals are the same fields.
 
@@ -694,7 +719,11 @@ div.checkout-layout [display: grid; grid-template-columns: 1fr 340px; gap: 24px;
             span mat-list-item-line — {{ item.variantLabel }} × {{ item.quantity }}
             <aliceut-price-display matListItemMeta
               [amount]="item.lineTotal.displayAmount ?? item.lineTotal.amount"
-              [currency]="item.lineTotal.displayAmount ? item.lineTotal.displayCurrency : item.lineTotal.currency">
+              [currency]="item.lineTotal.displayAmount ? item.lineTotal.displayCurrency : item.lineTotal.currency"
+              [priceType]="'LIST'"
+              [converted]="!!item.lineTotal.displayAmount && item.lineTotal.displayCurrency !== item.lineTotal.currency"
+              [estimatedFrom]="item.lineTotal.currency"
+              [fxAsOf]="item.lineTotal.fxAsOf" [fxStale]="item.lineTotal.fxStale">
 
         <!-- Price-changed confirmation (409 PRICE_CHANGED) -->
         mat-card.warning-banner *ngIf="updatedPrices.length > 0" [margin-top: 16px; background: warn-100]
@@ -703,9 +732,9 @@ div.checkout-layout [display: grid; grid-template-columns: 1fr 340px; gap: 24px;
           div *ngFor="let change of updatedPrices; trackBy: trackByOfferId"
             p mat-body-2
               — {{ change.productTitle }}: was
-              <aliceut-price-display [amount]="change.shownAmount" [currency]="change.currency">
+              <aliceut-price-display [amount]="change.shownAmount" [currency]="change.currency" [priceType]="'LIST'">
               , now
-              <aliceut-price-display [amount]="change.newAmount" [currency]="change.currency">
+              <aliceut-price-display [amount]="change.newAmount" [currency]="change.currency" [priceType]="'LIST'">
           mat-checkbox [formControl]="priceChangeConfirmed" — I understand and accept the updated prices
           p mat-caption — You must confirm the updated prices to place the order.
 
@@ -726,27 +755,49 @@ div.checkout-layout [display: grid; grid-template-columns: 1fr 340px; gap: 24px;
           span mat-list-item-title — {{ item.productTitle }} × {{ item.quantity }}
           <aliceut-price-display matListItemMeta
             [amount]="item.lineTotal.displayAmount ?? item.lineTotal.amount"
-            [currency]="item.lineTotal.displayAmount ? item.lineTotal.displayCurrency : item.lineTotal.currency">
+            [currency]="item.lineTotal.displayAmount ? item.lineTotal.displayCurrency : item.lineTotal.currency"
+            [priceType]="'LIST'"
+            [converted]="!!item.lineTotal.displayAmount && item.lineTotal.displayCurrency !== item.lineTotal.currency"
+            [estimatedFrom]="item.lineTotal.currency"
+            [fxAsOf]="item.lineTotal.fxAsOf" [fxStale]="item.lineTotal.fxStale">
       mat-divider [margin: 12px 0]
       div.totals
         div.summary-row *ngFor="let group of cart.groups; trackBy: trackByGroupKey" [display: flex; justify-content: space-between]
           span mat-body-2 — {{ group.sellerName }} ({{ group.currency }})
-          <aliceut-price-display [amount]="group.subtotal" [currency]="group.currency">
+          <aliceut-price-display
+            [amount]="group.displaySubtotal ?? group.subtotal"
+            [currency]="group.displaySubtotal ? group.displayCurrency : group.currency"
+            [priceType]="'LIST'"
+            [converted]="!!group.displaySubtotal && group.displayCurrency !== group.currency"
+            [estimatedFrom]="group.currency"
+            [fxAsOf]="group.fxAsOf" [fxStale]="group.fxStale">
         mat-divider [margin: 8px 0]
         div [display: flex; justify-content: space-between]
           span mat-body-2 — Item subtotal
-          <aliceut-price-display [amount]="cart.itemSubtotal.displayAmount" [currency]="cart.itemSubtotal.displayCurrency">
+          <aliceut-price-display [amount]="cart.itemSubtotal.displayAmount" [currency]="cart.itemSubtotal.displayCurrency" [priceType]="'LIST'">
         div [display: flex; justify-content: space-between]
           span mat-body-2 — Shipping
-          <aliceut-price-display [amount]="cart.shippingTotal.displayAmount" [currency]="cart.shippingTotal.displayCurrency">
+          <aliceut-price-display [amount]="cart.shippingTotal.displayAmount" [currency]="cart.shippingTotal.displayCurrency" [priceType]="'LIST'">
         div [display: flex; justify-content: space-between]
           span mat-body-2 — Tax
-          <aliceut-price-display [amount]="cart.taxTotal.displayAmount" [currency]="cart.taxTotal.displayCurrency">
+          <aliceut-price-display [amount]="cart.taxTotal.displayAmount" [currency]="cart.taxTotal.displayCurrency" [priceType]="'LIST'">
         mat-divider [margin: 8px 0]
         div [display: flex; justify-content: space-between; font-weight: 500]
           span mat-body-1 — Total
-          <aliceut-price-display [amount]="cart.grandTotal.displayAmount" [currency]="cart.grandTotal.displayCurrency">
+          <aliceut-price-display [amount]="cart.grandTotal.displayAmount" [currency]="cart.grandTotal.displayCurrency" [priceType]="'LIST'">
+        <!-- FR-P-02 disclosure for the two cross-group totals; same rule as the cart summary -->
+        p mat-caption color="secondary" *ngIf="cart.grandTotal.fxAsOf" [margin-top: 8px]
+          mat-icon [font-size: 14px] — info_outline
+          span — Estimated total in {{ cart.displayCurrency }} — includes converted amounts, at rates as of {{ cart.grandTotal.fxAsOf | date:'medium' }}.
+          span *ngIf="cart.grandTotal.fxStale" — These rates are indicative.
+        p mat-caption color="warn" *ngIf="!cart.grandTotal.complete" [margin-top: 8px]
+          mat-icon [font-size: 14px] — warning_amber
+          span — Some items could not be converted to {{ cart.displayCurrency }}. This total covers the rest.
 ```
+
+### Totals
+
+Checkout renders the **same `GET /cart` fields** as Screen 4 and follows Screen 4's rules unchanged — the same bindings on line totals and per-seller subtotals, the same caption on `itemSubtotal` and `grandTotal`, the same nothing on the two structural zeroes. See [Screen 4 § Totals](#totals) for the field-by-field table and for how FR-P-02's "estimated" disclosure reaches each row; this screen restates none of it. There is no checkout-preview endpoint and no second computation of these figures ([cart.md § Get cart](../technical-design/api-design/cart.md#get-cart)).
 
 ### Address step
 
@@ -815,13 +866,13 @@ div.sections [max-width: 800px; margin: 0 auto]
   mat-card [margin-bottom: 16px]
     div [display: flex; justify-content: space-between; font-weight: 500]
       span — Order total
-      <aliceut-price-display [amount]="order.buyerCurrencyGrandTotal" [currency]="order.buyerDisplayCurrency">
+      <aliceut-price-display [amount]="order.buyerCurrencyGrandTotal" [currency]="order.buyerDisplayCurrency" [priceType]="'LIST'">
     div [display: flex; justify-content: space-between]
       span mat-body-2 — Shipping
-      <aliceut-price-display [amount]="order.shippingTotal" [currency]="order.buyerDisplayCurrency">
+      <aliceut-price-display [amount]="order.shippingTotal" [currency]="order.buyerDisplayCurrency" [priceType]="'LIST'">
     div [display: flex; justify-content: space-between]
       span mat-body-2 — Tax
-      <aliceut-price-display [amount]="order.taxTotal" [currency]="order.buyerDisplayCurrency">
+      <aliceut-price-display [amount]="order.taxTotal" [currency]="order.buyerDisplayCurrency" [priceType]="'LIST'">
 
   <!-- One card per placed fulfillment -->
   mat-card *ngFor="let f of order.fulfillments; trackBy: trackByFulfillmentId" [margin-bottom: 16px]
@@ -839,13 +890,13 @@ div.sections [max-width: 800px; margin: 0 auto]
           span mat-list-item-title — {{ item.productTitle }} × {{ item.quantity }}
           span mat-list-item-line *ngIf="item.variantLabel" — {{ item.variantLabel }}
           <aliceut-price-display matListItemMeta
-            [amount]="item.buyerCurrencyLineTotal" [currency]="item.buyerDisplayCurrency">
+            [amount]="item.buyerCurrencyLineTotal" [currency]="item.buyerDisplayCurrency" [priceType]="'LIST'">
       mat-divider [margin: 12px 0]
       div [display: flex; justify-content: space-between; font-weight: 500]
         span — Fulfillment total
-        <aliceut-price-display [amount]="f.buyerCurrencyTotal" [currency]="f.buyerDisplayCurrency">
+        <aliceut-price-display [amount]="f.buyerCurrencyTotal" [currency]="f.buyerDisplayCurrency" [priceType]="'LIST'">
       p mat-caption color="secondary" *ngIf="f.currency !== f.buyerDisplayCurrency"
-        — Charged as <aliceut-price-display [amount]="f.totalAmount" [currency]="f.currency"> by this seller.
+        — Charged as <aliceut-price-display [amount]="f.totalAmount" [currency]="f.currency" [priceType]="'LIST'"> by this seller.
 
   <!-- Items excluded before placement -->
   mat-card.warning-section *ngIf="order.skippedItems?.length > 0" [margin-bottom: 16px]
@@ -964,7 +1015,7 @@ mat-tab-group [color=primary] [margin-bottom: 16px] (selectedTabChange)="applySt
   ng-container matColumnDef="total"
     th mat-header-cell scope="col" — Total
     td mat-cell
-      <aliceut-price-display [amount]="order.buyerCurrencyGrandTotal" [currency]="order.buyerDisplayCurrency">
+      <aliceut-price-display [amount]="order.buyerCurrencyGrandTotal" [currency]="order.buyerDisplayCurrency" [priceType]="'LIST'">
   ng-container matColumnDef="actions"
     th mat-header-cell scope="col" — <span class="cdk-visually-hidden">Actions</span>
     td mat-cell
@@ -1035,14 +1086,14 @@ mat-card [margin-bottom: 16px]
 mat-card [margin-bottom: 16px]
   div [display: flex; justify-content: space-between]
     span mat-body-2 — Shipping
-    <aliceut-price-display [amount]="order.shippingTotal" [currency]="order.buyerDisplayCurrency">
+    <aliceut-price-display [amount]="order.shippingTotal" [currency]="order.buyerDisplayCurrency" [priceType]="'LIST'">
   div [display: flex; justify-content: space-between]
     span mat-body-2 — Tax
-    <aliceut-price-display [amount]="order.taxTotal" [currency]="order.buyerDisplayCurrency">
+    <aliceut-price-display [amount]="order.taxTotal" [currency]="order.buyerDisplayCurrency" [priceType]="'LIST'">
   mat-divider [margin: 8px 0]
   div [display: flex; justify-content: space-between; font-weight: 500]
     span mat-body-1 — Order total
-    <aliceut-price-display [amount]="order.buyerCurrencyGrandTotal" [currency]="order.buyerDisplayCurrency">
+    <aliceut-price-display [amount]="order.buyerCurrencyGrandTotal" [currency]="order.buyerDisplayCurrency" [priceType]="'LIST'">
 
 div.fulfillments
   mat-card *ngFor="let f of order.fulfillments; trackBy: trackByFulfillmentId" [margin-bottom: 16px]
@@ -1071,18 +1122,18 @@ div.fulfillments
           span mat-list-item-line
             — {{ item.variantLabel }} × {{ item.quantity }} · {{ item.buyerCurrencyUnitPrice | currencyDisplay:item.buyerDisplayCurrency }} each
           <aliceut-price-display matListItemMeta
-            [amount]="item.buyerCurrencyLineTotal" [currency]="item.buyerDisplayCurrency">
+            [amount]="item.buyerCurrencyLineTotal" [currency]="item.buyerDisplayCurrency" [priceType]="'LIST'">
       mat-divider [margin: 12px 0]
       div [display: flex; justify-content: space-between]
         span mat-body-2 — Shipping
-        <aliceut-price-display [amount]="f.shippingCost" [currency]="f.currency">
+        <aliceut-price-display [amount]="f.shippingCost" [currency]="f.currency" [priceType]="'LIST'">
       div [display: flex; justify-content: space-between]
         span mat-body-2 — Tax
-        <aliceut-price-display [amount]="f.taxTotal" [currency]="f.currency">
+        <aliceut-price-display [amount]="f.taxTotal" [currency]="f.currency" [priceType]="'LIST'">
       div [display: flex; justify-content: flex-end; font-weight: 500]
-        <aliceut-price-display [amount]="f.buyerCurrencyTotal" [currency]="f.buyerDisplayCurrency">
+        <aliceut-price-display [amount]="f.buyerCurrencyTotal" [currency]="f.buyerDisplayCurrency" [priceType]="'LIST'">
       p mat-caption color="secondary" *ngIf="f.currency !== f.buyerDisplayCurrency"
-        — Captured as <aliceut-price-display [amount]="f.totalAmount" [currency]="f.currency">
+        — Captured as <aliceut-price-display [amount]="f.totalAmount" [currency]="f.currency" [priceType]="'LIST'">
           at a rate of {{ f.items[0].fxRateUsedAtCapture }} on the order date.
 ```
 

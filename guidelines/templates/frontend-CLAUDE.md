@@ -9,7 +9,7 @@
 
 Angular 22+ Nx monorepo. Three portals: `buyer-app` (mobile-first), `seller-app` (desktop-first), `admin-app` (desktop-first). Shared libs: `api-client` (generated), `ui`, `shared-util`.
 
-## Locked stack (BRD §12 — treat as constraints, not suggestions)
+## Stack (BRD §12 — the choices currently in force; change one by amending the BRD)
 
 | Layer | Technology |
 |-------|-----------|
@@ -50,7 +50,7 @@ Path aliases (`tsconfig.base.json`):
 
 ---
 
-## Non-negotiables — read before writing any code
+## Core rules — read before writing any code
 
 ### API client — never use HttpClient directly
 

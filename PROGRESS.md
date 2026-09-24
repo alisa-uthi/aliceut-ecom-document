@@ -29,12 +29,86 @@ Daily log of work on this project. Newest entry on top. One entry per active day
 ---
 
 **Index**
-- [2026-09-13](#2026-09-13) — Phase 1 backlog decomposition + GitHub Issues script (211 tasks, 20 epics).
+- [2026-09-24](#2026-09-24) — Alignment-audit Waves 2/3/4/5/6 fixes; all ten Wave 7 hygiene items.
+- [2026-09-22](#2026-09-22) — Alignment-audit Wave 0 decision gate (BRD v1.3) and Wave 1 event-contract fixes.
+- [2026-09-19](#2026-09-19) — Cross-document alignment audit; static backlog deleted in favour of GitHub Issues.
+- [2026-09-13](#2026-09-13) — Backlog decomposition + GitHub Issues script (**superseded 2026-09-19** — both deleted).
+- [2026-09-13 (earlier)](#2026-09-13-tooling) — Claude Code subagent routing guideline + CLAUDE.md templates.
 - [2026-09-12](#2026-09-12) — Phase 1 documentation complete: full developer-readiness audit, cross-doc alignment (multi-pass), Mermaid rendering fixes, interactive architecture diagrams.
+- [2026-09-03](#2026-09-03) — Developer guidelines, repo restructure, GitHub PR Stack, CI Claude review, TOC pass.
+- [2026-09-02](#2026-09-02) — API/data-lifecycle conventions, UI cross-validation, response-envelope migration, observability stack.
+- [2026-08-30](#2026-08-30) — 116-finding consistency fix pass, MinIO decision, all 81 sequence diagrams, Mermaid validation.
+- [2026-08-29 (session 3)](#2026-08-29c) — Revalidation fixes across 7 design docs.
+- [2026-08-29 (session 2)](#2026-08-29b) — Phase 1 technical design + UI design produced by parallel agent team.
+- [2026-08-29](#2026-08-29) — Requirements deep-dive: order lifecycle, buyer stories, auth portals, BA revalidation.
+- [2026-08-22](#2026-08-22) — Phase 1 technical-design kickoff; architecture overview + ERD.
+- [2026-08-19](#2026-08-19) — Requirements freeze (BRD v1.2 signed off) + repo scaffolding.
+
+<a id="2026-09-24"></a>
+## 2026-09-24
+**Focus:** Alignment-audit fix waves 2/3/4/5/6 + all ten Wave 7 hygiene items.
+
+**Done:**
+- Waves 2 (money correctness), 3 (missing contracts), 5 (convention consistency) and 6 (UI design documents) of `phase-1/audits/2026-09-22-alignment-audit-fix-plan.md` applied across 13 files — `conventions/backend-coding-standards.md`, `backend-module-architecture.md`, `design-system.md`, `phase-1/technical-design/api-design/{cart,catalog,pricing,search,seller}.md`, `consumer-field-matrix.md`, `phase-1/ui-design/{buyer-portal,seller-portal,shared-components}.md`, `.gitignore`
+- Money errors: `CurrencyScaleUnavailableError` now carries operator-only `context` and maps to `500` in `APP_ERROR_STATUS_MAP`; every `AppError` code must be registered there, since the `?? 422` default mislabels a server fault as bad input
+- FX disclosure: `PriceDisplay` FX props bound on cart and checkout line totals and per-seller subtotals; cross-group `itemSubtotal` / `grandTotal` disclose FR-P-02 through a summary caption instead, because they have no single native currency to put in `estimatedFrom`
+- `converted` fixed as a template-derived expression, not a response field — no API returns it
+- Three broken `PriceDisplay` anchors repaired (`#priceDisplay` → `#83-pricedisplay`); portal docs now reference the canonical prop surface instead of restating it
+- Wave 7 hygiene: `CLAUDE.md` restated as design-complete with GitHub Issues as the status source, repo layout corrected (added `diagrams/`, `screens/`, `audits/`, `guidelines/templates/`, sibling `aliceut-ecom-infra`), `phase-2/` marked planned-not-on-disk, out-of-scope list synced to BRD §3.2 (buyer email change), five-week-stale Prior-Session Context deleted; this log's index completed and its stale claims corrected
+
+**Decisions:**
+- `fxRate` appears only in `lowestOffer` (search results). `effectivePrice`, `lineTotal` and `group` carry `currency` / `fxAsOf` / `fxStale` only
+- `grandTotal.fxAsOf` is the oldest constituent rate, so the caption says "rates as of" rather than implying one rate governed the whole total
+
+**Wave 4 + Wave 7 (later in the same session):**
+- Wave 4 (propagate the BRD/CLAUDE.md amendments) applied after a verification grep pass. Item 5 reported inapplicable: it asks for a story-vs-FR capability audit that no enumerated list in the repo supports, and its four known concrete instances were already Wave 1 items 7–10 (Postgres search fallback, admin manual flagging, CSV bulk-inventory dry-run, zero-stock auto-hide). A mechanical traceability check confirmed every `FR-*` / `NFR-*` id cited in the story files exists in the BRD tables
+- All ten Wave 7 items applied: dead `scripts/create-github-issues.ps1` deleted and its two `CLAUDE.md` references removed; `phase-1/audits/README.md` created as the audit index; five `email-templates.md` anchors corrected (GitHub strips the em dash, so `## ET-01 — …` slugs to two hyphens, not four); compose build contexts `./backend` → `../aliceut-ecom-backend`; `LOG_SENSITIVE_KEYS` added to `.env.example` and `LOG_MAX_BODY_BYTES` unified at `4096`; `registeredJobs` reconciled to **14** across `api-design/health.md`, `phase-1/technical-design/backend-module-architecture.md` and `cleanup-jobs.md`; `authGuard` route, testing-guidelines seed scope, `CHANGELOG.md` ownership and the repo-wide `BRD v1.2` → `v1.3` sweep (30 files) done
+
+**Decisions (Wave 7):**
+- `registeredJobs: 14`, derived rather than asserted: `@nestjs/schedule` counts decorated *methods*, and `cleanup.scheduler.ts` holds eight of them, so six single-job schedulers + 8 = 14, cross-checked against cleanup-jobs' ten rows + the four non-retention jobs (digest, FX refresh, delivery mock, auto-refund). The derivation is written into all three documents so the number stays auditable
+- `CHANGELOG.md` belongs to `aliceut-ecom-backend` and `aliceut-ecom-frontend`, neither of which exists yet. This documentation repo is never tagged and keeps no changelog — its running record is this file
+- `phase-1/audits/README.md` indexes the nine inline audits by commit with dates and diffstats rather than reconstructing their finding lists, which would be a guess and not a record. `architecture-overview.md` §14's row narrowed to match
+
+**Also:**
+- Hardcoded cross-document counts removed: no document now asserts “thirty-nine consumer groups”, “twenty-nine topics”, “forty DLQ topics” or `registeredJobs: 14`. Each statement now names the list that owns the items — the module summary table for consumer groups, `kafka-events.md § 1` for topics, the scheduled-task table for jobs — and keeps the counting *rule* (a DLQ is per consumer group, not per topic; the scheduler registry counts decorated methods, not files) without the tally. Touched `kafka-events.md`, `backend-module-architecture.md`, `consumer-field-matrix.md`, `docker-compose-topology.md`, `api-design/health.md`, `cleanup-jobs.md`. `consumer-field-matrix.md § 7` keeps its figures but is now labelled a dated audit record that nothing else should cite
+- Lock framing dropped across the living documents: no document now claims a BRD decision is locked, signed off, non-negotiable or not revisable. §12 is described as the decisions currently in force, changed by amending the BRD. Renames: `CLAUDE.md` “Locked Stack” → “Current Stack” and “Non-Negotiable Rules” → “Core Rules”; `development-flow.md` §10 “Cross-cutting non-negotiables” → “Cross-cutting rules” (anchor renamed with it, single inbound link updated); both `guidelines/templates/*-CLAUDE.md` “Locked stack” / “Non-negotiables” retitled. BRD status line, §12 heading and closing line reworded to “agreed” / “current baseline”. Dated entries in this log and in `phase-1/audits/` left as-is — they record what was decided at the time
+
+**Next:**
+- Whole 8-wave plan is applied; everything is still uncommitted, pending one review-and-commit pass
+- Redo backlog decomposition **directly into GitHub Issues** (no checked-in backlog file), then Sprint 1 implementation kickoff
+
+<a id="2026-09-22"></a>
+## 2026-09-22
+**Focus:** Alignment-audit Wave 0 decision gate and Wave 1 event-contract fixes.
+
+**Done:**
+- `phase-1/audits/2026-09-22-alignment-audit-fix-plan.md` — 8-wave fix plan with findings index and sequencing
+- `phase-1/audits/2026-09-22-wave0-decisions.md` — decision records D-01…D-14 closing the gate every later wave depends on; BRD amended to v1.3
+- Wave 1 (18 files): event-contract alignment across `kafka-events.md`, `consumer-field-matrix.md` (new), `api-design/{admin,auth,orders,search,seller}.md`, `cleanup-jobs.md`, `docker-compose-topology.md`, `data-model-erd.md`, `data-model-mongodb.md`
+- N11 follow-up: D-05's superseded Trigger cells marked inline
+
+**Decisions:**
+- Prohibited-content tier comes from the matched blocklist term's stored `enforcement` (`BLOCK` | `FLAG`), not from match precision; `match_type` is an independent column and both tiers support every matching mode (D-14)
+- Redis added to the locked stack: `noeviction` on the instance holding single-use tokens (60s OAuth authorization code), separate eviction-enabled cache instance
+- `B2B_TIER` removed from V1 in the BRD FR table itself, not only in an appendix
+
+<a id="2026-09-19"></a>
+## 2026-09-19
+**Focus:** Cross-document alignment audit (74 files, +8128/−9662).
+
+**Done:**
+- Full cross-document alignment audit pass across requirements, technical design, UI design and conventions
+- **Deleted `phase-1/backlog/`** — `backlog.md`, `sprint-plan.md` and all 20 `epic-breakdown/` files (22 files, ~5900 lines). A checked-in backlog duplicates task state that belongs in GitHub Issues and drifts from the specs it cites
+
+**Decisions:**
+- Implementation status lives in GitHub Issues + Milestones + Project board only; this repo holds specs
+- `scripts/create-github-issues.ps1` is left in the tree but is now dead — its `$epicDir` points at the deleted `epic-breakdown/`. Slated for deletion in Wave 7
 
 <a id="2026-09-13"></a>
 ## 2026-09-13
 **Focus:** Phase 1 backlog decomposition + GitHub Issues automation.
+
+> **Superseded 2026-09-19.** Every artifact below was deleted in `c805aed`: the 22 backlog files, and the issue-creation script's only input. No GitHub Issues were ever created from them. Kept as a record of what the decomposition covered, not as a pointer to living files.
 
 **Done:**
 - `phase-1/backlog/backlog.md`: master backlog, 20 epics, 211 tasks prioritized by implementation order
@@ -46,10 +120,10 @@ Daily log of work on this project. Newest entry on top. One entry per active day
 **Decisions:**
 - GitHub Issues + Milestones + Project board = live status; epic breakdown files = static specs only
 - Money invariants, outbox pattern, async search enforced in every relevant task description
-- Script verified: 211 issues dry-run clean across all 20 epics
+- Script dry-run reported 211 issues clean across all 20 epics **as of this date only** — not reproducible since 2026-09-19, when its input directory was deleted
 
-**Next:**
-- Create GitHub Project manually, then run `.\scripts\create-github-issues.ps1 -ProjectNumber <N>`
+**Next (as recorded on 2026-09-13; both steps are void — see [2026-09-19](#2026-09-19)):**
+- ~~Create GitHub Project manually, then run `.\scripts\create-github-issues.ps1 -ProjectNumber <N>`~~ — script has no input; decomposition must be redone directly into GitHub Issues
 - Implementation kickoff: Sprint 1 — INFRA → SHARED → ORDERS → FE bootstrap
 
 ---
@@ -80,7 +154,7 @@ Daily log of work on this project. Newest entry on top. One entry per active day
 - **Cross-doc alignment (28 findings)**: guard names (KycApprovedGuard → SellerApprovedGuard); notification mark-all-read POST → PATCH; KYC_APPROVED/REJECTED → KYC_DECIDED; FULFILLMENT_SHIPPED/DELIVERED → SHIPMENT_UPDATE/DELIVERY_UPDATE; JWT_REFRESH_TTL 30d → 7d; Grafana port 3000 → 3200; design-system @aliceut/ui → @aliceut/shared-ui
 - **Cross-doc alignment (13 findings)**: refresh token delivery corrected to HttpOnly cookie only; invalid PROCESSING fulfillment status removed; listing.soft_deleted ES delete fixed to unconditional; businessLogoUrl removed from PATCH /profile/me; Redis service added to docker-compose (`redis:7-alpine`, JWT revocation); `expire_reservations()` rewrote to LOOP pattern (stock release + outbox event atomic per row, race condition eliminated); search module consumers completed (inventory.reservation_expired, seller.suspension_expired, listing.soft_deleted, fx_rate.updated); app/lib naming aligned (buyer-app/seller-app/admin-app, libs/ui/)
 - **Mermaid rendering**: all sequence diagrams capped at alt/loop/opt nesting depth ≤ 2 (4 files fixed: admin, orders, cart, pricing)
-- **Interactive diagrams** (`diagrams/`): system architecture, buyer journey workflow, event-driven outbox dataflow — all 3 pass 9/9 showcase validation
+- **Interactive diagrams**: two standalone HTML files at repo root — `architecture-overview.html` (system architecture) and `event-dataflow.html` (event-driven outbox dataflow), each 9/9 on showcase validation. A third, buyer-journey workflow, was built the same day but is not in the tree. Mermaid diagram *sources* live in `phase-1/diagrams/` (01–06) and are a separate set
 
 **Decisions:**
 - Suspension-expiry: pg_cron canonical; NestJS `suspension-expiry.scheduler.ts` removed
@@ -113,7 +187,7 @@ _Repo restructure_
 - `docker-compose-topology.md` nginx volume paths updated to sibling-repo relative paths (`../aliceut-ecom-frontend/`)
 
 _Stack version bumps_
-- Node.js 22 LTS, pnpm 10+, Angular CLI 20+, Angular 20+, NestJS 11+ — applied in `development-flow.md`, `architecture-overview.md`, `CLAUDE.md`
+- Node.js 22 LTS, pnpm 10+, Angular CLI 20+, Angular 20+, NestJS 11+ — applied in `development-flow.md`, `architecture-overview.md`, `CLAUDE.md`. **Angular and the CLI were raised again to 22+ on [2026-09-12](#2026-09-12); 22+ is the locked floor** (BRD §12)
 
 _GitHub PR Stack + CI Claude review_
 - `git-workflow.md` §3.4: stacked PR pattern with `gh stack` extension (branch chain, open/sync/merge workflow)

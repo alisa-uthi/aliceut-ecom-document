@@ -1,7 +1,7 @@
 # Consumer Field Matrix — Phase 1
 
 **Status:** Complete  
-**Source of truth:** [BRD v1.2](../requirements/BRD.md), [kafka-events.md](kafka-events.md)
+**Source of truth:** [BRD v1.3](../requirements/BRD.md), [kafka-events.md](kafka-events.md)
 
 Every consumer group in Phase 1, every field it must write, and the event field that supplies it. Event schemas and per-group side effects: [kafka-events.md](kafka-events.md). Envelope, idempotency template and DLQ rules: [conventions/kafka-events.md](../../conventions/kafka-events.md). Consumer group ownership: [backend-module-architecture.md](backend-module-architecture.md#module-summary-table).
 
@@ -17,8 +17,7 @@ This document exists because the gap it closes was invisible without it. Three c
 - [4. `notification.*` — email and in-app](#notification-family)
 - [5. `platform.audit` — MongoDB](#audit-family)
 - [6. `inventory.*` and `orders.*` — Postgres](#postgres-families)
-- [7. Gap ledger](#gap-ledger)
-- [8. Maintenance rule](#maintenance-rule)
+- [7. Maintenance rule](#maintenance-rule)
 
 <a id="the-rule"></a>
 ## 1. The rule this matrix enforces
@@ -36,7 +35,7 @@ This document exists because the gap it closes was invisible without it. Three c
 <a id="consumer-inventory"></a>
 ## 2. Consumer inventory
 
-**Thirty-nine consumer groups**, matching [backend-module-architecture.md § Module summary table](backend-module-architecture.md#module-summary-table) and the DLQ list in [kafka-events.md § 4](kafka-events.md#dlq-topics).
+The consumer groups below match [backend-module-architecture.md § Module summary table](backend-module-architecture.md#module-summary-table), which owns the group list, and the DLQ list in [kafka-events.md § 4](kafka-events.md#dlq-topics).
 
 | Family | Groups | Writes | Target shape defined in |
 |---|---|---|---|
@@ -75,6 +74,7 @@ Field ownership is per event ([api-design/search.md § Document composition](api
 | | | `offers[].native_currency_code` | `payload.currency_code` |
 | | | `offers[].amount` | `payload.prices[].amount` (effective row) |
 | | | `offers[].price_type` | `payload.prices[].price_type` |
+| | | `offers[].compare_at_amount` | `payload.prices[].amount` (active LIST row; `null` when effective price type is LIST — no SALE row is live) |
 | | | `offers[].display_prices` | `payload.display_prices` |
 | | | entry removal | `payload.status != ACTIVE` |
 | `search.inventory-changed` | `inventory.changed` | routing `_id` | `payload.product_id` |
@@ -91,7 +91,7 @@ Field ownership is per event ([api-design/search.md § Document composition](api
 | `search.listing-soft-deleted` | `listing.soft_deleted` | entry removal | `payload.product_id` + `payload.offer_id` |
 | `search.fx-rate-updated` | `fx_rate.updated` | `display_prices[<quote>]` | `payload.base_currency` + `payload.rates[]` |
 
-**`in_stock`, `lowest_offer_id`, `lowest_offer_price_type`, `lowest_offer_currency_code`, `lowest_offer_amount` and the product-level `display_prices` are owned by no event.** Whichever consumer changed one of their inputs recomputes them in the same update, from the document's own `offers[]` array after the merge — so the result does not depend on which consumer ran last. They are not rows in this table for that reason.
+**`in_stock`, `lowest_offer_id`, `lowest_offer_price_type`, `lowest_offer_currency_code`, `lowest_offer_amount`, `lowest_offer_compare_at_amount` and the product-level `display_prices` are owned by no event.** Whichever consumer changed one of their inputs recomputes them in the same update, from the document's own `offers[]` array after the merge — so the result does not depend on which consumer ran last. They are not rows in this table for that reason.
 
 **`offers[].min_qty` is not in this table and not in the mapping.** It existed to carry `B2B_TIER` quantity breaks, and `B2B_TIER` is not a V1 price type (Wave 0 decision D-02).
 
@@ -240,52 +240,9 @@ Every reservation write is scoped `WHERE fulfillment_id = :fulfillment_id` and n
 
 ---
 
-<a id="gap-ledger"></a>
-## 7. Gap ledger
-
-The state this matrix found, and the state after the Wave 1 corrections. A **binding** is one field a consumer must write, or one routing input a write cannot be addressed without, paired with the payload field that supplies it — each is a row or a cell of §3–§6, so every figure below is countable in this document except the template-variable count, which is `email-templates.md`'s and is attributed below.
-
-| Family | Consumers | Bindings | Unsupplied before | Unsupplied after |
-|---|---|---|---|---|
-| `search.*` | 12 | 35 index writes and routing inputs (§3) | 10 | 0 |
-| `notification.*` | 21 | 20 email addresses + 15 in-app recipient ids + 101 template variables (§4) | 32 | 0 |
-| `platform.audit` | 1 | 29 projection rows (§5) | 0 | 0 |
-| `inventory.*` / `orders.*` | 5 | 5 scope-and-quantity sets (§6) | 0 | 0 |
-| **Total** | **39** | **205** | **42** | **0** |
-
-Six derived rollups are excluded from the search figure: they are owned by no event and recomputed from the document, so they have no supplying field by design.
-
-**Two of those figures need their counting rule stated, because neither is the number a reader would guess.** §5 has **29 rows and 27 projected topics**: one row is the *not persisted* pair (`fx_rate.updated`, `seller.profile_changed`), which is a declaration that nothing is written rather than a projection, and `inventory.changed` takes two rows because `payload.change_reason` routes it to two different collections. The ledger counts rows, not topics, so that 29 is not the twenty-nine-topic count of [kafka-events.md § 1](kafka-events.md#topic-summary) and the two must not be reconciled — **`platform.audit` does not project every topic**, and the exceptions are named in the last row of §5 and in [data-model-mongodb.md § Consumer routing](data-model-mongodb.md#consumer-routing). The **101 template variables** are counted in [email-templates.md](../requirements/user-stories/email-templates.md) rather than here — this document binds the recipient fields, not every rendered variable — with each repeating group counted once: an order's `item.*` fields are one variable, as are its totals.
-
-### 7.1 What the 42 were
-
-| # | Consumer need | Was | Now |
-|---|---|---|---|
-| 1–2 | `category_path`, `created_at` on the product document | absent from `product.changed` | added |
-| 3–5 | `offers[].seller_name`, `.seller_active`, `.display_prices` | absent from `offer.changed` | added |
-| 6 | `_update/:productId` routing for `inventory.changed` | no `product_id` on the topic | added |
-| 7 | `_update/:productId` routing for `inventory.reservation_expired` | no `product_id` on the topic | added |
-| 8 | absolute availability on `inventory.reservation_expired` | `released_qty` — a delta, not idempotent under redelivery | replaced by `available_qty` |
-| 9 | `offers[].seller_active` restore on timed expiry | `seller.suspension_expired` declared `offer_ids` and `seller_user_id` but its producer published neither, and `offer_ids` was unsuppliable because the sweep reactivated no offers | producer fixed, not just the schema: the sweep calls `CatalogApplicationService.reactivateSuspendedOffers` in its own transaction and publishes the returned ids, and takes `seller_user_id` from `IdentityApplicationService.getUsersByIds` ([cleanup-jobs.md](cleanup-jobs.md#lift-expired-suspensions)) |
-| 10 | `offers[].seller_name` after a profile rename | no event at all — a renamed seller was permanently stale | new topic `seller.profile_changed` + group `search.seller-profile-changed` |
-| 11–13 | `full_name` for ET-18, ET-19, ET-20 | absent from all three `auth.*` payloads | added to the three schemas **and** to the five outbox inserts in [api-design/auth.md](api-design/auth.md#endpoint-index) that publish them; the two password-change paths take it from `UPDATE identity.user … RETURNING` |
-| 14–21 | `buyer_email` and `buyer_name` for ET-02, ET-03, ET-04, ET-16 | absent from all four fulfillment topics | added |
-| 22 | `seller_email` for ET-13b | `fulfillment.refund_suspended_seller` named the seller but could not address them | added |
-| 23–30 | ET-01's per-seller items, subtotal, shipping, tax, tracking and ETA; the buyer's business name and logo; `placed_at` | `PlacedFulfillmentRef` carried ids and two totals | added |
-| 31–32 | `buyer_name`, `placed_at` for ET-05 | absent from `order.completed` | added |
-| 33 | `seller_name` for ET-14 and ET-21 | `seller.kyc.submitted` carried `business_name` only | added |
-| 34–36 | `seller_name`, `seller_email`, `seller_user_id` for ET-09 and its digest row | absent from `moderation.listing.removed` | added |
-| 37–42 | `recipient_user_id` for the six seller-facing in-app rows — `KYC_DECIDED`, `SELLER_SUSPENDED`, `SELLER_REINSTATED`, `SUSPENSION_EXPIRED`, `LISTING_FLAGGED`, `LOW_STOCK` | payloads carried `seller_id`, a `seller_profile_id`, which cannot address `identity.user` | `seller_user_id` added to each |
-
-**"Added" means the schema and the producer, and the schema alone does not close a row.** A required field a producer omits does not reach a consumer as null — it fails Avro serialization in the relay, so the event is never published and the consumer's write never happens at all. A row of this ledger is therefore closed only when some document names the statement that populates the field: the payload field and the `INSERT platform.outbox_event` that writes it are one change. Rows 9 and 11–13 were the three where the schema landed first and the producer did not.
-
-Two further corrections in the same wave are producer-side rather than payload-side and so are not counted above: the `seller.kyc.submitted` partition key (`applicationId` → `seller_id`, which per-seller ordering depends on), and the six producer payload lists in `api-design/seller.md` and `api-design/admin.md` that were short of the schemas they publish against.
-
----
-
 <a id="maintenance-rule"></a>
-## 8. Maintenance rule
+## 7. Maintenance rule
 
-**A consumer group is not specified until it has rows here.** Adding a consumer, an email template, an Elasticsearch field or a MongoDB projection means adding its rows in §3–§6 in the same change, and the count in §2 and §7 with it. Adding a payload field means saying which row it serves — a field no row needs is a field no consumer reads.
+**A consumer group is not specified until it has rows here.** Adding a consumer, an email template, an Elasticsearch field or a MongoDB projection means adding its rows in §3–§6 in the same change, and the count in §2 with it. Adding a payload field means saying which row it serves — a field no row needs is a field no consumer reads.
 
 The reverse check is the one that found the 42: for every field in the target shape, name the payload field that fills it. A row whose right-hand column cannot be filled is a design defect, and the fix is the event, never a read.

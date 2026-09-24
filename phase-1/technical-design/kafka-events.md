@@ -1,7 +1,7 @@
 # Kafka Events — Phase 1
 
 **Status:** Complete  
-**Source of truth:** [BRD v1.2](../requirements/BRD.md)
+**Source of truth:** [BRD v1.3](../requirements/BRD.md)
 
 Event envelope conventions, schema registry, consumer idempotency template (including processing flow diagram and per-family step patterns), DLQ topology, and BACKWARD compat protocol: see [conventions/kafka-events.md](../../conventions/kafka-events.md).
 
@@ -1880,7 +1880,7 @@ Adding this topic therefore moves the topic count and neither the group count no
 <a id="topic-retention"></a>
 ## 3. Topic partitions, replication and retention
 
-§1 lists **twenty-nine** topics. **Every one of them is created with 1 partition and replication factor 1**, DLQ topics (§4) included. V1 runs a single-node broker, so RF 1 is the only value available, and partition count is a throughput question rather than a correctness one at this scale. Ordering is unaffected: per-aggregate ordering comes from the outbox `key` being the aggregate id, so raising the partition count later is a topic-configuration change and not a redesign — the keys already place every event of one aggregate on the same partition. No topic states its own partition count; this is the single statement of it.
+**Every topic in §1 is created with 1 partition and replication factor 1**, DLQ topics (§4) included. V1 runs a single-node broker, so RF 1 is the only value available, and partition count is a throughput question rather than a correctness one at this scale. Ordering is unaffected: per-aggregate ordering comes from the outbox `key` being the aggregate id, so raising the partition count later is a topic-configuration change and not a redesign — the keys already place every event of one aggregate on the same partition. No topic states its own partition count; this is the single statement of it.
 
 Default retention is **7 days** for every topic in §1 — long enough to replay a consumer through a weekend outage, short enough that the broker is not an archive. The MongoDB collections, not Kafka, are the durable record. The broker pins it rather than inheriting the image default: `KAFKA_LOG_RETENTION_HOURS=168`.
 
@@ -1949,7 +1949,7 @@ Every consumer group has a dedicated DLQ topic named `<consumer_group>.dlq` ([co
 | `orders.*` | `orders.delivery-tracker` | `orders.delivery-tracker.dlq` |
 | `platform.audit` | `platform.audit` | `platform.audit.dlq` |
 
-Thirty-nine groups, thirty-nine DLQ topics. Two of them consume more than one topic: `inventory.fulfillment-refunded` handles both refund topics (§2.7, §2.17) and the `platform.audit` group handles nearly all of them — a group's DLQ is per group, not per topic. This figure and the twenty-nine topics in §1 therefore move independently: giving the `platform.audit` group another topic, as §2.27 and §2.29 do, adds no group and no DLQ, while a topic with a consumer of its own, as §2.28 has, adds both. SMTP delivery failures are the one exception to per-group routing: after 3 attempts with exponential backoff the *email* is routed to `email.outbound.dlq` and the originating event is **not** sent to the group's DLQ, because the event was processed correctly and only the transport failed ([conventions §5](../../conventions/kafka-events.md#dlq-topology)).
+One DLQ topic per consumer group — the groups themselves are listed in [backend-module-architecture.md § Module summary table](backend-module-architecture.md#module-summary-table), which is where a group is added or removed. Two of them consume more than one topic: `inventory.fulfillment-refunded` handles both refund topics (§2.7, §2.17) and the `platform.audit` group handles nearly all of them — a group's DLQ is per group, not per topic. The group count and the topic count in §1 therefore move independently: giving the `platform.audit` group another topic, as §2.27 and §2.29 do, adds no group and no DLQ, while a topic with a consumer of its own, as §2.28 has, adds both. SMTP delivery failures are the one exception to per-group routing: after 3 attempts with exponential backoff the *email* is routed to `email.outbound.dlq` and the originating event is **not** sent to the group's DLQ, because the event was processed correctly and only the transport failed ([conventions §5](../../conventions/kafka-events.md#dlq-topology)).
 
 A non-empty DLQ raises an alert; how that is observed in V1 is recorded in [docker-compose-topology.md](docker-compose-topology.md), alongside the outbox-relay-lag threshold.
 

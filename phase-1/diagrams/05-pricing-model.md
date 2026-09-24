@@ -8,7 +8,7 @@
 - **One pricing currency per offer**, held on the offer as `catalog.offer.native_currency_code`. `pricing.offer_price` has **no currency column** — every price row inherits the parent offer's currency. Selling the same product in a second currency means a second offer
 - Seller pricing currencies: USD, THB, JPY, SGD only (FR-P-06a); buyer display currency may differ — converted server-side via FX for display, never stored on the offer
 - Checkout captures the offer-currency price, the FX rate used, and the resulting buyer-currency amounts at capture time; browse-time display conversions are ephemeral and never stored (FR-P-03)
-- Price priority: B2B_TIER (B2B buyer + qty >= min_qty) beats SALE (within time window) beats LIST
+- Price priority: SALE (within its time window) beats LIST. Price type and current time are the only inputs — account type and quantity are not (`B2B_TIER` dropped from V1, BRD § Amendments D-02)
 - SALE must have starts_at < ends_at; system auto-reverts to LIST after ends_at; overlapping SALE periods on the same offer rejected
 - At most one active LIST price per offer; a second one is rejected with an explicit error. Currency is not part of this key, because the offer has only one
 - FX stale (`now() - as_of > FX_STALE_AFTER_HOURS`, env, whole hours, default `24`): the converted amount is **still returned**, flagged `fxStale: true`, and the UI labels it an indicative rate. The conversion is omitted only when the currency pair has no FX row at all
@@ -23,7 +23,6 @@ graph TD
         PRICE["Price\nper price_type\nno currency column"]
         PT_LIST["LIST\ndefault / always required"]
         PT_SALE["SALE\ntime-bounded\nstarts_at / ends_at"]
-        PT_B2B["B2B_TIER\nmin_qty >= 2"]
         CCY["Currencies\nUSD / THB / JPY / SGD"]
         CART["Cart / FulfillmentItem"]
         PRODUCT -->|"has many"| OFFER
@@ -31,22 +30,17 @@ graph TD
         OFFER -->|"denominated in exactly one"| CCY
         PRICE -->|"price_type"| PT_LIST
         PRICE -->|"price_type"| PT_SALE
-        PRICE -->|"price_type"| PT_B2B
         PRICE -. "currency read from parent Offer" .-> OFFER
         CART -->|"references"| OFFER
         CART -. "NEVER references" .-> PRODUCT
     end
 
     subgraph PR["PRICE RESOLUTION - Decision Tree"]
-        BV["Buyer views Offer\nquantity = Q"]
-        B2B_Q{"Buyer is B2B\nAND Q >= B2B_TIER.min_qty\nAND B2B_TIER price exists?"}
+        BV["Buyer views Offer\nany quantity - not a pricing input"]
         SALE_T{"Current time within\nSALE starts_at / ends_at?"}
-        EP_B2B["Use B2B_TIER price"]
         EP_SALE["Use SALE price"]
         EP_LIST["Use LIST price"]
-        BV --> B2B_Q
-        B2B_Q -->|"Yes"| EP_B2B
-        B2B_Q -->|"No"| SALE_T
+        BV --> SALE_T
         SALE_T -->|"Yes"| EP_SALE
         SALE_T -->|"No"| EP_LIST
     end
@@ -74,7 +68,6 @@ graph TD
         OFFER_ONLY -->|"buyer confirms"| CHECKOUT
     end
 
-    EP_B2B --> EFF
     EP_SALE --> EFF
     EP_LIST --> EFF
 ```

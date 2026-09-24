@@ -4,7 +4,7 @@
 **Document version:** 1.3
 **Date:** 2026-09-22
 **Author:** Business Analyst (working with product owner)
-**Status:** Signed off — ready for design phase
+**Status:** Agreed v1.3 — design complete, implementation pending. Everything here is revisable by amendment (see § Amendments).
 
 ---
 
@@ -30,7 +30,7 @@ A global multi-vendor e-commerce marketplace inspired by Amazon.com. Serves as a
 ### 3.1 In Scope (V1)
 
 **Buyer**
-- Product search with filters (category, price, rating, sort)
+- Product search with filters (category, price, in-stock, sort)
 - Cart (persistent for logged-in, session for guest)
 - Checkout with fake payment gateway
 
@@ -94,7 +94,7 @@ A global multi-vendor e-commerce marketplace inspired by Amazon.com. Serves as a
 |----|-------------|----------|
 | FR-B-01 | User can register with email/password OR OAuth (Google, Facebook) | Must |
 | FR-B-02 | User can search products by keyword | Must |
-| FR-B-03 | User can filter results by category, price range, rating, in-stock | Must |
+| FR-B-03 | User can filter results by category, price range, in-stock (amended 2026-09-14 — rating filter and rating display dropped, see § Amendments) | Must |
 | FR-B-04 | User can sort results by relevance, price (asc/desc), newest | Must |
 | FR-B-05 | User can view product detail page with images, variants, seller info | Must |
 | FR-B-06 | User can add product (with selected variant + quantity) to cart | Must |
@@ -243,7 +243,7 @@ A global multi-vendor e-commerce marketplace inspired by Amazon.com. Serves as a
 
 ---
 
-## 12. Resolved Decisions (product owner sign-off 2026-08-19; amended 2026-09-14 and 2026-09-22)
+## 12. Resolved Decisions (agreed with product owner 2026-08-19; amended 2026-09-14 and 2026-09-22)
 
 | # | Question | Decision |
 |---|----------|----------|
@@ -264,7 +264,7 @@ A global multi-vendor e-commerce marketplace inspired by Amazon.com. Serves as a
 | 12 | Frontend portal architecture | Three separate Angular applications — `buyer-app` (storefront), `seller-app` (seller portal), `admin-app` (admin portal) — in an Nx monorepo. Each app served by a dedicated nginx container in Docker Compose. Development uses separate `ng serve` instances on ports 4200 (buyer), 4201 (seller), 4202 (admin). Shared code (auth interceptor, generated API client, UI components, domain DTO types) lives in `libs/`. |
 | 13 | Cache + short-lived token store | **Redis** in docker-compose. Two uses: response/lookup caching, and single-use short-lived tokens (notably the 60-second OAuth authorization code). The instance holding tokens runs `maxmemory-policy noeviction` — eviction can silently drop a token mid-flow. A cache instance with eviction enabled must be a **separate** instance. Redis is never a source of truth. |
 
-All prior open questions resolved. Ready for detailed design + backlog decomposition.
+All prior open questions resolved. Detailed design is complete and lives in `phase-1/technical-design/` and `phase-1/ui-design/`. Backlog decomposition is the remaining pre-implementation step and goes straight into GitHub Issues + Milestones + a Project board — this repo holds no checked-in backlog file.
 
 ### Amendments
 
@@ -273,13 +273,13 @@ All prior open questions resolved. Ready for detailed design + backlog decomposi
 
 The amendments below land 2026-09-22 (cross-document alignment audit, Wave 0). Decision record: `phase-1/audits/2026-09-22-wave0-decisions.md`. Each is applied at the requirement itself as well as recorded here — the 2026-09-14 pass was appendix-only, and readers reached the superseded rule in the FR table first.
 
-- §12 #13 added 2026-09-22 (D-01) — **Redis** is a locked stack component: cache plus single-use short-lived token store. It had entered the design documents through `architecture-overview.md` without BRD authority. The token-holding instance runs `noeviction`; an eviction-enabled cache instance must be separate, because the 60-second OAuth authorization code cannot survive an LRU eviction.
+- §12 #13 added 2026-09-22 (D-01) — **Redis** joins the stack: cache plus single-use short-lived token store. It had entered the design documents through `architecture-overview.md` without BRD authority. The token-holding instance runs `noeviction`; an eviction-enabled cache instance must be separate, because the 60-second OAuth authorization code cannot survive an LRU eviction.
 - FR-P-01, FR-P-06b and §12 #5b amended 2026-09-22 (D-02) — **`B2B_TIER` dropped.** V1 price types are `LIST` and `SALE`. Quantity-break pricing was mandatory in the FR table while §12 #2 and FR-P-06d made B2B differentiation branding-only with bulk pricing deferred; every downstream design document already assumed the narrow reading. Effective-price resolution now takes price type and time only — account type and quantity are not inputs.
 - FR-P-06c amended 2026-09-22 (D-05) — prohibited content restated as a two-tier rule. A prohibited taxonomy node or an exact hard-blocklist hit is rejected at submit with 422; a fuzzy keyword-suspicion match creates the listing as `FLAGGED` with a moderation case. The requirement previously specified flagging only, while the API contract blocked at submit; FR-A-03's queue keeps the soft tier as its input. Amended again the same day (Wave 1), recorded as **D-14** in the same decision record — the tier follows the matched blocklist term's stored enforcement rather than the precision of the match. D-05's own Trigger table still shows the superseded match-precision wording and carries a pointer to D-14; read D-14, not that table, for the discriminator. The first wording read "exact hit" against "fuzzy / keyword-suspicion match", which made match precision the discriminator and left the requirement unimplementable in both directions: a precisely-spelled term an admin only wants reviewed could not be flagged, and a pattern with no single spelling could not be blocked. Design carries it as a required `enforcement` column on the blocklist term, independent of the term's match type, with the strictest matched tier winning.
 - NFR-18 amended 2026-09-22 (D-04) — the repository-interface requirement binds **Tier 1** (core transactional) modules only. Tier 2 may inject `Repository<T>` directly, Tier 3 owns no repositories, and tier membership is defined in `conventions/backend-module-architecture.md § 2`. As written the requirement bound all eleven modules and six of them violated it.
 - §9 Kafka footprint risk and §12 #8 amended 2026-09-22 (D-06) — the V1 broker image is **`apache/kafka:3.8.0`** in KRaft mode, matching `phase-1/technical-design/docker-compose-topology.md`. The `bitnami/kafka` and `confluentinc` naming is removed, and Redpanda is recorded as *not* the chosen substitute: KRaft mode, not a different broker, is the answer to Zookeeper's footprint.
-- Clerical, 2026-09-22 — Prisma removed from FR-P-04a and NFR-08 (§12 #3 locks TypeORM); the §9 schema-drift risk row corrected from forward-compat to **BACKWARD** compatibility, matching §12 #9; FR-P-12 corrected to list all six envelope fields (`event_id`, `event_type`, `event_version`, `occurred_at`, `correlation_id`, `payload`) — it listed three.
+- Clerical, 2026-09-22 — Prisma removed from FR-P-04a and NFR-08 (§12 #3 chose TypeORM); the §9 schema-drift risk row corrected from forward-compat to **BACKWARD** compatibility, matching §12 #9; FR-P-12 corrected to list all six envelope fields (`event_id`, `event_type`, `event_version`, `occurred_at`, `correlation_id`, `payload`) — it listed three.
 
 ---
 
-*End of BRD v1.3. All decisions signed off — proceed to design phase.*
+*End of BRD v1.3. All open questions resolved. These decisions are the current baseline, not a permanent one — revise any of them through § Amendments.*

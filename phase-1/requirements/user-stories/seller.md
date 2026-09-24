@@ -50,9 +50,8 @@ Priority: Must — trace: FR-S-03, FR-P-01, FR-P-06a, FR-P-06b, FR-P-06c
 **Acceptance criteria**
 - Fields: title (10–200 chars), description (Markdown ≤ 5000 chars), category (from taxonomy tree), images (1–10, JPEG/PNG/WebP, ≤ 5MB each), variants (name + options), inventory per SKU.
 - Images are orderable (drag-to-reorder); first image = primary (shown in search results and PDP hero).
-- Pricing sub-form: at least one LIST price required. Currencies: USD, THB, JPY, SGD (FR-P-06a). Optional SALE and B2B_TIER prices.
+- Pricing sub-form: at least one LIST price required. Currencies: USD, THB, JPY, SGD (FR-P-06a). Optionally one `SALE` price. `LIST` and `SALE` are the only V1 price types — `B2B_TIER` was dropped (BRD § Amendments D-02).
   - SALE price requires `starts_at < ends_at`; system automatically reverts to LIST price after `ends_at`.
-  - B2B_TIER price requires `min_qty ≥ 2`.
 - Prohibited category guard: weapons, drugs, adult content → block submit (FR-P-06c). Keyword blocklist scans title and description on every save.
 - On success → product is live; search index updates within 5 seconds (NFR-13).
 - Zero-stock rule: when available quantity (on_hand − reserved) for all SKUs = 0, listing is hidden from search and catalog automatically. Listing reactivates when any SKU's available quantity rises above 0.
@@ -86,11 +85,10 @@ Priority: Must — trace: FR-P-01, FR-P-06a, FR-P-06b
 
 **Acceptance criteria**
 - Pricing panel accessible from the listing detail page, separate from the product edit form.
-- Displays all current Price rows: LIST, SALE (with `starts_at`/`ends_at`), B2B_TIER (with `min_qty`).
+- Displays all current Price rows: `LIST`, and `SALE` with its `starts_at`/`ends_at`. These are the only two V1 price types (BRD § Amendments D-02); the panel offers no tier row and no quantity-break field.
 - The offer's pricing currency is fixed on the offer itself (`catalog.offer.native_currency_code`) and every price row on that offer is denominated in it. A price row carries no currency of its own, so the pricing panel shows the currency once, as a property of the listing, and each row is just an amount plus its type. Selling the same product in a second currency means creating a second offer, not adding a second price row.
-- Seller can add a new Price row (any supported type), edit an existing row, or delete a non-LIST row. At least one LIST price must always remain.
+- Seller can add a `SALE` row, edit an existing row, or delete a non-LIST row. At least one LIST price must always remain.
 - SALE price: `starts_at < ends_at` enforced; overlapping SALE periods for the same offer are rejected.
-- B2B_TIER: `min_qty ≥ 2` enforced.
 - Price changes take effect immediately; existing PENDING order snapshots are unaffected (FR-P-03). Seller sees a warning on save.
 - All changes auditable.
 - At most one active LIST price per offer may exist at any time. Because an offer has exactly one currency, there is no per-currency qualifier on this rule and none in the message. Attempting to create a second active LIST price for the offer is rejected with: "A LIST price already exists for this offer. Edit or delete it before creating a new one."

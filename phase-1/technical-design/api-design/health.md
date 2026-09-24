@@ -2,7 +2,7 @@
 
 **Module:** `Platform`  
 **Parent:** [API Design Index](../api-design.md)  
-**Source of truth:** [BRD v1.2](../../requirements/BRD.md), [docker-compose-topology](../docker-compose-topology.md)
+**Source of truth:** [BRD v1.3](../../requirements/BRD.md), [docker-compose-topology](../docker-compose-topology.md)
 
 > **Conventions:** `X-Correlation-ID` is accepted, generated when absent, echoed on the response, and written to every log line the probe emits — see [observability.md § Correlation ID Propagation](../../../conventions/observability.md#correlation-id). Error bodies follow [api-conventions.md § Standard Error Shape](../../../conventions/api-conventions.md#standard-error-shape).
 
@@ -216,7 +216,7 @@ Process: workers (PORT_WORKERS, default 3001)
 
 | Check | Reports | Healthy means |
 |---|---|---|
-| `scheduler` | `lastTickAt` of the shortest-interval registered job, and the count of registered jobs | A tick landed within `WORKERS_SCHEDULER_STALE_MS` (env, default 3× the shortest configured job interval). The registered-job count is reported so a job silently missing from the registry is visible. |
+| `scheduler` | `lastTickAt` of the shortest-interval registered job, and the count of registered jobs | A tick landed within `WORKERS_SCHEDULER_STALE_MS` (env, default 3× the shortest configured job interval). The registered-job count is reported so a job silently missing from the registry is visible. It counts `@Cron`/`@Interval`-decorated **methods**, not scheduler files, so it is larger than the file list in [backend-module-architecture.md § Scheduled tasks](../backend-module-architecture.md#scheduled-tasks) — `cleanup.scheduler.ts` carries one method per retention target — and larger than the retention view in [cleanup-jobs.md](../cleanup-jobs.md), which omits the jobs that are not deletes. Compare the reported figure against the scheduled-task list rather than against a number written down here. |
 | `consumers` | per consumer group: `assignedPartitions` and `lastEventAt` | Every group the process declares is connected and holds an assignment. `lastEventAt` is reported but never fails the check — a quiet topic is normal and must not read as broken. |
 | `outboxRelay` | `lockHeld`, `pendingCount`, `oldestPendingAgeMs` | This process holds the relay advisory lock and the backlog is draining. `pendingCount` is `SELECT count(*) … WHERE publication_status = 'PENDING'`, so it is the same number the gauge exposes. |
 
@@ -237,7 +237,7 @@ Consumer groups are not listed here. The authoritative list is in [backend-modul
       "elasticsearch": { "state": "up", "fatal": false },
       "minio": { "state": "up", "fatal": false },
       "smtp": { "state": "up", "fatal": false },
-      "scheduler": { "state": "up", "fatal": true, "registeredJobs": 6, "lastTickAt": "ISO8601" },
+      "scheduler": { "state": "up", "fatal": true, "registeredJobs": 14, "lastTickAt": "ISO8601" },
       "consumers": { "state": "up", "fatal": true, "groups": [{ "group": "string", "assignedPartitions": 1, "lastEventAt": "ISO8601 | null" }] },
       "outboxRelay": { "state": "up", "fatal": false, "lockHeld": true, "pendingCount": 0, "oldestPendingAgeMs": 0 }
     }
@@ -267,7 +267,7 @@ Only the changed check is shown; the response always carries the full set.
   "data": {
     "status": "down",
     "checks": {
-      "scheduler": { "state": "down", "fatal": true, "registeredJobs": 6, "lastTickAt": "ISO8601", "reason": "no tick within WORKERS_SCHEDULER_STALE_MS" }
+      "scheduler": { "state": "down", "fatal": true, "registeredJobs": 14, "lastTickAt": "ISO8601", "reason": "no tick within WORKERS_SCHEDULER_STALE_MS" }
     }
   }
 }

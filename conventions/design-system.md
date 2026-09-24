@@ -365,41 +365,50 @@ This map is the single owner of status colour. Any screen rendering a status not
 
 ---
 
+<a id="priceDisplay"></a>
 ### 8.3 PriceDisplay
 
-**Purpose:** Render a monetary amount correctly — formatted string, FX estimates with visual indicator, SALE strikethrough.
+**This is the single authoritative prop surface for `PriceDisplayComponent`.** Portal documents (`seller-portal.md`, `buyer-portal.md`) reference this section rather than restating the prop list. Phase-1 binding sources per input are documented in [`shared-components.md § 4.3`](../phase-1/ui-design/shared-components.md#43-pricedisplay).
+
+**Purpose:** Render a monetary amount correctly — formatted string, FX estimates with `≈` prefix and info tooltip, SALE struck-through list price with countdown badge.
 
 **Template structure:**
 
 ```
 <span class="price-display">
-  <!-- If SALE price active -->
-  <span class="price-original line-through mat-caption">[list price]</span>
+  <!-- If priceType = 'SALE' and compareAtAmount is non-null -->
+  <span class="price-original line-through mat-caption">[compareAtAmount] [currency]</span>
   <!-- Effective price -->
-  <span class="price-effective mat-headline-6">[≈ prefix if FX estimate][amount] [currency]</span>
-  <!-- If FX estimate: tooltip trigger -->
-  <mat-icon matTooltip="Estimated in [buyer_currency], actual charge in [offer_currency]">info_outline</mat-icon>
-  <!-- If SALE: countdown badge -->
+  <span class="price-effective mat-headline-6">[≈ prefix if converted][amount] [currency]</span>
+  <!-- If converted: tooltip trigger (FR-P-02) -->
+  <mat-icon matTooltip="Estimated in [currency], actual charge in [estimatedFrom]">info_outline</mat-icon>
+  <!-- If fxStale = true: stale-rate indicator -->
+  <mat-icon class="fx-stale" matTooltip="Rate as of [fxAsOf] — indicative only">schedule</mat-icon>
+  <!-- If priceType = 'SALE' and saleEndsAt is non-null: countdown badge -->
   <mat-chip class="sale-chip">SALE ends [timer]</mat-chip>
-  <!-- If B2B_TIER visible -->
-  <span class="tier-hint mat-caption">Buy [min_qty]+ at [tier_price] each</span>
 </span>
 ```
 
 **Inputs:**
 
-| Input | Type | Description |
-|-------|------|-------------|
-| `amount` | `string` | Amount as string (never number) |
-| `currency` | `string` | ISO 4217 code |
-| `listAmount` | `string \| null` | Original list price (shown struck-through when SALE active) |
-| `isFxEstimate` | `boolean` | Adds `≈` prefix and info icon |
-| `offerCurrency` | `string \| null` | Original currency when FX estimate |
-| `saleEndsAt` | `Date \| null` | Drives countdown badge |
-| `tierMinQty` | `number \| null` | B2B tier threshold |
-| `tierAmount` | `string \| null` | B2B tier price |
+| Input | Type | Required | Description |
+|-------|------|----------|-------------|
+| `amount` | `string` | Yes | Effective price amount as a decimal string; never a JS `number` |
+| `currency` | `string` | Yes | ISO 4217 code the `amount` is denominated in |
+| `priceType` | `'LIST' \| 'SALE'` | Yes | Drives template branches: `'SALE'` enables the `compareAtAmount` strikethrough and the `saleEndsAt` countdown |
+| `compareAtAmount` | `string \| null` | No | The live `LIST` amount when `priceType = 'SALE'`. Non-null to show the struck-through original price. Always `null` when `priceType = 'LIST'` |
+| `converted` | `boolean` | No (default `false`) | `true` when `amount` is an FX-converted display value, not the offer's native currency; adds the `≈` prefix and info tooltip |
+| `estimatedFrom` | `string \| null` | No | The offer's native ISO 4217 code when `converted = true`. **Required when `converted = true`** |
+| `fxAsOf` | `string \| null` | No | ISO 8601 timestamp of the FX rate used for conversion. **Required when `converted = true`** |
+| `fxStale` | `boolean \| null` | No | `true` when the FX rate is older than `FX_STALE_AFTER_HOURS`. **Required when `converted = true`**. A stale rate is still displayed, labelled as indicative (FR-P-02) |
+| `saleEndsAt` | `string \| null` | No | ISO 8601 deadline; non-null when `priceType = 'SALE'` and a live `ends_at` exists; drives the countdown badge |
 
-**Formatting:** Use `Intl.NumberFormat` at render boundary. Currency scale: JPY → 0 decimals; BHD/KWD → 3; all others → 2. Amount value comes in as string; parse with `decimal.js` only if arithmetic needed.
+**Required-together rules:**
+- `converted = true` requires `estimatedFrom` (non-null), `fxAsOf` and `fxStale` to be set.
+- `compareAtAmount` non-null is only meaningful when `priceType = 'SALE'`; set it to `null` for any non-SALE binding.
+- `saleEndsAt` non-null is only meaningful when `priceType = 'SALE'`.
+
+**Formatting:** Use `Intl.NumberFormat` at the render boundary. Currency scale is read from `Currency.minor_unit_scale`: JPY → 0 decimals; BHD/KWD → 3; USD/THB/SGD → 2. `amount` and `compareAtAmount` arrive as strings; parse with `decimal.js` only if arithmetic is needed (which it should not be — all amounts are server-computed).
 
 ---
 

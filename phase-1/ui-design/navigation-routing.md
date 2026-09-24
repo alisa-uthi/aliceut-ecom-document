@@ -152,7 +152,7 @@ export const appRoutes: Routes = [
 
 **`checkout.routes.ts`**
 ```
-/checkout               → CheckoutComponent (4-step mat-stepper)
+/checkout               → CheckoutComponent (3-step mat-stepper: address, payment, review)
 /checkout/confirmation  → OrderConfirmationComponent
 ```
 

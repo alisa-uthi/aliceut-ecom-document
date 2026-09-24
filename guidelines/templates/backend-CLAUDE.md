@@ -9,7 +9,7 @@
 
 NestJS 11+ modular monolith. Phase 1. Single HTTP API (`apps/api`) + Kafka workers (`apps/workers`) + domain libs (`libs/`).
 
-## Locked stack (BRD §12 — treat as constraints, not suggestions)
+## Stack (BRD §12 — the choices currently in force; change one by amending the BRD)
 
 | Layer | Technology |
 |-------|-----------|
@@ -51,7 +51,7 @@ domain/ ← application/ ← infrastructure/
 
 ---
 
-## Non-negotiables — read before writing any code
+## Core rules — read before writing any code
 
 ### Money (every violation is a PR blocker)
 

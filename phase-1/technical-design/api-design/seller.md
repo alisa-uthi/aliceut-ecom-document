@@ -2,7 +2,7 @@
 
 **Module:** `Seller`  
 **Parent:** [API Design Index](../api-design.md)  
-**Source of truth:** [BRD v1.2](../../requirements/BRD.md), [ERD](../data-model-erd.md)
+**Source of truth:** [BRD v1.3](../../requirements/BRD.md), [ERD](../data-model-erd.md)
 
 > **Conventions:** every endpoint accepts an `X-Correlation-ID` request header, generates a UUIDv7 when it is absent, echoes it on the response, and carries the same value into every log line and into the `correlation_id` of every `platform.outbox_event` row and Kafka envelope it writes — see [observability.md § Correlation ID Propagation](../../../conventions/observability.md#correlation-id). Error bodies use the envelope and code table in [api-conventions.md § Standard Error Shape](../../../conventions/api-conventions.md#standard-error-shape). Every list endpoint uses the cursor envelope of [api-conventions.md § Pagination](../../../conventions/api-conventions.md#pagination) — `cursor` + `limit` (default 20, max 100), `meta: { nextCursor, hasMore }`, and **no `total`**.
 
@@ -1009,7 +1009,7 @@ Auth: SELLER_ACTIVE
 
 | Rule | Enforcement |
 |---|---|
-| At most one active `LIST` price per offer | The partial unique index on `(offer_id, price_type, min_qty) WHERE price_type <> 'SALE' AND inactive_at IS NULL`. A second active `LIST` is `409` with the message "A LIST price in [currency] already exists for this offer. Edit or delete it before creating a new one." — never a silent overwrite. |
+| At most one active `LIST` price per offer | The partial unique index on `(offer_id, price_type, min_qty) WHERE price_type = 'LIST' AND inactive_at IS NULL`. A second active `LIST` is `409` with the message "A LIST price already exists for this offer. Edit or delete it before creating a new one." — never a silent overwrite. |
 | `SALE` periods may not overlap | The `EXCLUDE USING gist` constraint on `(offer_id, tstzrange(starts_at, ends_at))` for live `SALE` rows. An overlapping window is `409`. Non-overlapping sequential SALE rows are allowed and are how a scheduled future sale coexists with a live one. |
 | At least one `LIST` price must always remain | Checked here on edit and on [delete](#delete-offer-price). |
 

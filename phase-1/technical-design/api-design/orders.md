@@ -3,7 +3,7 @@
 **Status:** Complete  
 **Module:** `Orders`  
 **Parent:** [API Design Index](../api-design.md)  
-**Source of truth:** [BRD v1.2](../../requirements/BRD.md), [ERD](../data-model-erd.md), [user-stories/buyer.md § US-B-09](../../requirements/user-stories/buyer.md)  
+**Source of truth:** [BRD v1.3](../../requirements/BRD.md), [ERD](../data-model-erd.md), [user-stories/buyer.md § US-B-09](../../requirements/user-stories/buyer.md)  
 **Conventions:** [api-conventions.md](../../../conventions/api-conventions.md) — `operationId` naming (`<Module>_<verb><Resource>`), response envelope, cursor pagination, error shape, money-as-string  
 **Correlation:** every endpoint accepts an `X-Correlation-ID` request header, generates a UUIDv7 when it is absent, echoes it on the response, and carries the same value into every log line and into the `correlation_id` field of every Kafka event envelope and `platform.outbox_event` row it writes — see [observability.md § Correlation ID](../../../conventions/observability.md#correlation-id).
 
@@ -315,7 +315,7 @@ sequenceDiagram
             Note over O: Mark group FAILED: OFFER_UNAVAILABLE<br/>Cart items for this group remain in cart
         else all offers ACTIVE
             O->>P: SELECT amount, price_type, min_qty, starts_at, ends_at<br/>FROM pricing.offer_price<br/>WHERE offer_id IN :offer_ids AND inactive_at IS NULL
-            Note over O,P: No currency predicate — offer_price has no currency column#59; every row is in the offer's native_currency_code. Resolution by price_type: B2B_TIER (account_type B2B, qty >= min_qty) → SALE (live window) → LIST
+            Note over O,P: No currency predicate — offer_price has no currency column#59; every row is in the offer's native_currency_code. Resolution by price_type: SALE (live window) then LIST. Account type and quantity are not inputs — B2B_TIER is not a V1 price type (D-02)
             O->>P: SELECT rate, as_of FROM pricing.fx_rate<br/>WHERE base_currency_code = :offer_currency<br/>AND quote_currency_code = :buyer_display_currency
             Note over O,P: The capture rate. Read once, here, and written to fulfillment_item.fx_rate_used_at_capture.<br/>1.00000000 when the two currencies are the same. No later read re-derives it.
             alt resolved price differs from the confirmed/shown price beyond CHECKOUT_PRICE_TOLERANCE

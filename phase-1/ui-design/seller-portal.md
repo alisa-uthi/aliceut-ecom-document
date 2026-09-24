@@ -5,6 +5,8 @@
 **Stack:** Angular 22+ + Angular Material + `libs/ui/` shared components  
 **Auth:** Email/password only (no OAuth). JWT with SELLER role.
 
+Component contracts are owned by [conventions/design-system.md § 8](../../conventions/design-system.md#8-shared-component-library-libsui) — in particular the prop surfaces of [`PriceDisplay` § 8.3](../../conventions/design-system.md#83-pricedisplay) and `CurrencyInput` § 8.4, which every `<aliceut-price-display>` and `<aliceut-currency-input>` below binds against and which this document does not restate. Phase-1 binding sources per input, including the rule that a seller price input's `currencyCode` is the parent offer's `nativeCurrencyCode`, are in [shared-components.md § 4.3](shared-components.md#43-pricedisplay) and [§ 4.4](shared-components.md#44-currencyinput). The cross-cutting rules every screen below follows — standalone + OnPush, `ViewState<T>`, reactive forms, cursor pagination, accessibility — are in [shared-components.md § 7](shared-components.md#7-rules-every-screen-follows) and are not repeated per screen.
+
 ---
 
 ## Summary
@@ -483,7 +485,7 @@ div.page-header [display: flex; justify-content: space-between; align-items: cen
     th mat-header-cell — Prices
     td mat-cell
       div *ngFor="let price of row.listPrices"
-        <aliceut-price-display [amount]="price.amount" [currency]="price.currency">
+        <aliceut-price-display [amount]="price.amount" [currency]="row.nativeCurrencyCode" [priceType]="price.priceType">
 
   ng-container matColumnDef="inventory"
     th mat-header-cell — Available Stock
@@ -598,10 +600,20 @@ mat-card [margin-bottom: 24px; padding: 24px]
 <!-- Section 4: Offer Pricing -->
 mat-card [margin-bottom: 24px; padding: 24px]
   h2 mat-h5 [margin-bottom: 8px] — Pricing
-  p mat-body-2 color="secondary" [margin-bottom: 16px] — Set prices in one or more currencies. At least one LIST price is required.
-  mat-card.info-banner *ngIf="listing?.hasPendingOrders && priceForm.dirty" [margin-bottom: 12px]
+  p mat-body-2 color="secondary" [margin-bottom: 16px] — Set the offer price. Currency is the offer's native currency — to sell in a second currency, create a separate offer. At least one LIST price is required.
+  mat-card.info-banner *ngIf="listing?.hasPendingOrders && listingForm.dirty" [margin-bottom: 12px]
     mat-icon — info_outline
     span — Price changes do not affect orders that have already been placed.
+
+  mat-form-field [appearance=outline; min-width: 160px; margin-bottom: 16px]
+    mat-label — Currency
+    mat-select formControlName="nativeCurrencyCode" [disabled]="!isNew"
+      mat-option value="USD" — USD
+      mat-option value="THB" — THB
+      mat-option value="JPY" — JPY
+      mat-option value="SGD" — SGD
+    mat-hint *ngIf="isNew" — Currency cannot be changed after the offer is created.
+    mat-hint *ngIf="!isNew" color="primary" — Currency is fixed at offer creation. To sell in another currency, create a separate offer.
 
   div [formArrayName]="'prices'"]
     div.price-row *ngFor="let priceGroup of pricesArray.controls; let pi = index" [formGroupName]="pi"
@@ -612,15 +624,9 @@ mat-card [margin-bottom: 24px; padding: 24px]
             mat-select formControlName="priceType"
               mat-option value="LIST" — LIST (Regular)
               mat-option value="SALE" — SALE (Discount)
-              mat-option value="B2B_TIER" — B2B Tier (Bulk)
-          mat-form-field [appearance=outline; min-width: 100px]
-            mat-label — Currency
-            mat-select formControlName="currency"
-              mat-option value="USD" — USD
-              mat-option value="THB" — THB
-              mat-option value="JPY" — JPY
-              mat-option value="SGD" — SGD
-          <aliceut-currency-input [currencyCode]="priceGroup.value.currency" formControlName="amount" [required]="true">
+          <!-- Currency comes from the select above, not from the loaded entity: `listing` is
+               null on a new listing, which is exactly when that select is enabled. -->
+          <aliceut-currency-input [currencyCode]="listingForm.get('nativeCurrencyCode')?.value" formControlName="amount" [required]="true">
           <!-- SALE fields -->
           ng-container *ngIf="priceGroup.value.priceType === 'SALE'"
             mat-form-field [appearance=outline]
@@ -633,15 +639,10 @@ mat-card [margin-bottom: 24px; padding: 24px]
               input matInput [matDatepicker]="saleEnd" formControlName="endsAt"
               mat-datepicker-toggle matSuffix [for]="saleEnd"
               mat-datepicker #saleEnd
-          <!-- B2B Tier field -->
-          mat-form-field [appearance=outline; max-width: 140px] *ngIf="priceGroup.value.priceType === 'B2B_TIER'"
-            mat-label — Min Quantity
-            input matInput type="number" formControlName="minQty" min="2"
           button mat-icon-button color="warn" (click)="removePrice(pi)" *ngIf="priceGroup.value.priceType !== 'LIST'"
             mat-icon — delete_outline
-        mat-error *ngIf="priceGroup.errors?.['duplicate']" — A LIST price in this currency already exists.
+        mat-error *ngIf="priceGroup.errors?.['duplicate']" — A LIST price already exists for this offer. Edit or delete it before creating a new one.
         mat-error *ngIf="priceGroup.errors?.['saleRange']" — Sale start must be before sale end.
-        mat-error *ngIf="priceGroup.errors?.['minQty']" — Minimum quantity must be at least 2.
 
   button mat-stroked-button (click)="addPrice()" [margin-top: 8px]
     mat-icon — add
@@ -741,7 +742,7 @@ div [display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; align-items
   ng-container matColumnDef="total"
     th mat-header-cell — Total
     td mat-cell
-      <aliceut-price-display [amount]="row.total" [currency]="row.currency">
+      <aliceut-price-display [amount]="row.total" [currency]="row.currency" [priceType]="'LIST'">
   ng-container matColumnDef="status"
     th mat-header-cell — Status
     td mat-cell
@@ -784,12 +785,13 @@ div.detail-grid [display: grid; grid-template-columns: 1fr 340px; gap: 24px]
           img matListItemAvatar [src]="item.imageUrl" [alt]=""
           span mat-list-item-title — {{ item.productTitle }}
           span mat-list-item-line — {{ item.variantLabel }} · Qty: {{ item.qty }}
-          span mat-list-item-line — Unit price: {{ item.unitPrice }} {{ item.currency }} (snapshotted)
-          <aliceut-price-display matListItemMeta [amount]="item.lineTotal" [currency]="order.currency">
+          span mat-list-item-line — Unit price (snapshotted):
+          <aliceut-price-display mat-list-item-line [amount]="item.unitPrice" [currency]="item.currency" [priceType]="'LIST'">
+          <aliceut-price-display matListItemMeta [amount]="item.lineTotal" [currency]="order.currency" [priceType]="'LIST'">
       mat-divider [margin: 12px 0]
       div [display: flex; justify-content: flex-end]
         span mat-h6 — Total:
-        <aliceut-price-display [amount]="order.total" [currency]="order.currency">
+        <aliceut-price-display [amount]="order.total" [currency]="order.currency" [priceType]="'LIST'">
 
     mat-card [padding: 24px] *ngIf="order.trackingNumber"
       h2 mat-h6 — Tracking
@@ -966,6 +968,9 @@ div.page-header [display: flex; align-items: center; gap: 16px; margin-bottom: 2
   button mat-icon-button [routerLink]="['/seller/listings', offerId]" — arrow_back
   h1 mat-h4 — Manage Pricing — {{ productTitle }}
 
+<!-- Offer currency (read-only) -->
+p mat-body-2 color="secondary" [margin-bottom: 16px] — Currency: <strong>{{ offer.nativeCurrencyCode }}</strong> (fixed at offer creation — to sell in a second currency, create a separate offer)
+
 <!-- Current price rows table -->
 <aliceut-data-table [dataSource]="prices" [loading]="loading" emptyMessage="No prices set yet. Add a LIST price to make this offer visible to buyers.">
   ng-container matColumnDef="priceType"
@@ -975,16 +980,13 @@ div.page-header [display: flex; align-items: center; gap: 16px; margin-bottom: 2
   ng-container matColumnDef="amount"
     th mat-header-cell — Amount
     td mat-cell
-      <aliceut-price-display [amount]="row.amount" [currency]="row.currency">
+      <aliceut-price-display [amount]="row.amount" [currency]="offer.nativeCurrencyCode" [priceType]="row.priceType">
   ng-container matColumnDef="startsAt"
     th mat-header-cell — Valid From
     td mat-cell — {{ row.startsAt ? (row.startsAt | date:'mediumDate') : '—' }}
   ng-container matColumnDef="endsAt"
     th mat-header-cell — Valid Until
     td mat-cell — {{ row.endsAt ? (row.endsAt | date:'mediumDate') : '—' }}
-  ng-container matColumnDef="minQty"
-    th mat-header-cell — Min Qty
-    td mat-cell — {{ row.minQty ?? '—' }}
   ng-container matColumnDef="actions"
     th mat-header-cell — —
     td mat-cell
@@ -1015,19 +1017,8 @@ mat-card *ngIf="showPriceForm" [padding: 24px; margin-top: 16px]
         mat-select formControlName="priceType"
           mat-option value="LIST" — LIST
           mat-option value="SALE" — SALE
-          mat-option value="B2B_TIER" — B2B_TIER
-      mat-form-field [appearance=outline; min-width: 160px]
-        mat-label — Amount
-        input matInput formControlName="amount" placeholder="e.g. 99.99"
-        mat-hint — Enter as a number string
+      <aliceut-currency-input [currencyCode]="offer.nativeCurrencyCode" formControlName="amount" [required]="true">
         mat-error *ngIf="priceForm.get('amount')?.hasError('pattern')" — Amount must be a valid number
-      mat-form-field [appearance=outline; min-width: 100px]
-        mat-label — Currency
-        mat-select formControlName="currency"
-          mat-option value="USD" — USD
-          mat-option value="THB" — THB
-          mat-option value="JPY" — JPY
-          mat-option value="SGD" — SGD
       <!-- SALE fields (shown when priceType === 'SALE') -->
       ng-container *ngIf="priceForm.get('priceType')?.value === 'SALE'"
         mat-form-field [appearance=outline]
@@ -1040,13 +1031,8 @@ mat-card *ngIf="showPriceForm" [padding: 24px; margin-top: 16px]
           input matInput [matDatepicker]="endsAtPicker" formControlName="endsAt"
           mat-datepicker-toggle matSuffix [for]="endsAtPicker"
           mat-datepicker #endsAtPicker
-      <!-- B2B_TIER field (shown when priceType === 'B2B_TIER') -->
-      mat-form-field [appearance=outline; max-width: 140px] *ngIf="priceForm.get('priceType')?.value === 'B2B_TIER'"
-        mat-label — Min Quantity
-        input matInput type="number" formControlName="minQty" min="2"
-        mat-error — Min quantity must be ≥ 2
 
-    mat-error *ngIf="priceForm.errors?.['duplicate']" [margin-top: 8px] — A price with this type and currency already exists.
+    mat-error *ngIf="priceForm.errors?.['duplicate']" [margin-top: 8px] — A LIST price already exists for this offer. Edit or delete it before creating a new one.
     mat-error *ngIf="priceForm.errors?.['saleRange']" [margin-top: 8px] — Valid From must be before Valid Until.
 
     div [display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px]

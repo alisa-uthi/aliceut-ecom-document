@@ -3,7 +3,7 @@
 **Status:** Complete  
 **Module:** `Notifications`  
 **Parent:** [API Design Index](../api-design.md)  
-**Source of truth:** [BRD v1.2](../../requirements/BRD.md), [ERD](../data-model-erd.md)  
+**Source of truth:** [BRD v1.3](../../requirements/BRD.md), [ERD](../data-model-erd.md)  
 **Conventions:** [api-conventions.md](../../../conventions/api-conventions.md) — `operationId` naming (`<Module>_<verb><Resource>`), response envelope, cursor pagination, error shape  
 **Correlation:** every endpoint accepts an `X-Correlation-ID` request header, generates a UUIDv7 when it is absent, echoes it on the response, and carries the same value into every log line; a consumer carries the `correlation_id` of the event it is processing into the log lines it writes — see [observability.md § Correlation ID](../../../conventions/observability.md#correlation-id).
 

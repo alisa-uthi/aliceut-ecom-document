@@ -2,7 +2,7 @@
 
 **Module:** `Profile`  
 **Parent:** [API Design Index](../api-design.md)  
-**Source of truth:** [BRD v1.2](../../requirements/BRD.md), [ERD](../data-model-erd.md)
+**Source of truth:** [BRD v1.3](../../requirements/BRD.md), [ERD](../data-model-erd.md)
 
 > **Conventions:** every endpoint below accepts an `X-Correlation-ID` request header, generates a UUIDv7 when it is absent, echoes it on the response, and carries it into every log line and event envelope written during the request — see [observability.md § Correlation ID Propagation](../../../conventions/observability.md#correlation-id). Error bodies use the envelope and code table in [api-conventions.md § Standard Error Shape](../../../conventions/api-conventions.md#standard-error-shape).
 

@@ -1,7 +1,7 @@
 # Observability Conventions
 
 **Status:** Complete  
-**Source of truth:** [BRD v1.2](../phase-1/requirements/BRD.md)
+**Source of truth:** [BRD v1.3](../phase-1/requirements/BRD.md)
 
 ---
 
@@ -76,7 +76,7 @@ export default registerAs('log', () => ({
   sensitiveKeys: process.env.LOG_SENSITIVE_KEYS
     ? process.env.LOG_SENSITIVE_KEYS.split(',').map((k) => k.trim().toLowerCase())
     : DEFAULT_SENSITIVE_KEYS,
-  maxBodyLogBytes: parseInt(process.env.LOG_MAX_BODY_BYTES ?? '10000', 10),
+  maxBodyLogBytes: parseInt(process.env.LOG_MAX_BODY_BYTES ?? '4096', 10),
 }));
 ```
 
@@ -86,7 +86,7 @@ export default registerAs('log', () => ({
 # Comma-separated, case- and separator-insensitive. Overrides the built-in default list entirely.
 LOG_SENSITIVE_KEYS=password,newpassword,currentpassword,passwordhash,token,accesstoken,refreshtoken,idtoken,verificationtoken,resettoken,secret,apikey,privatekey,clientsecret,authorization,cookie,ssn,cardnumber,cvv,taxid
 
-LOG_MAX_BODY_BYTES=10000
+LOG_MAX_BODY_BYTES=4096
 ```
 
 `DEFAULT_SENSITIVE_KEYS` is the project-wide masking list, not a logging-only concern. Two other paths cite it:
