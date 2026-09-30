@@ -6,7 +6,11 @@ Guidance for Claude Code (claude.ai/code) when working in this repository.
 
 **Phase 1 design complete; implementation not started.** Requirements (`phase-1/requirements/BRD.md` v1.4, agreed 2026-08-19; amended 2026-09-14, 2026-09-22 and 2026-09-30 + `user-stories/`), technical design (`phase-1/technical-design/`) and UI design (`phase-1/ui-design/`) are all written and cross-aligned. No source code or build system yet.
 
-**This repo holds specs, not task state.** Implementation status belongs in GitHub Issues + Milestones + a Project board, never in a checked-in backlog file — the reason `phase-1/backlog/` and `scripts/create-github-issues.ps1` were deleted (c805aed, 2026-09-19). No issues exist yet, so backlog decomposition must be redone straight into GitHub Issues before implementation starts.
+**This repo holds specs, not task state.** Implementation status belongs in GitHub Issues + Milestones + a Project board, never in a checked-in backlog file — the reason `phase-1/backlog/` and `scripts/create-github-issues.ps1` were deleted (c805aed, 2026-09-19).
+
+The decomposition lives in **`phase-N/tasks.csv`** as an **import seed**, which is a different thing from task state: `phase-1/tasks.csv` carries 136 rows (61 backend, 44 frontend, 13 migration, 18 infra) with their spec references, dependencies and sprint, and deliberately has **no status, assignee or progress column** — add one and it becomes the backlog file that was deleted. All 136 issues were imported on 2026-09-30 and linked to Project 3 `aliceut-ecom`.
+
+`scripts/github-issues/` holds the tooling: `import-issues.sh --phase N` creates or updates the issues (matched by an `aliceut-task-id` marker, so re-runs never duplicate) and links each to the board; `validate-tasks.sh --phase N` checks a seed and must be clean before an import; `TEMPLATE.md` is the row contract and the procedure for decomposing a new phase. Issue bodies link to spec sections and never copy their text, so a spec edit cannot leave an issue stale. Change a task by editing the CSV and re-running — never by editing the issue.
 
 Do not scaffold code unless user explicitly asks.
 
@@ -30,7 +34,9 @@ phase-1/
 ├── ui-design/           phase-specific UI designs (portal wireframes, shared components,
 │                        navigation routing)
 ├── diagrams/            Mermaid flow and lifecycle diagrams (01–06)
-└── screens/             exported Figma screen images
+├── screens/             exported Figma screen images
+└── tasks.csv            issue import seed for this phase (no status column — not a backlog)
+scripts/github-issues/   issue importer + seed validator + task template
 phase-2/                 (planned, not yet on disk: V2 scope — K8s, real payments, etc.)
 ```
 

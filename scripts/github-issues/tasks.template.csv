@@ -1,0 +1,20 @@
+# Starter for a new phase. Copy to phase-N/tasks.csv and replace the example rows.
+# Contract, procedure and Definition of Done blocks: scripts/github-issues/TEMPLATE.md
+# Validate before importing:  scripts/github-issues/validate-tasks.sh --phase N
+#
+# This file is an import seed, NOT a backlog. Status / assignee / progress live in GitHub
+# Issues and on the Project board. Never add such a column here.
+#
+# Rules enforced by validate-tasks.sh and by the importer's preflight:
+#   - exactly 12 fields per row, no embedded commas, no quoted fields. Use ';' for lists.
+#   - task_id is stable forever; it is the idempotency marker the importer matches on.
+#   - spec_refs uses path aliases: brd | us/<f> | td/<f> | api/<f> | ui/<f> | cv/<f> | gl/<f> | dg/<f>
+#   - deep-link to the section, with its anchor. The validator checks every anchor exists.
+#   - do NOT list the per-layer baseline refs; the importer appends those.
+#   - goal and dod_extra carry no commas. Write NUMERIC(19 4) rather than NUMERIC(19,4).
+task_id,layer,module,sprint,priority,title,goal,story_ids,fr_ids,spec_refs,depends_on,dod_extra
+# --- one example per layer. Delete these. ---
+IN-01,infra,platform,0,must,[IN] Example infra task,Stand up the thing the topology spec describes,,NFR-16,td/docker-compose-topology.md,,Every container reports healthy
+DB-01,migration,platform,0,must,[DB] Example migration,Create the tables the ERD defines for this schema,US-P-10,FR-P-09,td/data-model-erd.md#schema-platform,IN-01,Applies and reverts on a fresh database
+BE-US-X-01,backend,catalog,1,must,[BE] Example backend task,Implement the endpoint the api-design section specifies,US-X-01,FR-X-01,us/buyer.md#us-b-02--search-products-by-keyword;api/catalog.md#get-product-detail,DB-01,Response shape matches the contract
+FE-US-X-01,frontend,buyer-app,1,must,[FE] Example screen,Build the screen the ui-design section specifies,US-X-01,FR-X-01,ui/buyer-portal.md#screen-1--home-page,BE-US-X-01,Loading and empty and error states implemented

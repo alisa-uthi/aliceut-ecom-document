@@ -31,6 +31,7 @@ Daily log of work on this project. Newest entry on top. One entry per active day
 > **Note on `phase-1/audits/` paths below.** That directory is gone: its two files — `2026-09-22-wave0-decisions.md` (decision records D-01…D-14) and `2026-09-22-alignment-audit-fix-plan.md` — were committed on 2026-09-22 and deleted again on 2026-09-24 by commit `c5767b8`. A `phase-1/audits/README.md` was never committed at any point, so entries below that describe creating one describe work that did not land. Every `phase-1/audits/…` path in the dated entries records what was worked from at the time; none of them resolve today. The decisions themselves are recorded inline in the documents they bind — `BRD.md` §12 and its amendment list, and `CLAUDE.md` Core Rules — and in the git history of commits `4f24166`, `61bbda4`, `f0db299` and `c5767b8`.
 
 **Index**
+- [2026-09-30 (later)](#2026-09-30b) — Phase 1 decomposed into 136 tasks, imported to GitHub Issues + Project 3; per-phase seed CSV, validator and task template.
 - [2026-09-30](#2026-09-30) — Dead `D-NN` pointer scrub finished; the five open audit contradictions resolved (BRD v1.4); `conventions/` pass closed.
 - [2026-09-24](#2026-09-24) — Alignment-audit Waves 2/3/4/5/6 fixes; all ten Wave 7 hygiene items.
 - [2026-09-22](#2026-09-22) — Alignment-audit Wave 0 decision gate (BRD v1.3) and Wave 1 event-contract fixes.
@@ -46,6 +47,32 @@ Daily log of work on this project. Newest entry on top. One entry per active day
 - [2026-08-29](#2026-08-29) — Requirements deep-dive: order lifecycle, buyer stories, auth portals, BA revalidation.
 - [2026-08-22](#2026-08-22) — Phase 1 technical-design kickoff; architecture overview + ERD.
 - [2026-08-19](#2026-08-19) — Requirements freeze (BRD v1.2 signed off) + repo scaffolding.
+
+<a id="2026-09-30b"></a>
+## 2026-09-30 (later)
+**Focus:** redo the backlog decomposition that `c805aed` deleted — this time as an import seed for GitHub Issues rather than as checked-in task state.
+
+**Done:**
+- Decomposed Phase 1 into **136 tasks** in `phase-1/tasks.csv`: 61 backend, 44 frontend, 13 migration (one per Postgres schema plus enums, cross-schema constraints and retention indexes), 18 infra. The 60 user stories are split by layer, and the foundation work that is not a user story — Nx scaffolds, compose bring-up, CI, migration runner, `libs/shared` money helpers, the money lint rule, OpenAPI codegen, Kafka and Schema Registry bootstrap, ES index template, MinIO buckets, Mongo collections, design-system setup, seed loader, test harness — is carried as `infra` rows. Sprints follow `user-stories/README.md` § Story Sequencing.
+- Wrote `import-issues.sh` (bash + `gh`). Creates or updates issues, creates the `layer:` / `module:` / `priority:` / `sprint:` labels and the `Sprint 0`–`Sprint 5` milestones, resolves `depends_on` into real `#numbers` in a second pass, then adds every issue to a Project v2 board and sets `Status` / `Layer` / `Module` / `Priority`. Idempotent: issues are matched by an `aliceut-task-id` marker in the body, so a re-run edits instead of duplicating. Has `--dry-run`, `--only-sprint`, `--only-layer`, `--limit`, `--no-project` and `--print-body`.
+- Issue bodies hold a goal line, absolute links to the governing spec sections, story/FR traces, dependencies and a layer-specific Definition of Done — and **no copied requirement text**, so a spec edit cannot strand an issue. Per-layer baseline references (coding standards, ERD, design system, testing guidelines) are appended by the script rather than repeated in 136 CSV rows.
+- Validated the seed against the repo: all 136 rows have 12 fields, no duplicate `task_id`, every `depends_on` resolves to a row in the file, and **every one of the spec references resolves to a real file and a real anchor** (0 broken).
+
+**Decisions:**
+- Issues live in `aliceut-ecom-document` only, not split across the four repos. The specs an agent must read are here, and one Project board over one repo is simpler than a cross-repo board.
+- The CSV is an import seed, not a backlog: no status, assignee or progress column, ever. That is the line between this and the `phase-1/backlog/` that was deleted on 2026-09-19.
+- CSV over XLSX — it is checked in and will be edited, so it has to diff.
+- No embedded commas and no quoted fields in the CSV, enforced by a preflight check that names the offending line. Lists use `;`. Keeps the bash parser honest instead of half-implementing RFC 4180.
+
+- **Imported all 136** into GitHub Issues and onto Project 3 `aliceut-ecom`: 6 milestones, 23 labels, every board item carrying `Status` / `Layer` / `Module` / `Priority`. The confirming re-run reported `created: 0 updated: 136` with zero warnings, which is the idempotency proof. The board was the stock GitHub template, so `Layer` and `Module` were created and `must` / `should` added beside its `P0`-`P2`; nothing was removed.
+- Two importer bugs found by running it for real. `--limit` was ignored in the board pass, so a one-issue run still processed every board item. And every board field write failed with `The single select option Id does not belong to the field`, which is a lie: Windows builds of `gh` and `jq` emit CRLF, so each captured id carried a trailing ``. Ids are now filtered to `[A-Za-z0-9_-]` — and the `-` matters, since the first version omitted it and broke the two item ids that contained one. Both are written up in the tooling README's Troubleshooting section.
+- Made the tooling phase-agnostic so the next phase is mechanical: the seed moved to **`phase-N/tasks.csv`**, `import-issues.sh` takes `--phase N` and a `--milestone-prefix` (phase 2 needs one or its sprints collide), and every issue now carries a `phase:N` label. Added `validate-tasks.sh` (field count, duplicate ids, unknown layers, dependency resolution, and every `spec_refs` file **and anchor**) plus `TEMPLATE.md` — the row contract, the per-layer Definition of Done and the step-by-step procedure for decomposing a phase — and `tasks.template.csv` to copy.
+
+**Next:**
+- Phase 2's seed needs `expand_ref` in `import-issues.sh` taught its own path aliases; today they are phase-1-rooted. That is the one code change a new phase requires.
+- Implementation can start from Sprint 0: issues #1-#21.
+
+---
 
 <a id="2026-09-30"></a>
 ## 2026-09-30
