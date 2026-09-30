@@ -1,10 +1,10 @@
 # Profile API
 
+**Status:** Complete  
 **Module:** `Profile`  
 **Parent:** [API Design Index](../api-design.md)  
-**Source of truth:** [BRD v1.3](../../requirements/BRD.md), [ERD](../data-model-erd.md)
-
-> **Conventions:** every endpoint below accepts an `X-Correlation-ID` request header, generates a UUIDv7 when it is absent, echoes it on the response, and carries it into every log line and event envelope written during the request — see [observability.md § Correlation ID Propagation](../../../conventions/observability.md#correlation-id). Error bodies use the envelope and code table in [api-conventions.md § Standard Error Shape](../../../conventions/api-conventions.md#standard-error-shape).
+**Source of truth:** [BRD v1.4](../../requirements/BRD.md), [ERD](../data-model-erd.md)  
+**Conventions:** [api-conventions.md](../../../conventions/api-conventions.md) — `operationId` naming (`<Module>_<verb><Resource>`), response envelope, cursor pagination, error shape, money-as-string. Correlation-ID propagation, the error envelope and rate-limit headers apply to every endpoint in this document and are stated once in [api-design.md § 1 Conventions](../api-design.md#conventions).
 
 ---
 
@@ -49,6 +49,13 @@
 <a id="endpoints"></a>
 ## Endpoints
 
+> **The guard step in every sequence below is drawn as one line.** It stands for the
+> same chain everywhere, evaluated in this order, first failure wins: a missing,
+> invalid or expired access token is `401 Unauthorized`; on a `BUYER` route a valid
+> token whose `roles` claim does not contain `BUYER` is `403 Forbidden`. Guards compare
+> decoded JWT claims and query no table ([auth-jwt-design § 4](../../../conventions/auth-jwt-design.md#auth-guards)).
+> Each endpoint's guard is named on its `Auth:` line and in [api-design.md § 1.1](../api-design.md#11-guard-application-matrix).
+
 ### Get own profile
 
 ```
@@ -90,11 +97,7 @@ sequenceDiagram
     participant PG as Postgres
 
     C->>G: GET /profile/me (Bearer accessToken)
-    G->>G: Verify JWT signature + expiry
-    alt token missing or invalid/expired
-        G-->>C: 401 Unauthorized
-    end
-    G->>A: proceed with decoded JWT {sub, roles, ...}
+    G->>A: guard passed (JWT) — proceed with decoded JWT {sub, roles, ...}
 
     A->>PG: SELECT identity.user WHERE id = JWT.sub
     Note over A: If business_logo_storage_key is set, generate presigned URL (1h TTL) from user-assets bucket
@@ -138,11 +141,7 @@ sequenceDiagram
     participant PG as Postgres
 
     C->>G: PATCH /profile/me {fullName?, preferredCurrency?, businessName?} (Bearer accessToken)
-    G->>G: Verify JWT signature + expiry
-    alt token missing or invalid/expired
-        G-->>C: 401 Unauthorized
-    end
-    G->>A: proceed with decoded JWT {sub, account_type, ...}
+    G->>A: guard passed (JWT) — proceed with decoded JWT {sub, account_type, ...}
 
     A->>A: Validate body (fullName 2-80 chars, preferredCurrency in pricing.currency or null, businessName max 120 chars)
     alt validation fails
@@ -195,11 +194,7 @@ sequenceDiagram
     participant MinIO as MinIO (user-assets)
 
     C->>G: POST /profile/me/logo multipart/form-data {logo: file} (Bearer accessToken)
-    G->>G: Verify JWT signature + expiry
-    alt token missing or invalid/expired
-        G-->>C: 401 Unauthorized
-    end
-    G->>A: proceed with decoded JWT {sub, account_type, ...}
+    G->>A: guard passed (JWT) — proceed with decoded JWT {sub, account_type, ...}
 
     alt account_type != B2B
         A-->>C: 422 Unprocessable Entity "Business logo requires B2B account"
@@ -268,15 +263,7 @@ sequenceDiagram
     participant PG as Postgres
 
     C->>G: GET /profile/addresses (Bearer accessToken)
-    G->>G: Verify JWT signature + expiry
-    alt token missing or invalid/expired
-        G-->>C: 401 Unauthorized
-    end
-    G->>G: Check roles contains 'BUYER'
-    alt BUYER role missing
-        G-->>C: 403 Forbidden
-    end
-    G->>A: proceed with decoded JWT {sub, roles, ...}
+    G->>A: guard passed (JWT + BUYER) — proceed with decoded JWT {sub, roles, ...}
 
     A->>PG: SELECT identity.address WHERE user_id = JWT.sub ORDER BY is_default DESC, created_at ASC
 
@@ -308,15 +295,7 @@ sequenceDiagram
     participant PG as Postgres
 
     C->>G: POST /profile/addresses {label?, recipientName, addressLine1, city, postalCode, countryCode, ...} (Bearer accessToken)
-    G->>G: Verify JWT signature + expiry
-    alt token missing or invalid/expired
-        G-->>C: 401 Unauthorized
-    end
-    G->>G: Check roles contains 'BUYER'
-    alt BUYER role missing
-        G-->>C: 403 Forbidden
-    end
-    G->>A: proceed with decoded JWT {sub, roles, ...}
+    G->>A: guard passed (JWT + BUYER) — proceed with decoded JWT {sub, roles, ...}
 
     A->>A: Validate body (recipientName, addressLine1, city, postalCode, countryCode ISO 3166-1 alpha-2 required)
     alt validation fails
@@ -357,15 +336,7 @@ sequenceDiagram
     participant PG as Postgres
 
     C->>G: PATCH /profile/addresses/:addressId {field?...} (Bearer accessToken)
-    G->>G: Verify JWT signature + expiry
-    alt token missing or invalid/expired
-        G-->>C: 401 Unauthorized
-    end
-    G->>G: Check roles contains 'BUYER'
-    alt BUYER role missing
-        G-->>C: 403 Forbidden
-    end
-    G->>A: proceed with decoded JWT {sub, roles, ...}
+    G->>A: guard passed (JWT + BUYER) — proceed with decoded JWT {sub, roles, ...}
 
     A->>A: Validate body (at least one field present, field constraints)
     alt validation fails
@@ -410,15 +381,7 @@ sequenceDiagram
     participant PG as Postgres
 
     C->>G: DELETE /profile/addresses/:addressId (Bearer accessToken)
-    G->>G: Verify JWT signature + expiry
-    alt token missing or invalid/expired
-        G-->>C: 401 Unauthorized
-    end
-    G->>G: Check roles contains 'BUYER'
-    alt BUYER role missing
-        G-->>C: 403 Forbidden
-    end
-    G->>A: proceed with decoded JWT {sub, roles, ...}
+    G->>A: guard passed (JWT + BUYER) — proceed with decoded JWT {sub, roles, ...}
 
     A->>PG: SELECT identity.address WHERE id = addressId
     alt address not found
@@ -462,15 +425,7 @@ sequenceDiagram
     participant PG as Postgres
 
     C->>G: PATCH /profile/addresses/:addressId/default (Bearer accessToken)
-    G->>G: Verify JWT signature + expiry
-    alt token missing or invalid/expired
-        G-->>C: 401 Unauthorized
-    end
-    G->>G: Check roles contains 'BUYER'
-    alt BUYER role missing
-        G-->>C: 403 Forbidden
-    end
-    G->>A: proceed with decoded JWT {sub, roles, ...}
+    G->>A: guard passed (JWT + BUYER) — proceed with decoded JWT {sub, roles, ...}
 
     A->>PG: SELECT identity.address WHERE id = addressId
     alt address not found

@@ -1,7 +1,7 @@
 # Backend Coding Standards
 
 **Status:** Complete  
-**Source of truth:** [BRD v1.3](../phase-1/requirements/BRD.md), [module-architecture](backend-module-architecture.md)
+**Source of truth:** [BRD v1.4](../phase-1/requirements/BRD.md), [module-architecture](backend-module-architecture.md)
 
 ---
 
@@ -266,9 +266,9 @@ export class CurrencyScaleUnavailableError extends AppError {
 
 This is a **server** fault, not a validation failure, so it maps to `500` in `APP_ERROR_STATUS_MAP` (§5.2) rather than falling through to that map's `?? 422` default. The caller did nothing wrong and has nothing to correct, so a `422` would be a lie, and the operator detail that makes the fault diagnosable — which currency was asked for, and that the seed or the refresh is the suspect — belongs in the log `context`, never in the response body (§5.3).
 
-Register `CurrencyScaleCache` in `PricingModule` only — **not** `SharedModule` (D-03: sole-writer ENFORCE, `architecture-overview.md:111`). `libs/shared` holds technical primitives; it never holds code that reads a module-owned table (`architecture-overview.md:203`). The cache reads `pricing.currency` by raw SQL, so it belongs to the module that owns that schema. Expose it outside `PricingModule` only through `PricingApplicationService.getCurrencyScale(code: string): number`. Other modules that need a currency scale call that method; they do not inject `CurrencyScaleCache` directly.
+Register `CurrencyScaleCache` in `PricingModule` only — **not** `SharedModule` (sole-writer rule, ENFORCE level — `architecture-overview.md:111`). `libs/shared` holds technical primitives; it never holds code that reads a module-owned table (`architecture-overview.md:203`). The cache reads `pricing.currency` by raw SQL, so it belongs to the module that owns that schema. Expose it outside `PricingModule` only through `PricingApplicationService.getCurrencyScale(code: string): number`. Other modules that need a currency scale call that method; they do not inject `CurrencyScaleCache` directly.
 
-The 24-hour refresh is a scheduler, and D-03 binds schedulers the same way it binds writes: the scheduler reads `pricing.currency` from inside its owning module, which is legal precisely because `CurrencyScaleCache` now lives there. A scheduler in `libs/shared` or any other module reading `pricing.currency` would still be the same sole-writer violation.
+The 24-hour refresh is a scheduler, and the sole-writer rule binds schedulers the same way it binds writes: the scheduler reads `pricing.currency` from inside its owning module, which is legal precisely because `CurrencyScaleCache` now lives there. A scheduler in `libs/shared` or any other module reading `pricing.currency` would still be the same sole-writer violation.
 
 **Seed data** — the `pricing.currency` migration must insert all supported currencies (and any reference currencies) before the app starts:
 
@@ -616,7 +616,7 @@ async publishProduct(command: PublishProductCommand): Promise<void> {
 }
 ```
 
-See [kafka-events.md](kafka-events.md) §Transactional outbox for the full outbox pattern.
+See [backend-module-architecture.md § 6](backend-module-architecture.md#6-outbox-integration-pattern) for the full outbox pattern, and [kafka-events.md](kafka-events.md) for the envelope and consumer rules.
 
 ### 7.4 N+1 prevention
 
@@ -766,7 +766,7 @@ Gate these before approving any backend PR:
 - [ ] All monetary arithmetic uses `decimal.js` / `Money.multiply()` / `Money.add()` — no JS `+`, `*`, `/` operators on monetary values
 - [ ] TypeORM monetary columns declared as `string` with `numericStringTransformer`
 - [ ] JSON response monetary fields are strings, not numbers
-- [ ] Currency scale resolved via `PricingApplicationService.getCurrencyScale()` (or, inside `PricingModule` only, direct `CurrencyScaleCache` injection) — never a hardcoded `CURRENCY_SCALE` constant, and never direct `CurrencyScaleCache` injection outside `PricingModule` (D-03)
+- [ ] Currency scale resolved via `PricingApplicationService.getCurrencyScale()` (or, inside `PricingModule` only, direct `CurrencyScaleCache` injection) — never a hardcoded `CURRENCY_SCALE` constant, and never direct `CurrencyScaleCache` injection outside `PricingModule` (sole-writer rule)
 
 ### Event-driven integrity
 - [ ] Outbox event written in the same `DataSource.transaction()` as the domain state change
@@ -775,7 +775,7 @@ Gate these before approving any backend PR:
 
 ### Cross-module boundaries
 - [ ] No cross-module DB joins (each module queries only its own tables)
-- [ ] No cross-module injection of another module's **internal** services — communicate via Kafka events, or call the module's exported ApplicationService through its public `index.ts` (the latter is the permitted synchronous route; see §13 design decision on cross-module synchronous calls)
+- [ ] No cross-module injection of another module's **internal** services — communicate via Kafka events, or call the module's exported ApplicationService through its public `index.ts` (the latter is the permitted synchronous route; see [backend-module-architecture.md § 13](backend-module-architecture.md#13-design-decisions) on cross-module synchronous calls)
 
 ### Validation and security
 - [ ] No `ValidationPipe` re-registered at controller/handler level

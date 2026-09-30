@@ -1,7 +1,7 @@
 # MongoDB Data Model — Phase 1
 
 **Status:** Complete  
-**Source of truth:** [BRD v1.3](../requirements/BRD.md)  
+**Source of truth:** [BRD v1.4](../requirements/BRD.md)  
 **Related:** [kafka-events.md](kafka-events.md), [cleanup-jobs.md](cleanup-jobs.md), [conventions/observability.md](../../conventions/observability.md)
 
 Collections used for high-write append data: admin accountability, PII access accountability, and domain lifecycle events. All writes come from the single `platform.audit` Kafka consumer group (see [kafka-events.md](kafka-events.md)).
@@ -159,7 +159,7 @@ db.activity_events.createIndex({ occurred_at: 1 }, { expireAfterSeconds: 7776000
 
 Reads of another person's personal data. Answers: *who read this buyer's shipping address, and when.*
 
-NFR-09 requires PII access to be logged. Three Phase 1 reads qualify: a seller opening the order detail view, which shows the buyer's full unmasked shipping address (US-S-05b, `user-stories/seller.md:122`); an admin opening a KYC document during review (BRD §8 NFR-09); and an admin opening a single seller's detail page, which returns that seller's tax ID in full.
+NFR-09 requires PII access to be logged. Three Phase 1 reads qualify: a seller opening the order detail view, which shows the buyer's full unmasked shipping address (US-S-05b, `user-stories/seller.md`); an admin opening a KYC document during review (BRD §8 NFR-09); and an admin opening a single seller's detail page, which returns that seller's tax ID in full.
 
 **One record per disclosure, which is why the seller *list* returns no tax ID.** The detail read is the only place a tax ID is disclosed, so one `pii.accessed` row per call to that endpoint is a complete account of who has seen it. Were the paginated list to return the field, honesty would require a record per row per page load, and the collection would fill with rows nobody can act on. Searching by `tax_id` writes no record either: the admin is matching a value they already hold, and with the list field gone the search discloses none back.
 

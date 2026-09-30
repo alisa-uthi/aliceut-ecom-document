@@ -3,17 +3,15 @@
 **Documentation repository**
 
 AliceUT E-Commerce is a learning and portfolio project: a production-grade Amazon-inspired multi-vendor
-marketplace built to demonstrate full-stack engineering patterns. This repository contains all
-design documentation — requirements, technical specifications, UI design, and cross-phase
-conventions — produced before implementation begins.
+marketplace built to demonstrate full-stack engineering patterns.
 
 ---
 
 ## What is in this repository
 
-This is a **design-only repository**. Everything needed to start coding is here; the documents capture:
+Design documentation only — no source code. The documents capture:
 
-- A signed Business Requirements Document (BRD v1.3)
+- An agreed Business Requirements Document (BRD v1.4), revisable by amendment
 - User stories across all roles (buyer, seller, admin, platform)
 - Full data model (PostgreSQL ERD + MongoDB collections)
 - REST API contracts for all endpoints across modules, with sequence diagrams
@@ -35,8 +33,9 @@ aliceut-ecom-document/
 ├── PROGRESS.md                        Daily progress log (newest entry on top)
 ├── architecture-overview.md           Project-level architecture and evolution path
 │                                      (cross-phase reference; read this first)
-├── architecture-overview.html         Rendered HTML export of the two documents above,
-├── event-dataflow.html                standalone diagram viewers — regenerate by hand, no build step
+├── architecture-overview.html         Standalone interactive system-architecture diagram
+├── event-dataflow.html                Standalone interactive outbox/event-flow diagram
+│                                      (Archify exports, hand-regenerated — no build step)
 │
 ├── conventions/                       Stable cross-phase technical decisions
 │   ├── api-conventions.md             REST naming, money serialization, pagination, error shape
@@ -60,15 +59,8 @@ aliceut-ecom-document/
 │       └── frontend-CLAUDE.md         CLAUDE.md template — copy to aliceut-ecom-frontend/ on clone
 │
 ├── phase-1/
-│   ├── audits/                        Cross-document alignment audits and decision records
-│   │   ├── 2026-09-22-wave0-decisions.md          Wave 0 decision gate — D-01 … D-14
-│   │   └── 2026-09-22-alignment-audit-fix-plan.md 8-wave fix plan + findings index
-│   │
-│   ├── screens/                       Design mock exports referenced by the UI design docs
-│   │   └── AliceUT_Buyer_Portal.png   Buyer portal mock (source of truth is the Figma file)
-│   │
 │   ├── requirements/
-│   │   ├── BRD.md                     Business Requirements Document v1.3 (agreed 2026-08-19)
+│   │   ├── BRD.md                     Business Requirements Document v1.4 (agreed 2026-08-19)
 │   │   └── user-stories/
 │   │       ├── README.md              Story index, dependency graph, sprint plan
 │   │       ├── buyer.md               Buyer stories (US-B-*) — counts in the story index
@@ -101,22 +93,39 @@ aliceut-ecom-document/
 │   │   │   └── health.md              Liveness/readiness probe
 │   │   ├── backend-module-architecture.md  Phase 1 module inventory and tier assignments
 │   │   ├── cleanup-jobs.md            Phase 1 scheduled cleanup job implementations
+│   │   ├── consumer-field-matrix.md   Every consumer group, the fields it writes, and their source event field
 │   │   ├── data-model-erd.md          Full PostgreSQL ERD (module schemas, constraints, indexes)
 │   │   ├── data-model-mongodb.md      MongoDB collections (audit logs, activity events)
 │   │   ├── docker-compose-topology.md Service spec, volumes, networks, .env.example
 │   │   └── kafka-events.md            Topics, Avro schemas, consumer groups, DLQ topology
 │   │
-│   └── ui-design/
-│       ├── buyer-portal.md            Storefront screens — home, search, PDP, cart, checkout, orders, auth
-│       ├── seller-portal.md           Seller screens — dashboard, listings, orders, inventory, KYC
-│       ├── admin-portal.md            Admin screens — dashboard, KYC queue, moderation, seller mgmt
-│       ├── navigation-routing.md      Route trees, auth guards, guard matrix, TitleStrategy
-│       └── shared-components.md       libs/ui/ Angular component library spec
+│   ├── ui-design/
+│   │   ├── buyer-portal.md            Storefront screens — home, search, PDP, cart, checkout, orders, auth
+│   │   ├── seller-portal.md           Seller screens — dashboard, listings, orders, inventory, KYC
+│   │   ├── admin-portal.md            Admin screens — dashboard, KYC queue, moderation, seller mgmt
+│   │   ├── navigation-routing.md      Route trees, auth guards, guard matrix, TitleStrategy
+│   │   └── shared-components.md       libs/ui/ Angular component library spec
+│   │
+│   └── screens/                       Design mock exports referenced by the UI design docs
+│       └── AliceUT_Buyer_Portal.png   Buyer portal mock (source of truth is the Figma file)
 │
 └── phase-2/                           Planned, not yet on disk — V2 scope: K8s, real payments, reviews, analytics
 ```
 
 `conventions/` holds decisions that apply to every phase. `guidelines/` holds developer process docs. `phase-N/` directories hold requirements and design for that specific delivery. Numeric prefix sorts phases by delivery order.
+
+### Sibling repositories
+
+The running system is built from four repositories, cloned side by side under one parent folder:
+
+| Repo | Contents |
+|------|----------|
+| `aliceut-ecom-document` | This repo — requirements, technical design, UI design, conventions, guidelines |
+| `aliceut-ecom-backend` | NestJS Nx monorepo — `apps/api`, `apps/workers`, `libs/<module>/` |
+| `aliceut-ecom-frontend` | Angular Nx monorepo — `apps/buyer-app`, `apps/seller-app`, `apps/admin-app` |
+| `aliceut-ecom-infra` | `docker-compose.yml` and every config it mounts |
+
+The sibling layout is load-bearing, not a preference: the compose file's bind mounts are relative to `aliceut-ecom-infra/`, so a different arrangement breaks `docker compose up`. [`guidelines/development-flow.md` §1](guidelines/development-flow.md#1-repository-overview) has the full clone list and the parent-folder layout.
 
 ---
 
@@ -128,11 +137,9 @@ All choices come from BRD §12. Change one by amending the BRD.
 |---------|--------|
 | Frontend | Angular 22+ + Angular Material |
 | Backend | NestJS 11+ (modular monolith, microservice-ready) |
-| Frontend repo | Nx monorepo — `apps/buyer-app`, `apps/seller-app`, `apps/admin-app` |
-| Backend repo | Nx monorepo — `apps/api`, `apps/workers`, `libs/<module>/` |
 | Primary database | PostgreSQL — transactional source of truth |
 | Audit / activity | MongoDB — append-only, event-fed |
-| Cache | Redis |
+| Cache + short-lived token store | Redis — the instance holding single-use tokens (the 60s OAuth authorization code) runs `noeviction`; an eviction-enabled cache must be a separate instance |
 | Search | Elasticsearch / OpenSearch (self-hosted, single-node in V1) |
 | Event bus | Apache Kafka + Confluent Schema Registry (Avro, BACKWARD compat) |
 | Kafka management | `provectus/kafka-ui` |
@@ -140,6 +147,8 @@ All choices come from BRD §12. Change one by amending the BRD.
 | Auth | Passport.js — local + Google + Facebook; JWT with refresh rotation |
 | Object storage | MinIO (S3-compatible) — `product-images`, `kyc-documents`, `user-assets` |
 | Money arithmetic | `decimal.js` — JS `number` is forbidden for monetary values |
+| Email (V1) | Mailpit — local SMTP sink with web inbox; no mail leaves the machine |
+| Observability | Grafana Alloy → Loki + Prometheus, both queried in Grafana |
 | V1 deployment | Docker Compose — service count in [`architecture-overview.md` §10](architecture-overview.md#deployment-topology) |
 | V2+ deployment | Kubernetes + Istio; Kafka via Strimzi |
 

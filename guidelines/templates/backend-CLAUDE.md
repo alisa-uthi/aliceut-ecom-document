@@ -34,7 +34,9 @@ Three tiers. Pick based on domain complexity — never apply Tier 1 where Tier 2
 |------|---------|-----------------------------------------------------|
 | **1 — Full hexagonal** | `domain/` → `application/` → `infrastructure/` + repository interfaces | `catalog`, `orders`, `pricing`, `inventory`, `cart` |
 | **2 — Simplified service** | `service/` + TypeORM entity + controller | `identity`, `seller`, `admin`                       |
-| **3 — Thin / infra** | No owned domain entities; pure read models or event fan-out | `search`, `notifications`, `platform`, `workers`    |
+| **3 — Thin / infra** | No owned domain entities; pure read models or event fan-out | `search`, `notifications`, `platform`               |
+
+`apps/workers` is a composition root, not a module — it owns no tier, and neither do `libs/contracts` and `libs/shared`.
 
 Full layout: `../aliceut-ecom-document/conventions/backend-module-architecture.md`
 
@@ -67,7 +69,7 @@ Full patterns: `../aliceut-ecom-document/conventions/backend-coding-standards.md
 ### Event-driven writes (transactional outbox)
 
 - Every domain state change that propagates externally (product, offer, inventory, order, KYC, moderation) publishes via outbox.
-- The `outbox_event` row is written in the **same Postgres transaction** as the domain change.
+- The `platform.outbox_event` row is written in the **same Postgres transaction** as the domain change.
 - No direct Kafka publish from application code — only the outbox relay (in `apps/workers`) publishes to Kafka.
 - Elasticsearch updated **async from Kafka events** — never sync from API handlers.
 - Email and in-app notifications driven by Kafka consumers — never inline in handlers.

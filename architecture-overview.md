@@ -34,7 +34,7 @@
 <a id="system-overview"></a>
 ## 2. System overview
 
-AliceUT E-Commerce is a multi-sided marketplace connecting buyers, sellers, and platform administrators. Mimic Amazon website for learning purpose only.
+AliceUT E-Commerce is a multi-sided marketplace connecting buyers, sellers, and platform administrators. It mimics Amazon for learning purposes only.
 
 - **Buyers** browse a product catalog, add items to cart, and complete checkout. Purchases group into per-seller fulfillments with shipping and payment processing.
 - **Sellers** onboard via KYC, manage product listings and offers, set prices in supported currencies, and fulfill orders.
@@ -45,7 +45,7 @@ Three Angular applications — buyer storefront, seller portal, and admin portal
 <a id="project-evolution"></a>
 ## 3. Project evolution
 
-Signed requirements currently cover Phase 1 only. This overview defines the architectural direction for the whole project while marking phase-specific implementation choices explicitly.
+Agreed requirements currently cover Phase 1 only. This overview defines the architectural direction for the whole project while marking phase-specific implementation choices explicitly.
 
 | Stage | Architecture state |
 |---|---|
@@ -233,10 +233,11 @@ Detailed design evolves within each phase's directory.
 | REST API index and cross-cutting conventions | `phase-1/technical-design/api-design.md` |
 | REST API contracts, one document per module | `phase-1/technical-design/api-design/` — `auth`, `profile`, `catalog`, `pricing`, `search`, `cart`, `orders`, `seller`, `admin`, `notifications`, `health` |
 | Kafka / Avro event schemas | `phase-1/technical-design/kafka-events.md` |
+| Consumer field matrix (fields each consumer group writes, and their source event field) | `phase-1/technical-design/consumer-field-matrix.md` |
 | Scheduled cleanup and maintenance jobs | `phase-1/technical-design/cleanup-jobs.md` |
 | Docker Compose topology | `phase-1/technical-design/docker-compose-topology.md` |
 | NestJS module architecture | `phase-1/technical-design/backend-module-architecture.md` |
 | UI design and screen specs | `phase-1/ui-design/` |
 | Exported Figma screen images referenced by the UI design docs | `phase-1/screens/` |
 | Flow and lifecycle diagrams | `phase-1/diagrams/` — buyer journey, seller lifecycle, fulfillment lifecycle, admin moderation, pricing model, auth portals |
-| Cross-document alignment audits and their fix decisions | `phase-1/audits/` — `README.md` indexes every audit; audits run before this directory existed landed their fixes inline and are listed there by commit |
+| Cross-document alignment audits and the decisions they produced | Applied inline in the documents they bind (`BRD.md` §12 and its amendment list); the record of each pass is the git history and `PROGRESS.md` |

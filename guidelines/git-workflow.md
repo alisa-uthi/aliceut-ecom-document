@@ -1,7 +1,7 @@
 # Git Workflow
 
-**Status:** Draft
-**Source of truth:** [BRD v1.3](../phase-1/requirements/BRD.md)
+**Status:** Draft  
+**Source of truth:** [BRD v1.4](../phase-1/requirements/BRD.md)
 
 This document establishes Git conventions for AliceUT to ensure a clean, auditable history suitable for a learning/portfolio project while maintaining production discipline. Solo developer context: self-review gates and CI enforcement replace team oversight.
 
@@ -34,7 +34,7 @@ All feature work branches from `main`. Use kebab-case prefixes:
 | `fix/` | Bug fix (not infrastructure) | `fix/ET-42-cart-total-rounding` | Delete after merge |
 | `refactor/` | Code reorganization (no behavior change) | `refactor/catalog-repository-tests` | Delete after merge |
 | `docs/` | Documentation, diagrams, examples | `docs/phase-1-technical-design` | Delete after merge |
-| `chore/` | Dependency updates, CI config, tooling | `chore/upgrade-nestjs-to-v10` | Delete after merge |
+| `chore/` | Dependency updates, CI config, tooling | `chore/bump-typeorm-minor` | Delete after merge |
 | `hotfix/` | Production emergency (see §6) | `hotfix/v1.0.1-payment-race-condition` | Delete after merge; tag release |
 
 **Branch naming tie-in:** If work is tracked in GitHub Issues or Projects, include the issue/ticket number: `feature/ET-21-...`. This enables automated linking.
@@ -733,7 +733,7 @@ BREAKING CHANGE: Login response no longer includes refresh_token in body; client
 <a id="related-documents"></a>
 ## 11. Related Documents
 
-- [BRD v1.3 — Resolved Decisions §12](../phase-1/requirements/BRD.md)
+- [BRD v1.4 — Resolved Decisions §12](../phase-1/requirements/BRD.md)
 - [Architecture Overview](../architecture-overview.md)
 - [API Conventions](../conventions/api-conventions.md)
 - [Database Migrations](../conventions/database-migrations.md)

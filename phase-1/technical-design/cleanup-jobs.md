@@ -1,7 +1,7 @@
 # Phase 1 — Scheduled Cleanup Jobs
 
 **Status:** Complete  
-**Source of truth:** [BRD v1.3](../requirements/BRD.md)
+**Source of truth:** [BRD v1.4](../requirements/BRD.md)
 
 Phase 1 implementation of the data lifecycle convention. Every job runs in the `workers` NestJS process using `@nestjs/schedule`. There is **no in-database scheduler**: PostgreSQL is the stock `postgres:16-alpine` image with no `pg_cron` and no scheduling extension, and nothing in this document may require one.
 
@@ -405,7 +405,7 @@ WHERE p.suspension_status = 'SUSPENDED'
 LIMIT :batchSize;
 ```
 
-**No join to `identity.user`.** The recipient identity the payload carries comes from `IdentityApplicationService.getUsersByIds(userIds): UserView[]`, called once per batch with the claimed `user_id` set, not from SQL across a schema this module does not own ([backend-module-architecture § Ownership boundaries](./backend-module-architecture.md#ownership-boundaries), D-03). The view supplies `id`, `email` and `full_name` — the three the payload needs, `id` included, because `seller.suspension_expired.seller_user_id` is the `identity.user` id the in-app notification is addressed by and the profile row does not hold it under that name. The call is outside the per-profile transaction: it is a read, it does not have to be atomic with the update, and a batch of one round trip is cheaper than a join that the Phase 2 extraction would have to unpick.
+**No join to `identity.user`.** The recipient identity the payload carries comes from `IdentityApplicationService.getUsersByIds(userIds): UserView[]`, called once per batch with the claimed `user_id` set, not from SQL across a schema this module does not own ([backend-module-architecture § Ownership boundaries](./backend-module-architecture.md#ownership-boundaries)). The view supplies `id`, `email` and `full_name` — the three the payload needs, `id` included, because `seller.suspension_expired.seller_user_id` is the `identity.user` id the in-app notification is addressed by and the profile row does not hold it under that name. The call is outside the per-profile transaction: it is a read, it does not have to be atomic with the update, and a batch of one round trip is cheaper than a join that the Phase 2 extraction would have to unpick.
 
 Then, per profile, in one transaction:
 

@@ -3,7 +3,7 @@
 **Status:** Complete  
 **Version:** 1.1  
 **Last updated:** 2026-09-14  
-**Source of truth:** [BRD v1.3](../requirements/BRD.md), [architecture overview](../../architecture-overview.md), and Phase 1 user stories.  
+**Source of truth:** [BRD v1.4](../requirements/BRD.md), [architecture overview](../../architecture-overview.md), and Phase 1 user stories.  
 **Scope:** Logical data design for V1. It defines ownership and constraints; physical indexes and migration order follow in the database-migration design.
 
 ---
@@ -98,7 +98,7 @@ All application enums are defined as PostgreSQL custom types before any schema m
 | `portal_type` | `identity` | `BUYER`, `SELLER`, `ADMIN` |
 | `product_status` | `catalog` | `ACTIVE`, `REMOVED` |
 | `offer_status` | `catalog` | `ACTIVE`, `INACTIVE`, `REMOVED`, `FLAGGED` |
-| `price_type` | `pricing` | `LIST`, `SALE` — two values only; `B2B_TIER` is not a V1 price type (BRD § Amendments D-02) |
+| `price_type` | `pricing` | `LIST`, `SALE` — two values only; `B2B_TIER` is not a V1 price type (BRD § Amendments) |
 | `reservation_status` | `inventory` | `ACTIVE`, `CONSUMED`, `RELEASED`, `EXPIRED` |
 | `placement_outcome` | `orders` | `FULLY_PLACED`, `PARTIALLY_PLACED` |
 | `fulfillment_status` | `orders` | `PENDING`, `SHIPPED`, `DELIVERED`, `REFUNDED`, `CANCELLED` |
@@ -282,7 +282,7 @@ Storing only `token_hash` is a **PostgreSQL storage rule**, and it applies equal
 | `product_id` | `UUID` | Required FK → `catalog.product(id)` |
 | `variant_id` | `UUID` | Nullable FK → `catalog.product_variant(id)` when a product has variants |
 | `native_currency_code` | `CHAR(3)` | Required FK → `pricing.currency(code)`; the seller's pricing currency for this offer. Restricted to currencies where `pricing.currency.is_seller_price_allowed = true` (V1: `USD`, `THB`, `JPY`, `SGD`). Immutable in practice: a seller wanting a second currency creates a second offer. |
-| `status` | `offer_status` | Required: `ACTIVE`, `INACTIVE`, `REMOVED`, or `FLAGGED`. A new listing is created `ACTIVE` — all listings go live on successful submit (US-S-10:190), so there is no draft state in V1. `FLAGGED` means the offer has an open `admin.moderation_case`. |
+| `status` | `offer_status` | Required: `ACTIVE`, `INACTIVE`, `REMOVED`, or `FLAGGED`. A new listing is created `ACTIVE` — all listings go live on successful submit (US-S-10), so there is no draft state in V1. `FLAGGED` means the offer has an open `admin.moderation_case`. |
 | `status_changed_reason` | `TEXT` | Nullable; tracks why status last changed. Values: `SUSPENSION`, `ADMIN_REMOVAL`, `SELLER_DEACTIVATED`, `SELLER_MANUAL`, `AUTO_MODERATION`. Required to distinguish suspension-deactivated offers from other inactive offers on reinstatement (US-A-05b, US-P-18). |
 | `created_at`, `updated_at` | `TIMESTAMPTZ` | Required audit timestamps |
 
@@ -302,7 +302,7 @@ Status transitions, each paired with the `status_changed_reason` it records:
 | `FLAGGED → REMOVED` | Case resolved with decision `REMOVE` | `ADMIN_REMOVAL` |
 | `ACTIVE → REMOVED` | Admin removes a listing without a prior flag | `ADMIN_REMOVAL` |
 
-`REMOVED` is terminal: a seller cannot reactivate a removed listing and must create a new compliant one (US-S-10:192).
+`REMOVED` is terminal: a seller cannot reactivate a removed listing and must create a new compliant one (US-S-10).
 
 `offer.variant_id`, when present, must belong to `offer.product_id`; enforce this in the application transaction and with a composite database constraint introduced by the database-migration design named in this document's scope.
 
@@ -328,7 +328,7 @@ Status transitions, each paired with the `status_changed_reason` it records:
 | `offer_id` | `UUID` | Required FK → `catalog.offer(id)` |
 | `amount` | `NUMERIC(19,4)` | Required; `CHECK (amount >= 0)` |
 | `price_type` | `price_type` | Required: `LIST` or `SALE` |
-| `min_qty` | `INT` | Required; `DEFAULT 1`; `CHECK (min_qty = 1)`. V1 writes nothing but `1` — the column carried `B2B_TIER` quantity breaks, which are deferred to Phase 2 (D-02). It is kept because the `LIST` uniqueness index below is declared on it; relaxing the `CHECK` is the only schema change a future quantity break needs. |
+| `min_qty` | `INT` | Required; `DEFAULT 1`; `CHECK (min_qty = 1)`. V1 writes nothing but `1` — the column carried `B2B_TIER` quantity breaks, which are deferred to Phase 2. It is kept because the `LIST` uniqueness index below is declared on it; relaxing the `CHECK` is the only schema change a future quantity break needs. |
 | `starts_at`, `ends_at` | `TIMESTAMPTZ` | Required bounded valid interval for `SALE`; null for other price types |
 | `inactive_at` | `TIMESTAMPTZ` | Nullable; set when a price row is superseded or withdrawn. A row with a non-null value never participates in effective-price resolution and is excluded from the uniqueness constraints below. |
 | `created_at`, `updated_at` | `TIMESTAMPTZ` | Required audit timestamps |
@@ -338,7 +338,7 @@ Status transitions, each paired with the `status_changed_reason` it records:
 Uniqueness is enforced by two constraints, both scoped to live rows, because a unique key that ignores the time bounds would make a scheduled `SALE` alongside a live one impossible (FR-P-06b):
 
 - `LIST` — partial unique index on `(offer_id, price_type, min_qty) WHERE price_type = 'LIST' AND inactive_at IS NULL`. Since `min_qty` is always `1`, the key is effectively `(offer_id)` for this price type, so at most one active `LIST` row exists per offer. Matches `api-design/pricing.md` § Uniqueness.
-- `SALE` — `EXCLUDE USING gist (offer_id WITH =, tstzrange(starts_at, ends_at) WITH &&) WHERE (price_type = 'SALE' AND inactive_at IS NULL)`. This puts US-S-04b:91 ("overlapping SALE periods are rejected") in the database rather than in application code, while still permitting any number of sequential, non-overlapping SALE rows.
+- `SALE` — `EXCLUDE USING gist (offer_id WITH =, tstzrange(starts_at, ends_at) WITH &&) WHERE (price_type = 'SALE' AND inactive_at IS NULL)`. This puts US-S-04b ("overlapping SALE periods are rejected") in the database rather than in application code, while still permitting any number of sequential, non-overlapping SALE rows.
 
 The `EXCLUDE` constraint requires the `btree_gist` extension, created by `CREATE EXTENSION IF NOT EXISTS btree_gist;` in migration `0001_create_extensions`, which runs before the `pricing` migration. `offer_id` is a `uuid`, core PostgreSQL 16 ships no GiST operator class for that type, and `gist_uuid_ops` arrives only with `btree_gist` — without the extension the migration fails outright with `data type uuid has no default operator class for access method "gist"`. The extension is bundled contrib, present in the official image and trusted from PostgreSQL 13 onwards, so it needs no custom image and no superuser. The NFR-18 portability caveat is that a managed PostgreSQL forbidding contrib extensions also forbids this constraint.
 
@@ -373,7 +373,7 @@ Staleness is a read-time concern, not a stored state: when `now() - as_of` excee
 |---|---|---|
 | `offer_id` | `UUID` | PK and FK → `catalog.offer(id)` |
 | `on_hand_qty` | `INT` | Required; `CHECK (on_hand_qty >= 0)`; the physical warehouse quantity, decremented when a fulfillment ships and never at reservation time |
-| `reserved_qty` | `INT` | Required; `CHECK (reserved_qty >= 0 AND reserved_qty <= on_hand_qty)`; units held by placed fulfillments that have not yet shipped, covering the checkout-to-ship gap (US-S-08:161) |
+| `reserved_qty` | `INT` | Required; `CHECK (reserved_qty >= 0 AND reserved_qty <= on_hand_qty)`; units held by placed fulfillments that have not yet shipped, covering the checkout-to-ship gap (US-S-08) |
 | `low_stock_threshold` | `SMALLINT` | Required; `DEFAULT 5`; `CHECK (low_stock_threshold > 0)`; threshold compared against available quantity for the `inventory.low_stock` event; configurable per offer via CSV import |
 | `version` | `BIGINT` | Required optimistic-lock counter |
 | `created_at`, `updated_at` | `TIMESTAMPTZ` | Required audit timestamps |
@@ -382,9 +382,9 @@ Available quantity is `on_hand_qty - reserved_qty`. It is always derived at read
 
 The `CHECK (reserved_qty >= 0 AND reserved_qty <= on_hand_qty)` constraint is **retained**: reserved units are physically held units, so on-hand can never fall below them. A seller lowering `on_hand_qty` below the currently reserved quantity is therefore a rejected write, not a silently negative available count. The manual and CSV bulk-update paths (US-S-09) must surface that rejection as a per-row result in the upload response, naming the offer and the held quantity, while the remaining valid rows still apply — a constraint violation must never surface as a `500`. There is no staged preview and no staging table: the file is validated and applied in one request.
 
-The table carries no adjustment trail: there is no `reason` column, no actor column, and no `stock_adjustment` table in PostgreSQL. Every adjustment — a manual inline edit or a CSV row (US-S-08:164, US-S-09) — emits a domain event, and the audit consumer writes the actor, the source (`CSV` or `MANUAL`), the delta, and the seller's stated reason to the MongoDB `audit_logs` collection. This follows the project's PostgreSQL-transactional / MongoDB-audit split. The accepted cost is stated here rather than left implicit: reconciling a disputed stock figure is a cross-database lookup against `audit_logs`, not a PostgreSQL join, so no query against this schema alone can explain how a quantity reached its current value.
+The table carries no adjustment trail: there is no `reason` column, no actor column, and no `stock_adjustment` table in PostgreSQL. Every adjustment — a manual inline edit or a CSV row (US-S-08, US-S-09) — emits a domain event, and the audit consumer writes the actor, the source (`CSV` or `MANUAL`), the delta, and the seller's stated reason to the MongoDB `audit_logs` collection. This follows the project's PostgreSQL-transactional / MongoDB-audit split. The accepted cost is stated here rather than left implicit: reconciling a disputed stock figure is a cross-database lookup against `audit_logs`, not a PostgreSQL join, so no query against this schema alone can explain how a quantity reached its current value.
 
-The `inventory.low_stock` event is edge-triggered rather than level-triggered (US-S-08:163). The transaction that writes a stock change compares the available quantity before the write against the available quantity after it, and writes the `inventory.low_stock` outbox row only when that write moves availability from at-or-above `low_stock_threshold` to below it. A write that leaves an already-low offer still low emits nothing, which makes the event rare by construction: no `low_stock_notified_at` marker column is required, and the notifications consumer needs no dedupe beyond its normal `event_id` idempotency. A later write lifting availability back to at-or-above the threshold re-arms the edge, so a subsequent dip fires the event again.
+The `inventory.low_stock` event is edge-triggered rather than level-triggered (US-S-08). The transaction that writes a stock change compares the available quantity before the write against the available quantity after it, and writes the `inventory.low_stock` outbox row only when that write moves availability from at-or-above `low_stock_threshold` to below it. A write that leaves an already-low offer still low emits nothing, which makes the event rare by construction: no `low_stock_notified_at` marker column is required, and the notifications consumer needs no dedupe beyond its normal `event_id` idempotency. A later write lifting availability back to at-or-above the threshold re-arms the edge, so a subsequent dip fires the event again.
 
 <a id="table-inventory-stock-reservation"></a>
 #### `inventory.stock_reservation`
@@ -490,7 +490,7 @@ Only fulfillments that were actually placed are considered — a seller group th
 <a id="table-orders-fulfillment"></a>
 #### `orders.fulfillment` [V1]
 
-One fulfillment per seller/currency group within a checkout. Carries the per-seller status, shipping details, and monetary totals. State machine: `PENDING → SHIPPED → DELIVERED`; `PENDING → CANCELLED` (seller cancel, US-S-11); `PENDING → REFUNDED` (seller refund, or the auto-refund monitor for suspended-seller orders, US-P-16); `SHIPPED → REFUNDED` (seller refund). `DELIVERED`, `REFUNDED`, and `CANCELLED` are terminal — the absence of `DELIVERED → REFUNDED` is deliberate, since post-delivery returns are out of V1 scope (US-B-09:257).
+One fulfillment per seller/currency group within a checkout. Carries the per-seller status, shipping details, and monetary totals. State machine: `PENDING → SHIPPED → DELIVERED`; `PENDING → CANCELLED` (seller cancel, US-S-11); `PENDING → REFUNDED` (seller refund, or the auto-refund monitor for suspended-seller orders, US-P-16); `SHIPPED → REFUNDED` (seller refund). `DELIVERED`, `REFUNDED`, and `CANCELLED` are terminal — the absence of `DELIVERED → REFUNDED` is deliberate, since post-delivery returns are out of V1 scope (US-B-09).
 
 | Column | Type | Constraints / purpose |
 |---|---|---|
@@ -505,10 +505,10 @@ One fulfillment per seller/currency group within a checkout. Carries the per-sel
 | `shipping_cost` | `NUMERIC(19,4)` | Required snapshot in `currency_code` (seller's native); `CHECK (shipping_cost >= 0)` |
 | `tax_total` | `NUMERIC(19,4)` | Required snapshot in `currency_code` (seller's native); `CHECK (tax_total >= 0)` |
 | `total_amount` | `NUMERIC(19,4)` | Required snapshot in `currency_code` (seller's native); `CHECK (total_amount >= 0)` |
-| `buyer_display_currency` | `CHAR(3)` | Required FK → `pricing.currency(code)`; the buyer's currency resolved at checkout submission, immutable thereafter. A later change to the buyer's preferred-currency setting does not alter historical order display (US-B-09:212). |
+| `buyer_display_currency` | `CHAR(3)` | Required FK → `pricing.currency(code)`; the buyer's currency resolved at checkout submission, immutable thereafter. A later change to the buyer's preferred-currency setting does not alter historical order display (US-B-09). |
 | `buyer_currency_total` | `NUMERIC(19,4)` | Required; `total_amount` converted into `buyer_display_currency` at capture; `CHECK (buyer_currency_total >= 0)`. Rounded once, at capture, using the buyer currency's `minor_unit_scale`; storage keeps four fractional digits. |
-| `tracking_number` | `TEXT` | Required mock tracking number; `DEFAULT 'TRK-' \|\| lpad(nextval('orders.tracking_display_seq')::text, 9, '0')`; issued when the fulfillment is created at `PENDING` (US-S-06:132), immutable |
-| `estimated_delivery_at` | `TIMESTAMPTZ` | Required mock ETA; `placed_at + fulfillment_window_days`, the platform-configured ship-by window with a seeded default of 7 days (US-P-16:208-209). No randomisation and no per-fixture rule — the same fulfillment always yields the same ETA. |
+| `tracking_number` | `TEXT` | Required mock tracking number; `DEFAULT 'TRK-' \|\| lpad(nextval('orders.tracking_display_seq')::text, 9, '0')`; issued when the fulfillment is created at `PENDING` (US-S-06), immutable |
+| `estimated_delivery_at` | `TIMESTAMPTZ` | Required mock ETA; `placed_at + fulfillment_window_days`, the platform-configured ship-by window with a seeded default of 7 days (US-P-16). No randomisation and no per-fixture rule — the same fulfillment always yields the same ETA. |
 | `placed_at` | `TIMESTAMPTZ` | Required fulfillment creation time |
 | `shipped_at`, `delivered_at`, `refunded_at` | `TIMESTAMPTZ` | Nullable state-transition timestamps |
 | `cancelled_at` | `TIMESTAMPTZ` | Nullable; set when fulfillment transitions to `CANCELLED`. |
@@ -618,6 +618,7 @@ The business address is held as columns here rather than as a foreign key to `id
 | `reviewer_user_id` | `UUID` | Nullable FK → `identity.user(id)` until reviewed |
 | `decision_reason` | `TEXT` | Nullable until a decision is made |
 | `submitted_at`, `decided_at` | `TIMESTAMPTZ` | Submission required; decision nullable |
+| `review_due_at` | `TIMESTAMPTZ` | Required; the review SLA deadline, computed once when the row is inserted and never recomputed (BRD §12 #14 — 3 business days, Mon–Fri `Asia/Bangkok`, 17:00 cutoff). Every SLA badge, dashboard count and email reads this column instead of deriving an interval from `submitted_at`, so the business-day rule and its cutoff have exactly one owner. |
 | `created_at`, `updated_at` | `TIMESTAMPTZ` | Required audit timestamps |
 
 A rejected seller resubmits by inserting a new `kyc_application` row whose `supersedes_application_id` points at the rejected one; the same transaction sets `seller.seller_profile.kyc_status` back to `PENDING_KYC`. The rejected row keeps its `status`, `decision_reason`, `reviewer_user_id`, and `decided_at` untouched, so the audit trail of what was refused and why survives every resubmission, and the review history reads back as a chain from the newest application to the first.
@@ -654,7 +655,7 @@ The listing-time keyword blocklist required by FR-P-06c. Admin-maintained rather
 | `id` | `BIGSERIAL` | PK |
 | `term` | `TEXT` | Required blocked term |
 | `match_type` | `TEXT` | Required; `SUBSTRING`, `WORD`, or `REGEX` |
-| `enforcement` | `blocklist_enforcement` | Required, no default; `BLOCK` or `FLAG`. **This column is the two tiers of D-05.** `BLOCK` is the hard blocklist: a listing submit whose content matches is refused `422` and no row is written anywhere. `FLAG` is keyword suspicion: the listing is created, its offer goes `FLAGGED`, and a `moderation_case` opens for review. Requiring a value rather than defaulting one is deliberate — the tier is the whole consequence of adding a term, so an admin adding one chooses it explicitly. |
+| `enforcement` | `blocklist_enforcement` | Required, no default; `BLOCK` or `FLAG`. **This column is the two prohibited-content tiers.** `BLOCK` is the hard blocklist: a listing submit whose content matches is refused `422` and no row is written anywhere. `FLAG` is keyword suspicion: the listing is created, its offer goes `FLAGGED`, and a `moderation_case` opens for review. Requiring a value rather than defaulting one is deliberate — the tier is the whole consequence of adding a term, so an admin adding one chooses it explicitly. |
 | `category` | `TEXT` | Required; `WEAPONS`, `DRUGS`, `ADULT`, or `OTHER` |
 | `is_active` | `BOOLEAN` | Required; `DEFAULT true` |
 | `created_by` | `UUID` | Required FK → `identity.user(id)`; the admin who added the term |
@@ -796,7 +797,7 @@ When a module is extracted later, its schema migrates with it and its service be
 3. An order confirmation is returned after that transaction commits; it never waits for Kafka, Elasticsearch, email, or MongoDB consumers.
 4. Search documents are rebuilt from catalog/offer/inventory events. They are a read model and may lag the PostgreSQL source of truth by up to the defined NFR target.
 5. The order service rechecks offer status, effective price, availability, and idempotency inside the checkout transaction; cart data alone is never trusted as a price or stock reservation.
-6. Partial placement is per seller/currency group, and each group's outcome is independent (US-B-09:196–207). Items whose offer is stale or inactive are excluded from the checkout before grouping and recorded as skipped items; they are **not** deleted from the cart. A group whose reservation fails produces no fulfillment row, and its cart items also remain in the cart. `order.placement_outcome` is `FULLY_PLACED` when every group succeeded and `PARTIALLY_PLACED` when at least one failed while at least one succeeded; a checkout in which no group succeeded creates no order at all and is returned as an error.
+6. Partial placement is per seller/currency group, and each group's outcome is independent (US-B-09). Items whose offer is stale or inactive are excluded from the checkout before grouping and recorded as skipped items; they are **not** deleted from the cart. A group whose reservation fails produces no fulfillment row, and its cart items also remain in the cart. `order.placement_outcome` is `FULLY_PLACED` when every group succeeded and `PARTIALLY_PLACED` when at least one failed while at least one succeeded; a checkout in which no group succeeded creates no order at all and is returned as an error.
 
 <a id="future-phase-seller-promotions"></a>
 ## 8. Future-phase seller promotions

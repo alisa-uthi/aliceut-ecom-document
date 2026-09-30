@@ -1,12 +1,12 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for Claude Code (claude.ai/code) when working in this repository.
 
 ## Current Project State
 
-**Phase 1 design complete; implementation not started.** Requirements (`phase-1/requirements/BRD.md` v1.3, agreed 2026-08-19; amended 2026-09-14 and 2026-09-22 + `user-stories/`), technical design (`phase-1/technical-design/`) and UI design (`phase-1/ui-design/`) are all written and cross-aligned; open alignment work is tracked in `phase-1/audits/`. No source code or build system yet.
+**Phase 1 design complete; implementation not started.** Requirements (`phase-1/requirements/BRD.md` v1.4, agreed 2026-08-19; amended 2026-09-14, 2026-09-22 and 2026-09-30 + `user-stories/`), technical design (`phase-1/technical-design/`) and UI design (`phase-1/ui-design/`) are all written and cross-aligned. No source code or build system yet.
 
-**This repo holds specs, not task state.** Implementation status belongs in GitHub Issues + Milestones + a Project board, never in a checked-in backlog file — the static backlog under `phase-1/backlog/` was deleted for that reason (c805aed, 2026-09-19). No issues have been created yet, so backlog decomposition must be redone straight into GitHub Issues before implementation starts. The `scripts/create-github-issues.ps1` generator read that deleted directory and was removed with it.
+**This repo holds specs, not task state.** Implementation status belongs in GitHub Issues + Milestones + a Project board, never in a checked-in backlog file — the reason `phase-1/backlog/` and `scripts/create-github-issues.ps1` were deleted (c805aed, 2026-09-19). No issues exist yet, so backlog decomposition must be redone straight into GitHub Issues before implementation starts.
 
 Do not scaffold code unless user explicitly asks.
 
@@ -30,8 +30,7 @@ phase-1/
 ├── ui-design/           phase-specific UI designs (portal wireframes, shared components,
 │                        navigation routing)
 ├── diagrams/            Mermaid flow and lifecycle diagrams (01–06)
-├── screens/             exported Figma screen images
-└── audits/              cross-document alignment audits and their fix decisions
+└── screens/             exported Figma screen images
 phase-2/                 (planned, not yet on disk: V2 scope — K8s, real payments, etc.)
 ```
 
@@ -104,7 +103,7 @@ Price types: `LIST`, `SALE` (time-bounded). No `B2B_TIER` in V1. PDP resolves ef
 Seller pricing allowed: **USD, THB, JPY, SGD** only.
 
 ### Prohibited categories (FR-P-06c)
-Weapons, drugs, adult content. Two tiers at listing time. The tier comes from the **stored `enforcement` of the blocklist term that matched** (`BLOCK` | `FLAG`), not from how precisely the text matched — `match_type` (`SUBSTRING` | `WORD` | `REGEX`) is an independent column and every matching mode exists on both tiers. Prohibited taxonomy node or a `BLOCK` term → **422 at submit, no listing created**; a `FLAG` term → listing **created** as `FLAGGED` with an `admin.moderation_case` row (this is FR-A-03's queue input). Strictest matched tier wins. See D-14 in `phase-1/audits/2026-09-22-wave0-decisions.md`.
+Weapons, drugs, adult content. Two tiers at listing time. The tier comes from the **stored `enforcement` of the blocklist term that matched** (`BLOCK` | `FLAG`), not from how precisely the text matched — `match_type` (`SUBSTRING` | `WORD` | `REGEX`) is an independent column and every matching mode exists on both tiers. Prohibited taxonomy node or a `BLOCK` term → **422 at submit, no listing created**; a `FLAG` term → listing **created** as `FLAGGED` with an `admin.moderation_case` row (this is FR-A-03's queue input). Strictest matched tier wins.
 
 ### B2B in V1
 Same UX as B2C. Differentiation is branding only (badge, business logo on invoice, "Business" header tag). No bulk pricing/invoicing yet.

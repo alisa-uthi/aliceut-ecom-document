@@ -1,7 +1,7 @@
 # Kafka Events — Phase 1
 
 **Status:** Complete  
-**Source of truth:** [BRD v1.3](../requirements/BRD.md)
+**Source of truth:** [BRD v1.4](../requirements/BRD.md)
 
 Event envelope conventions, schema registry, consumer idempotency template (including processing flow diagram and per-family step patterns), DLQ topology, and BACKWARD compat protocol: see [conventions/kafka-events.md](../../conventions/kafka-events.md).
 
@@ -32,7 +32,7 @@ MongoDB audit collection schemas (`audit_logs`, `activity_events`): see [data-mo
 - [2. Topics](#topics)
 - [3. Topic partitions, replication and retention](#topic-retention)
 - [4. Consumer group DLQ topics](#dlq-topics)
-- [5. Audit consumer masking](#audit-masking)
+- [5. `platform.audit` consumer masking](#audit-masking)
 
 <a id="topic-summary"></a>
 ## 1. Topic Summary
@@ -184,7 +184,7 @@ MongoDB audit collection schemas (`audit_logs`, `activity_events`): see [data-mo
 | Producer | Administration module |
 | Event version | 1 |
 
-**One event per suspension.** A `POST` against a seller whose suspension is already in force is a `409` and publishes nothing ([Wave 0 D-11](../audits/2026-09-22-wave0-decisions.md)), so a consumer may read this event as the *opening* of a suspension rather than as a state assertion that may repeat: ET-10 goes out once, and the `search.seller-suspended` write is never re-sent with an empty `offer_ids`. Changes to an existing suspension's end date or reason travel on [`seller.suspension_amended`](#229-sellersuspension_amended), which is why there is no `is_extension` field here — there is nothing for one to discriminate.
+**One event per suspension.** A `POST` against a seller whose suspension is already in force is a `409` and publishes nothing, so a consumer may read this event as the *opening* of a suspension rather than as a state assertion that may repeat: ET-10 goes out once, and the `search.seller-suspended` write is never re-sent with an empty `offer_ids`. Changes to an existing suspension's end date or reason travel on [`seller.suspension_amended`](#229-sellersuspension_amended), which is why there is no `is_extension` field here — there is nothing for one to discriminate.
 
 **Avro schema**
 ```json
@@ -823,7 +823,7 @@ Terminal statuses count as settled, not pending:
 | Producer | Catalog module |
 | Event version | 1 |
 
-**One producer, which is the schema owner.** `catalog.offer` is Catalog's table, so Catalog publishes every `offer.changed` — including the ones a seller action causes. The seller-facing endpoints in [api-design/seller.md](api-design/seller.md) reach it through `CatalogApplicationService`, which writes the offer row and the outbox row in the caller's transaction; the Seller module writes neither. A second producer would mean two modules composing one payload against a schema neither owns, which is how a payload comes to be published with four of its fields missing (Wave 0 decision D-03).
+**One producer, which is the schema owner.** `catalog.offer` is Catalog's table, so Catalog publishes every `offer.changed` — including the ones a seller action causes. The seller-facing endpoints in [api-design/seller.md](api-design/seller.md) reach it through `CatalogApplicationService`, which writes the offer row and the outbox row in the caller's transaction; the Seller module writes neither. A second producer would mean two modules composing one payload against a schema neither owns, which is how a payload comes to be published with four of its fields missing.
 
 **Avro schema**
 ```json
@@ -859,7 +859,7 @@ Terminal statuses count as settled, not pending:
                 "type": "record", "name": "OfferPriceRef",
                 "fields": [
                   { "name": "amount",        "type": "string" },
-                  { "name": "price_type",    "type": "string", "doc": "LIST or SALE. There is no third value: B2B_TIER is not a V1 price type (Wave 0 decision D-02), and the min_qty field that existed only to carry its quantity break is gone with it" },
+                  { "name": "price_type",    "type": "string", "doc": "LIST or SALE. There is no third value: B2B_TIER is not a V1 price type, and the min_qty field that existed only to carry its quantity break is gone with it" },
                   { "name": "starts_at",     "type": ["null","string"], "default": null },
                   { "name": "ends_at",       "type": ["null","string"], "default": null }
                 ]
@@ -1606,9 +1606,9 @@ Fires whenever a `moderation_case` is opened against a live listing. Two produce
 |---|---|---|
 | Administration module — `POST /admin/moderation` | `ADMIN_MANUAL` | An admin flags a listing by hand and supplies a reason. |
 | Seller module — `PATCH /seller/products/:id` and offer edit | `KEYWORD_MATCH` or `PROHIBITED_CATEGORY` | The edit trips the keyword blocklist or the prohibited-category guard. |
-| Seller module — `POST /seller/offers` | `KEYWORD_MATCH` | The new listing's content matches a term whose `enforcement` is `FLAG` (D-05's soft tier). A `BLOCK` term or a prohibited node `422`s instead and produces no event. |
+| Seller module — `POST /seller/offers` | `KEYWORD_MATCH` | The new listing's content matches a term whose `enforcement` is `FLAG` — the soft tier. A `BLOCK` term or a prohibited node `422`s instead and produces no event. |
 
-**Auto-flag on edit: the edit commits, then the listing is flagged.** The edit is persisted (HTTP 200 with the updated resource plus a `warnings[]` entry) in a transaction that also sets `catalog.offer.status = FLAGGED` with `status_changed_reason = 'AUTO_MODERATION'`, opens the `moderation_case` row with `source = 'KEYWORD_MATCH'` or `'PROHIBITED_CATEGORY'` and the tripped terms in `matched_terms`, and writes this outbox row. Only then do the consumers below de-index the offer and notify. **Creation reaches this topic on one of the two tiers and not the other.** D-05 splits the listing-time guard by `admin.keyword_blocklist.enforcement`: a prohibited taxonomy node or a `BLOCK` term is a hard `422` at submit — no offer row, no moderation case, no event, so nothing arrives here — while a `FLAG`-only match creates the offer as `FLAGGED` with a `moderation_case` row and publishes this event, which is the queue input FR-A-03 is fed by. That path is `POST /seller/offers` ([api-design/seller.md](api-design/seller.md#offer-create-screening)); `POST /seller/products` screens the same content but opens no case, because `moderation_case.offer_id` is required and a product with no offer is not a listing. The guard reads its terms from the in-process keyword-blocklist cache (`admin.keyword_blocklist`, refreshed on a TTL), never from a hardcoded list.
+**Auto-flag on edit: the edit commits, then the listing is flagged.** The edit is persisted (HTTP 200 with the updated resource plus a `warnings[]` entry) in a transaction that also sets `catalog.offer.status = FLAGGED` with `status_changed_reason = 'AUTO_MODERATION'`, opens the `moderation_case` row with `source = 'KEYWORD_MATCH'` or `'PROHIBITED_CATEGORY'` and the tripped terms in `matched_terms`, and writes this outbox row. Only then do the consumers below de-index the offer and notify. **Creation reaches this topic on one of the two tiers and not the other.** The listing-time guard splits by `admin.keyword_blocklist.enforcement`: a prohibited taxonomy node or a `BLOCK` term is a hard `422` at submit — no offer row, no moderation case, no event, so nothing arrives here — while a `FLAG`-only match creates the offer as `FLAGGED` with a `moderation_case` row and publishes this event, which is the queue input FR-A-03 is fed by. That path is `POST /seller/offers` ([api-design/seller.md](api-design/seller.md#offer-create-screening)); `POST /seller/products` screens the same content but opens no case, because `moderation_case.offer_id` is required and a product with no offer is not a listing. The guard reads its terms from the in-process keyword-blocklist cache (`admin.keyword_blocklist`, refreshed on a TTL), never from a hardcoded list.
 
 | Property | Value |
 |----------|-------|
@@ -1665,7 +1665,7 @@ Fires whenever a `moderation_case` is opened against a live listing. Two produce
 
 ### 2.26 `pii.accessed`
 
-Fires when one person reads another person's personal data. NFR-09 requires those reads to be logged; three Phase 1 reads qualify — a seller opening the order detail view that shows the buyer's unmasked shipping address (US-S-05b, `user-stories/seller.md:122`), an admin opening a KYC document during review (BRD §8 NFR-09), and an admin opening the seller detail view, which returns the seller's `tax_id` in full ([api-design/admin.md](api-design/admin.md)).
+Fires when one person reads another person's personal data. NFR-09 requires those reads to be logged; three Phase 1 reads qualify — a seller opening the order detail view that shows the buyer's unmasked shipping address (US-S-05b, `user-stories/seller.md`), an admin opening a KYC document during review (BRD §8 NFR-09), and an admin opening the seller detail view, which returns the seller's `tax_id` in full ([api-design/admin.md](api-design/admin.md)).
 
 The read handler writes the outbox row **in the transaction that serves the request**, and the `platform.audit` consumer writes the `pii_access_logs` document. The handler never writes MongoDB synchronously: that would put a second store's availability on the read path of an order-detail page, and would record accesses for requests that failed after the write.
 
@@ -1746,7 +1746,7 @@ Fires when an admin adds or removes a term in `admin.keyword_blocklist`. The mut
           { "name": "blocklist_entry_id", "type": "string", "doc": "UUID of the admin.keyword_blocklist row; still carried on a removal, so the audit trail names the row that existed" },
           { "name": "term",               "type": "string", "doc": "The blocklist term itself. Not masked — admin-authored moderation vocabulary, not a secret, and an audit record that omits the term says nothing" },
           { "name": "change_type",        "type": { "type": "enum", "name": "BlocklistChangeType", "symbols": ["ADDED","REMOVED","UNKNOWN"], "default": "UNKNOWN" } },
-          { "name": "enforcement",        "type": { "type": "enum", "name": "BlocklistEnforcement", "symbols": ["BLOCK","FLAG","UNKNOWN"], "default": "UNKNOWN" }, "default": "UNKNOWN", "doc": "Mirrors admin.keyword_blocklist.enforcement, the admin.blocklist_enforcement enum — the tier the term carries after this change (D-05). Carried because it is the consequence of the change and not a detail of it: an audit record saying an admin added a term, without saying whether that term now refuses listings or merely queues them for review, does not record the decision that was made. On a REMOVED change it is the tier the row held" },
+          { "name": "enforcement",        "type": { "type": "enum", "name": "BlocklistEnforcement", "symbols": ["BLOCK","FLAG","UNKNOWN"], "default": "UNKNOWN" }, "default": "UNKNOWN", "doc": "Mirrors admin.keyword_blocklist.enforcement, the admin.blocklist_enforcement enum — the tier the term carries after this change. Carried because it is the consequence of the change and not a detail of it: an audit record saying an admin added a term, without saying whether that term now refuses listings or merely queues them for review, does not record the decision that was made. On a REMOVED change it is the tier the row held" },
           { "name": "actor_user_id",      "type": "string", "doc": "UUID of the admin who made the change" },
           { "name": "actor_role",         "type": { "type": "enum", "name": "BlocklistActorRole", "symbols": ["ADMIN","UNKNOWN"], "default": "UNKNOWN" }, "doc": "Only admins can reach the blocklist endpoints; the symbol is carried so the audit document states the acting role rather than implying it" }
         ]
@@ -1817,7 +1817,7 @@ This is the second topic with **no `platform.audit` consumer**, and for a narrow
 
 ### 2.29 `seller.suspension_amended`
 
-Fires when an admin changes the end date or the reason of a suspension that is already in force, through `PATCH /admin/sellers/:sellerProfileId/suspension` ([api-design/admin.md](api-design/admin.md#amend-suspension)). It is the amendment half of [Wave 0 D-11](../audits/2026-09-22-wave0-decisions.md): re-suspending a suspended seller is now a `409`, so `seller.suspended` (§2.3) fires exactly once per suspension and carries no extension discriminator.
+Fires when an admin changes the end date or the reason of a suspension that is already in force, through `PATCH /admin/sellers/:sellerProfileId/suspension` ([api-design/admin.md](api-design/admin.md#amend-suspension)). It is the amendment half of the re-suspension rule: re-suspending a suspended seller is now a `409`, so `seller.suspended` (§2.3) fires exactly once per suspension and carries no extension discriminator.
 
 | Property | Value |
 |----------|-------|
@@ -1827,7 +1827,7 @@ Fires when an admin changes the end date or the reason of a suspension that is a
 
 **A distinct event type rather than a flag on `seller.suspended`.** The two operations have different consumer sets: a suspension deactivates offers and emails the seller, an amendment does neither. Carrying both on one topic behind a boolean would oblige every `notification.seller-suspended` and `search.seller-suspended` consumer to branch on it and stay silent on one branch — a payload field deciding whether a side effect happens at all, which is the shape that made `is_extension` unimplementable in the first place.
 
-**Why it exists at all: the amendment is otherwise unauditable.** No admin handler writes MongoDB (FR-P-11), so an endpoint that published nothing would leave no record of who moved a seller's expiry, from what, to what, or why — the justification US-A-05b:126 requires of every override of a prior admin decision. The payload therefore carries the **prior and the new value of each amended field**: `audit_logs` is the only account of the change, and a document holding only the new date cannot answer what it replaced.
+**Why it exists at all: the amendment is otherwise unauditable.** No admin handler writes MongoDB (FR-P-11), so an endpoint that published nothing would leave no record of who moved a seller's expiry, from what, to what, or why — the justification US-A-05b requires of every override of a prior admin decision. The payload therefore carries the **prior and the new value of each amended field**: `audit_logs` is the only account of the change, and a document holding only the new date cannot answer what it replaced.
 
 **Avro schema**
 ```json

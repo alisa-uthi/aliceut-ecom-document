@@ -1,7 +1,7 @@
 # Consumer Field Matrix — Phase 1
 
 **Status:** Complete  
-**Source of truth:** [BRD v1.3](../requirements/BRD.md), [kafka-events.md](kafka-events.md)
+**Source of truth:** [BRD v1.4](../requirements/BRD.md), [kafka-events.md](kafka-events.md)
 
 Every consumer group in Phase 1, every field it must write, and the event field that supplies it. Event schemas and per-group side effects: [kafka-events.md](kafka-events.md). Envelope, idempotency template and DLQ rules: [conventions/kafka-events.md](../../conventions/kafka-events.md). Consumer group ownership: [backend-module-architecture.md](backend-module-architecture.md#module-summary-table).
 
@@ -93,7 +93,7 @@ Field ownership is per event ([api-design/search.md § Document composition](api
 
 **`in_stock`, `lowest_offer_id`, `lowest_offer_price_type`, `lowest_offer_currency_code`, `lowest_offer_amount`, `lowest_offer_compare_at_amount` and the product-level `display_prices` are owned by no event.** Whichever consumer changed one of their inputs recomputes them in the same update, from the document's own `offers[]` array after the merge — so the result does not depend on which consumer ran last. They are not rows in this table for that reason.
 
-**`offers[].min_qty` is not in this table and not in the mapping.** It existed to carry `B2B_TIER` quantity breaks, and `B2B_TIER` is not a V1 price type (Wave 0 decision D-02).
+**`offers[].min_qty` is not in this table and not in the mapping.** It existed to carry `B2B_TIER` quantity breaks, and `B2B_TIER` is not a V1 price type.
 
 ---
 
@@ -132,7 +132,7 @@ Two writes per consumer at most: an SMTP send whose template variables are liste
 
 ### 4.1 Template body variables
 
-Recipient identity above; this is the rest of each template. A variable rendered from configuration (`base_url`, `ttl_hours`, `ttl_minutes`, `admin.email`) or computed at send time (`review_by = submitted_at + 72h`, `line_total = unit_price × quantity`) is not listed — it needs no payload field.
+Recipient identity above; this is the rest of each template. A variable rendered from configuration (`base_url`, `ttl_hours`, `ttl_minutes`, `admin.email`) or computed at send time (`review_by = seller.kyc_application.review_due_at` (read from the owning row), `line_total = unit_price × quantity`) is not listed — it needs no payload field.
 
 | Template | Variable | Supplied by |
 |---|---|---|

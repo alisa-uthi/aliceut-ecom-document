@@ -1,7 +1,7 @@
-﻿# Testing Guidelines
+# Testing Guidelines
 
 **Status:** Draft  
-**Source of truth:** [BRD v1.3](../phase-1/requirements/BRD.md), [module-architecture](../conventions/backend-module-architecture.md)
+**Source of truth:** [BRD v1.4](../phase-1/requirements/BRD.md), [module-architecture](../conventions/backend-module-architecture.md)
 
 ---
 
@@ -41,13 +41,13 @@ Target ratio: **70% unit / 20% integration / 10% E2E**.
 <a id="coverage-thresholds"></a>
 ## 2. Coverage thresholds
 
-Coverage is measured per module tier (see [module-architecture §2](../conventions/backend-module-architecture.md)). Tier 1 modules contain the richest invariants and receive the highest bar.
+Coverage is measured per module tier (see [module-architecture §2](../conventions/backend-module-architecture.md#2-module-tiers)); that table is the exhaustive declaration of tier membership. Tier 1 modules contain the richest invariants and receive the highest bar.
 
 | Tier | Example Modules | Branch | Statement | Line |
 |------|---------|--------|-----------|------|
 | 1 — Full hexagonal | `catalog`, `orders`, `pricing`, `inventory`, `cart` | 80% | 85% | 85% |
 | 2 — Simplified service | `identity`, `seller`, `admin` | 70% | 75% | 75% |
-| 3 — Thin / infra | `search`, `notifications`, `workers` | 60% | 65% | 65% |
+| 3 — Thin / infra | `search`, `notifications`, `platform` | 60% | 65% | 65% |
 | Frontend (Angular) | all Angular libs / apps | 70% | 75% | 75% |
 
 **How to measure:**
@@ -77,11 +77,11 @@ describe('ClassName')
     it('should <expected behavior> when <condition>')
 ```
 
-Example: `describe('Offer') > describe('effectivePrice') > it('should return SALE price when active sale exists and account is B2C')`
+Example: `describe('Offer') > describe('effectivePrice') > it('should return SALE price when an active sale exists')`
 
 ### 3.2 Domain entities and value objects
 
-Domain entities in Tier 1 modules are plain TypeScript classes with no framework imports. Test them directly ─ no mocks needed.
+Domain entities in Tier 1 modules are plain TypeScript classes with no framework imports. Test them directly — no mocks needed.
 
 ```typescript
 // libs/pricing/src/domain/entities/offer.entity.spec.ts
@@ -173,7 +173,7 @@ describe('PublishProductHandler', () => {
 
 ### 3.4 Money math precision
 
-Every monetary calculation must be tested for precision. Floating-point edge cases are not edge cases here ─ they are expected inputs.
+Every monetary calculation must be tested for precision. Floating-point edge cases are not edge cases here — they are expected inputs.
 
 ```typescript
 // libs/shared/src/money/money.spec.ts
@@ -183,7 +183,7 @@ import { Money } from './money.vo';
 describe('Money', () => {
   describe('add', () => {
     it('should not lose precision on repeated fractional addition', () => {
-      // 0.1 + 0.2 = 0.30000000000000004 in JS float ─ must not happen
+      // 0.1 + 0.2 = 0.30000000000000004 in JS float — must not happen
       const a = Money.of(new Decimal('0.10'), 'USD');
       const b = Money.of(new Decimal('0.20'), 'USD');
 
@@ -275,7 +275,7 @@ afterAll(async () => {
 });
 ```
 
-### 4.3 Test isolation ─ transaction rollback
+### 4.3 Test isolation — transaction rollback
 
 Wrap each test in a transaction that rolls back. This is faster than truncating tables and guarantees a clean state.
 
@@ -307,7 +307,7 @@ it('should write outbox_event when product is published', async () => {
     .expect(200);
 
   const outboxRows = await queryRunner.query(
-    `SELECT event_type, payload FROM outbox_event WHERE aggregate_id = $1`,
+    `SELECT event_type, payload FROM platform.outbox_event WHERE aggregate_id = $1`,
     [productId],
   );
 
@@ -384,7 +384,7 @@ it('should route to DLQ when handler throws a non-retryable error', async () => 
 <a id="angular-unit-tests"></a>
 ## 6. Angular unit tests
 
-Use `jest-preset-angular`. All tests run in jsdom ─ no real browser.
+Use `jest-preset-angular`. All tests run in jsdom — no real browser.
 
 ### 6.1 Components
 
@@ -467,7 +467,7 @@ describe('AuthGuard', () => {
 
 ### 6.4 Reactive forms
 
-Test that validators fire and error state is correct. Never test Angular's built-in validators ─ only your custom validators and the form wiring.
+Test that validators fire and error state is correct. Never test Angular's built-in validators — only your custom validators and the form wiring.
 
 ```typescript
 describe('ListingFormComponent', () => {
@@ -556,9 +556,9 @@ E2E tests cover the golden path only. Exhaustive validation belongs in unit and 
 
 | Flow | Actor | Coverage |
 |------|-------|----------|
-| Buyer checkout | Buyer | Browse , add to cart , checkout , order confirmation |
-| Seller listing creation | Seller | Login , new listing , submit for review |
-| Admin KYC approval | Admin | View pending KYC , approve , seller status updated |
+| Buyer checkout | Buyer | Browse → add to cart → checkout → order confirmation |
+| Seller listing creation | Seller | Login → new listing → submit for review |
+| Admin KYC approval | Admin | View pending KYC → approve → seller status updated |
 
 ### 8.2 Page object model
 
@@ -581,7 +581,7 @@ export class CheckoutPage {
 
   async placeOrder() {
     await this.page.getByRole('button', { name: /place order/i }).click();
-    await this.page.waitForURL(/\/orders\/.+\/confirmation/);
+    await this.page.waitForURL(/\/checkout\/confirmation\?orderId=/);
   }
 
   async getConfirmationOrderId() {
@@ -605,7 +605,7 @@ test('buyer can complete checkout', async ({ page }) => {
   await checkout.placeOrder();
 
   const orderId = await checkout.getConfirmationOrderId();
-  expect(orderId).toMatch(/^ord-/);
+  expect(orderId).toMatch(/^ORD-\d{9}$/);
 });
 ```
 
@@ -645,7 +645,7 @@ The `docker-compose.test.yml` override sets `NODE_ENV=test` and enables the `X-T
 
 ### 9.1 Factory pattern for domain entities
 
-Use builder/factory functions ─ not class constructors ─ to create test objects. Factories always provide valid defaults; tests override only what they care about.
+Use builder/factory functions — not class constructors — to create test objects. Factories always provide valid defaults; tests override only what they care about.
 
 ```typescript
 // tests/factories/offer.factory.ts
@@ -665,7 +665,7 @@ export function buildOffer(overrides: Partial<OfferProps> = {}): Offer {
 
 ### 9.2 Seeding for integration tests
 
-Each integration test suite maintains its own seed file. Seeds are thin ─ only the rows required by the suite, not a full snapshot.
+Each integration test suite maintains its own seed file. Seeds are thin — only the rows required by the suite, not a full snapshot.
 
 ```
 tests/
@@ -692,7 +692,7 @@ The 100-product Kaggle seed is for local developer setup only. It lives in `alic
 | Framework internals | Angular's `ChangeDetectorRef`, NestJS dependency injection graph, TypeORM connection pooling | Tested upstream by the framework maintainers |
 | Trivial accessors | `getTitle()` returning `this.title`, read-only DTO fields | Zero logic to break; adds noise without safety |
 | Third-party library behavior | `decimal.js` arithmetic correctness, Passport.js strategy invocation | Not our code; trust the library's own test suite |
-| Configuration wiring | Whether `AppModule` imports `CatalogModule` | Structural ─ caught by startup, not assertions |
+| Configuration wiring | Whether `AppModule` imports `CatalogModule` | Structural — caught by startup, not assertions |
 
 Do not add tests just to hit coverage thresholds. A test that asserts `expect(obj.id).toBe(obj.id)` is worse than no test.
 
@@ -721,10 +721,10 @@ Do not add tests just to hit coverage thresholds. A test that asserts `expect(ob
 
 ### 11.3 Coverage report upload
 
-Upload `coverage/lcov.info` to Codecov (or a self-hosted equivalent) on every push. Annotate PRs with the coverage delta. Do not gate on the absolute upload succeeding ─ network flakiness in coverage upload must not block a passing build.
+Upload `coverage/lcov.info` to Codecov (or a self-hosted equivalent) on every push. Annotate PRs with the coverage delta. Do not gate on the absolute upload succeeding — network flakiness in coverage upload must not block a passing build.
 
 ```yaml
-# ci fragment ─ upload step
+# ci fragment — upload step
 - name: Upload coverage
   uses: codecov/codecov-action@v4
   with:

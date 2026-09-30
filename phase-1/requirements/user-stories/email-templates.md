@@ -8,6 +8,8 @@ Templates are grouped by audience: **Auth** (ET-18, ET-19, ET-20), **Buyer Order
 
 ## Index
 
+[Shared variables](#shared-variables) — the name, order, currency and money placeholders every template can use.
+
 **Auth**
 - [ET-18 — Email Verification](#et-18--email-verification-authemail_verification_requested)
 - [ET-19 — Password Reset](#et-19--password-reset-authpassword_reset_requested)
@@ -37,6 +39,35 @@ Templates are grouped by audience: **Auth** (ET-18, ET-19, ET-20), **Buyer Order
 
 **Admin**
 - [ET-21 — New KYC Application Alert](#et-21--new-kyc-application--admin-alert-sellerkycsubmitted)
+
+---
+
+## Shared variables
+
+Available to every template. A template's own **Variables** table lists only what is specific to it.
+
+| Variable | Description |
+|---|---|
+| `base_url` | Website base URL |
+| `buyer.full_name` / `buyer.email` | Buyer's name and email address as provided at registration |
+| `seller.full_name` | Seller's full name |
+| `seller.business_name` | Registered business name |
+| `seller_name` | Seller's display name |
+| `order_id` | Order identifier |
+| `placed_at` | When the order was placed |
+| `tracking_number` | Shipment tracking number |
+| `eta` | Estimated delivery date |
+| `item.product_title` / `item.quantity` | Product name and quantity |
+
+**Buyer-facing money variables** — used by ET-01, ET-04, ET-13 and ET-16. Buyer-currency amounts are the order snapshot multiplied by the FX rate captured at checkout; they are exact, not estimated.
+
+| Variable | Description |
+|---|---|
+| `buyer.preferred_currency` | Buyer's preferred display currency — primary for all buyer-facing amounts |
+| `offer_currency` | Pricing currency of the seller's offer for this fulfillment — shown as a reference line when it differs from the buyer's currency. ET-01 spells the same value `fulfillment.offer_currency` |
+| `fx_applied` | True when the buyer's preferred currency differs from the offer currency; enables the offer-currency reference lines |
+| `item.unit_price_display` / `item.line_total_display` | Unit price and line total in the buyer's preferred currency |
+| `item.unit_price_offer_display` | Unit price in the offer currency — rendered only when `fx_applied` is true |
 
 ---
 
@@ -75,10 +106,8 @@ AliceUT
 
 | Variable | Description |
 |---|---|
-| `buyer.full_name` | Buyer's full name as provided at registration |
 | `verification_link` | Single-use verification URL with embedded token; TTL 24 h |
 | `ttl_hours` | Human-readable TTL label: `24` |
-| `base_url` | Website base URL |
 
 ---
 
@@ -115,10 +144,8 @@ AliceUT
 
 | Variable | Description |
 |---|---|
-| `buyer.full_name` | Buyer's full name |
 | `reset_link` | Single-use password reset URL with embedded token; TTL 60 min |
 | `ttl_minutes` | Human-readable TTL label: `60` |
-| `base_url` | Website base URL |
 
 ---
 
@@ -158,10 +185,8 @@ AliceUT
 
 | Variable | Description |
 |---|---|
-| `buyer.full_name` | Buyer's full name |
 | `changed_at` | Timestamp when the password was changed |
 | `change_method` | `Password reset link` or `Account settings` — indicates how the change was made |
-| `base_url` | Website base URL |
 
 ---
 
@@ -238,28 +263,13 @@ AliceUT
 
 | Variable | Description |
 |---|---|
-| `order_id` | Order identifier |
-| `placed_at` | When the order was placed |
-| `buyer.full_name` / `buyer.email` | Buyer's name and email address |
-| `buyer.preferred_currency` | Buyer's preferred display currency — primary for all buyer-facing amounts |
 | `buyer.business_logo_url` | Optional URL of the business logo (B2B accounts only); omit section when absent |
 | `buyer.business_name` | Business name for logo alt text (B2B accounts only) |
-| `fulfillment.offer_currency` | Seller's pricing currency for this fulfillment group — shown as reference when it differs from buyer currency |
-| `seller_name` | Seller's display name |
-| `item.product_title` | Product name |
-| `item.quantity` | Quantity purchased |
-| `item.unit_price_display` | Unit price in buyer's preferred currency (snapshot × captured FX rate; exact, not estimated) |
-| `item.line_total_display` | Line total in buyer's preferred currency (snapshot × captured FX rate) |
-| `item.unit_price_offer_display` | Unit price in offer currency — only rendered when `fx_applied` is true |
 | `fulfillment.subtotal_display` / `shipping_display` / `tax_display` / `grand_total_display` | Seller group totals in buyer's preferred currency (snapshot × captured FX rate) |
-| `fx_applied` | True when buyer's preferred currency differs from offer currency; shows offer-currency reference lines |
-| `tracking_number` | Shipment tracking number |
-| `eta` | Estimated delivery date |
 | `session.grand_total_display` | Grand total across all sellers |
 | `any_fx_applied` | True when totals were converted from a different currency (shows `≈` prefix) |
 | `skipped_items[].product_title` | Name of each item skipped at checkout |
 | `failed_groups[].items[].product_title` / `reason` | Name and reason for each item that could not be reserved |
-| `base_url` | Website base URL |
 
 ---
 
@@ -296,15 +306,7 @@ Track your order at:
 AliceUT
 ```
 
-**Variables**
-
-| Variable | Description |
-|---|---|
-| `order_id` | Order identifier |
-| `seller_name` | Seller's display name |
-| `tracking_number` | Shipment tracking number |
-| `eta` | Estimated delivery date |
-| `item.product_title` / `item.quantity` | Product name and quantity |
+**Variables:** shared only — `order_id`, `seller_name`, `tracking_number`, `eta`, `item.product_title`, `item.quantity`.
 
 ---
 
@@ -338,13 +340,7 @@ View your order at:
 AliceUT
 ```
 
-**Variables**
-
-| Variable | Description |
-|---|---|
-| `order_id` | Order identifier |
-| `seller_name` | Seller's display name |
-| `item.product_title` / `item.quantity` | Product name and quantity |
+**Variables:** shared only — `order_id`, `seller_name`, `item.product_title`, `item.quantity`.
 
 ---
 
@@ -392,16 +388,8 @@ AliceUT
 
 | Variable | Description |
 |---|---|
-| `order_id` | Order identifier |
-| `seller_name` | Seller's display name |
-| `buyer.preferred_currency` | Buyer's preferred currency — primary for all buyer-facing amounts |
-| `offer_currency` | Seller's pricing currency — shown as reference when it differs from buyer currency |
 | `refunded_at` | When the refund was processed |
-| `item.product_title` / `item.quantity` | Product name and quantity |
-| `item.unit_price_display` / `item.line_total_display` | Unit price and line total in buyer's preferred currency (snapshot × captured FX rate) |
-| `item.unit_price_offer_display` | Unit price in offer currency — only rendered when `fx_applied` is true |
 | `fulfillment.grand_total_display` | Total refund amount in buyer's preferred currency |
-| `fx_applied` | True when buyer's preferred currency differs from offer currency; shows offer-currency reference |
 
 ---
 
@@ -429,14 +417,7 @@ View your order at:
 AliceUT
 ```
 
-**Variables**
-
-| Variable | Description |
-|---|---|
-| `order_id` | Order identifier |
-| `placed_at` | When the order was placed |
-| `buyer.full_name` / `buyer.email` | Buyer's name and email address |
-| `base_url` | Website base URL |
+**Variables:** shared only — `order_id`, `placed_at`, `buyer.full_name`, `buyer.email`, `base_url`.
 
 ---
 
@@ -488,17 +469,7 @@ AliceUT
 
 | Variable | Description |
 |---|---|
-| `order_id` | Order identifier |
-| `buyer.full_name` | Buyer's full name |
-| `buyer.preferred_currency` | Buyer's preferred currency — primary for all buyer-facing amounts |
-| `offer_currency` | Seller's pricing currency — shown as reference when it differs from buyer currency |
-| `seller_name` | Seller's display name |
-| `item.product_title` / `item.quantity` | Product name and quantity |
-| `item.unit_price_display` / `item.line_total_display` | Unit price and line total in buyer's preferred currency (snapshot × captured FX rate) |
-| `item.unit_price_offer_display` | Unit price in offer currency — only rendered when `fx_applied` is true |
 | `fulfillment.grand_total_display` | Total refund amount in buyer's preferred currency |
-| `fx_applied` | True when buyer's preferred currency differs from offer currency; shows offer-currency reference |
-| `base_url` | Website base URL |
 
 ---
 
@@ -556,19 +527,9 @@ AliceUT
 
 | Variable | Description |
 |---|---|
-| `order_id` | Order identifier |
-| `buyer.full_name` | Buyer's full name |
-| `buyer.preferred_currency` | Buyer's preferred currency — primary for all buyer-facing amounts |
-| `offer_currency` | Seller's pricing currency — shown as reference when it differs from buyer currency |
-| `seller_name` | Seller's display name |
 | `cancelled_at` | Timestamp of cancellation |
 | `cancellation_reason` | Seller-provided reason (≤ 500 chars) |
-| `item.product_title` / `item.quantity` | Product name and quantity |
-| `item.unit_price_display` / `item.line_total_display` | Unit price and line total in buyer's preferred currency (snapshot × captured FX rate) |
-| `item.unit_price_offer_display` | Unit price in offer currency — only rendered when `fx_applied` is true |
 | `fulfillment.grand_total_display` | Total refund/cancellation amount in buyer's preferred currency |
-| `fx_applied` | True when buyer's preferred currency differs from offer currency; shows offer-currency reference |
-| `base_url` | Website base URL |
 
 ---
 
@@ -602,13 +563,7 @@ If you have questions, visit your seller dashboard:
 AliceUT
 ```
 
-**Variables**
-
-| Variable | Description |
-|---|---|
-| `seller.full_name` | Seller's full name |
-| `seller.business_name` | Registered business name |
-| `base_url` | Website base URL |
+**Variables:** shared only — `seller.full_name`, `seller.business_name`, `base_url`.
 
 ---
 
@@ -651,17 +606,14 @@ AliceUT
 
 | Variable | Description |
 |---|---|
-| `seller.full_name` | Seller's full name |
-| `seller.business_name` | Registered business name |
 | `rejection_reason` | Admin-provided rejection reason (≤ 500 chars) |
-| `base_url` | Website base URL |
 
 ---
 
 ## ET-08 — Listing Flagged (listing.flagged)
 
-**Trigger:** `listing.flagged` event — consumer: `notification.listing-flagged`. Two sources: (1) seller edit save triggers keyword/category guard → listing flagged, ET-08 fires (US-S-04); (2) admin manually creates a moderation case via `POST /admin/moderation` (US-A-03).  
-Note: keyword/category check at listing **creation** time returns 422 and rejects the create — no flag is created and ET-08 does not fire in that case.  
+**Trigger:** `listing.flagged` event — consumer: `notification.listing-flagged`. Three sources: (1) offer create whose content matches a blocklist term whose stored `enforcement` is `FLAG` → the listing **is** created, as `FLAGGED`, with a `moderation_case` row, and ET-08 fires (US-S-04, FR-P-06c); (2) seller edit save trips the guard on either tier → the edit persists, the listing is flagged, ET-08 fires; (3) admin manually creates a moderation case via `POST /admin/moderation` (US-A-03).  
+Note: a prohibited taxonomy node, or a term whose stored `enforcement` is `BLOCK`, is a `422` at submit — no offer row, no moderation case, no event, so ET-08 does not fire on that tier. `POST /seller/products` screens the same content but opens no case, because `moderation_case.offer_id` is required and a product with no offer is not yet a listing.  
 **To:** seller  
 **CC:** admin  
 **Subject:** `Your listing is under review — {{product_title}}`
@@ -702,12 +654,10 @@ AliceUT
 
 | Variable | Description |
 |---|---|
-| `seller.full_name` | Seller's full name |
 | `product_title` | Title of the flagged listing |
 | `flagged_at` | Timestamp when flag was applied |
 | `flag_reason` | Admin-provided free-text reason for flagging the listing. |
 | `admin.email` | Admin email address for CC (from env config) |
-| `base_url` | Website base URL |
 
 ---
 
@@ -765,13 +715,11 @@ AliceUT
 
 | Variable | Description |
 |---|---|
-| `seller.full_name` | Seller's full name |
 | `listings_count` | Number of listings removed that day for this seller |
 | `listings[].product_title` | Title of each removed listing |
 | `listings[].removed_at` | Removal timestamp for each listing |
 | `listings[].removal_category` | Per-listing dropdown: `Prohibited category`, `IP violation`, `Misleading content`, `Other` |
 | `listings[].removal_reason` | Per-listing admin-provided free-text reason |
-| `base_url` | Website base URL |
 
 ---
 
@@ -821,8 +769,6 @@ AliceUT
 
 | Variable | Description |
 |---|---|
-| `seller.full_name` | Seller's full name |
-| `seller.business_name` | Registered business name |
 | `suspended_at` | Timestamp of suspension |
 | `is_permanent` | Boolean — true for permanent suspensions |
 | `duration_label` | Human-readable duration: `7 days`, `30 days`, `90 days` |
@@ -868,10 +814,7 @@ AliceUT
 
 | Variable | Description |
 |---|---|
-| `seller.full_name` | Seller's full name |
-| `seller.business_name` | Registered business name |
 | `reinstated_at` | Timestamp when suspension lifted |
-| `base_url` | Website base URL |
 
 ---
 
@@ -910,11 +853,8 @@ AliceUT
 
 | Variable | Description |
 |---|---|
-| `seller.full_name` | Seller's full name |
-| `seller.business_name` | Registered business name |
 | `reinstated_at` | Timestamp of reinstatement |
 | `reinstatement_reason` | Admin-provided reason for early reinstatement. Nullable — rendered conditionally: present shows the reason, absent shows "No reason provided." |
-| `base_url` | Website base URL |
 
 ---
 
@@ -954,11 +894,7 @@ AliceUT
 
 | Variable | Description |
 |---|---|
-| `seller.full_name` | Seller's full name |
-| `order_id` | Order identifier |
-| `item.product_title` / `item.quantity` | Product name and quantity |
 | `fulfillment.grand_total_display` | Total refund amount in offer currency |
-| `offer_currency` | Currency of the seller's offer |
 
 ---
 
@@ -993,7 +929,7 @@ WHAT HAPPENS NEXT
 
 Our team will review your documents. You will receive a separate
 email when a decision has been made. Applications are reviewed in
-submission order; SLA target is 72 hours (3 calendar days).
+submission order; the review target is 3 business days.
 
 You cannot list products until your application is approved.
 
@@ -1006,8 +942,6 @@ AliceUT
 
 | Variable | Description |
 |---|---|
-| `seller.full_name` | Seller's full name |
-| `seller.business_name` | Registered business name |
 | `submitted_at` | Timestamp of application submission |
 | `is_resubmission` | Boolean — true when this is a resubmission of a previously rejected application |
 | `prior_application_id` | Application reference number of the prior rejected application (omitted when `is_resubmission` is false) |
@@ -1057,7 +991,6 @@ AliceUT
 
 | Variable | Description |
 |---|---|
-| `seller.full_name` | Seller's full name |
 | `product_title` | Product name |
 | `sku_label` | Human-readable variant label (e.g. `Blue / L`) |
 | `sku_id` | Internal SKU identifier |
@@ -1065,7 +998,6 @@ AliceUT
 | `reserved` | Units held by PENDING orders not yet shipped |
 | `available` | `on_hand − reserved` |
 | `low_stock_threshold` | Configured alert threshold for this SKU |
-| `base_url` | Website base URL |
 
 ---
 
@@ -1109,16 +1041,9 @@ AliceUT
 
 | Variable | Description |
 |---|---|
-| `seller.full_name` | Seller's full name |
-| `order_id` | Order identifier |
-| `placed_at` | When the order was placed |
 | `ship_by` | Expected ship-by date (mock, based on ETA window) |
-| `item.product_title` | Product name |
 | `item.variant_label` | Human-readable variant (e.g. `Blue / L`); omitted if product has no variants |
-| `item.quantity` | Quantity ordered |
 | `fulfillment.grand_total_display` | Order total in offer currency |
-| `offer_currency` | Seller's pricing currency for this fulfillment |
-| `base_url` | Website base URL |
 
 **PII handling:** Shipping address is NOT included in this email. Seller retrieves it by clicking the authenticated order detail link (`{{base_url}}/seller/orders/{{order_id}}`). Access to the address page is logged for audit (NFR-09, US-S-05b).
 
@@ -1160,11 +1085,8 @@ AliceUT
 
 | Variable | Description |
 |---|---|
-| `seller.full_name` | Seller's full name |
-| `seller.business_name` | Registered business name |
 | `submitted_at` | Timestamp of application submission |
-| `review_by` | SLA deadline: `submitted_at + INTERVAL '72 hours'` (3 calendar days, computed at send time) |
+| `review_by` | SLA deadline: `seller.kyc_application.review_due_at`, persisted at submit — 3 business days (BRD §12 #14). Read from the column, never recomputed here |
 | `application_id` | KYC application identifier — deep-links directly to the admin review page |
 | `is_resubmission` | Boolean — true when this is a resubmission of a previously rejected application |
 | `prior_rejection_date` | Date of prior rejection (omitted when `is_resubmission` is false) |
-| `base_url` | Website base URL |

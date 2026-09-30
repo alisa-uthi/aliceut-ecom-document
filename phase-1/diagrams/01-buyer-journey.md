@@ -6,7 +6,7 @@
 ## Key invariants
 
 - Cart re-resolves prices on page entry; stale/inactive-offer items block checkout CTA (US-B-06)
-- Guest cart merges to server cart after auth; unauthenticated users redirected to `/login?next=/checkout` (US-B-08, US-B-00)
+- Guest cart merges to server cart after auth; unauthenticated users redirected to `/login?returnUrl=/checkout` (US-B-08, US-B-00)
 - Price re-resolved at submit; if changed beyond tolerance, submission halts and buyer must confirm new prices (US-B-09)
 - Checkout processes each seller/currency group independently; one group failing does not block others
 - `unit_price`, `currency`, `tax`, `fx_rate_used_at_capture` snapshotted at reservation — never re-derived post-checkout (FR-P-03)
@@ -36,7 +36,7 @@ graph TD
     O -- Yes --> P([Empty cart state])
     O -- No --> Q[Proceed to Checkout]
     Q --> R{Authenticated?}
-    R -- No --> S[Redirect to /login?next=/checkout\nSign in to complete your purchase]
+    R -- No --> S[Redirect to /login?returnUrl=/checkout\nSign in to complete your purchase]
     S --> T{Login or register?}
     T -- Login --> U{Valid credentials?}
     U -- No --> T

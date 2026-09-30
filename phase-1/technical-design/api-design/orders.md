@@ -3,9 +3,8 @@
 **Status:** Complete  
 **Module:** `Orders`  
 **Parent:** [API Design Index](../api-design.md)  
-**Source of truth:** [BRD v1.3](../../requirements/BRD.md), [ERD](../data-model-erd.md), [user-stories/buyer.md § US-B-09](../../requirements/user-stories/buyer.md)  
-**Conventions:** [api-conventions.md](../../../conventions/api-conventions.md) — `operationId` naming (`<Module>_<verb><Resource>`), response envelope, cursor pagination, error shape, money-as-string  
-**Correlation:** every endpoint accepts an `X-Correlation-ID` request header, generates a UUIDv7 when it is absent, echoes it on the response, and carries the same value into every log line and into the `correlation_id` field of every Kafka event envelope and `platform.outbox_event` row it writes — see [observability.md § Correlation ID](../../../conventions/observability.md#correlation-id).
+**Source of truth:** [BRD v1.4](../../requirements/BRD.md), [ERD](../data-model-erd.md), [user-stories/buyer.md § US-B-09](../../requirements/user-stories/buyer.md)  
+**Conventions:** [api-conventions.md](../../../conventions/api-conventions.md) — `operationId` naming (`<Module>_<verb><Resource>`), response envelope, cursor pagination, error shape, money-as-string. Correlation-ID propagation, the error envelope and rate-limit headers apply to every endpoint in this document and are stated once in [api-design.md § 1 Conventions](../api-design.md#conventions).
 
 ---
 
@@ -101,6 +100,12 @@ The table below is reproduced from [`user-stories/buyer.md`](../../requirements/
 
 <a id="endpoints"></a>
 ## Endpoints
+
+> **`A->>G: validate JWT + BUYER role` in the sequences below** stands for the same
+> chain: a missing, invalid or expired access token is `401 Unauthorized`, and a valid
+> token whose `roles` claim does not contain `BUYER` is `403 Forbidden`. `POST /orders`
+> adds `EmailVerifiedGuard` and shows that branch explicitly, because it is the only
+> endpoint in this module that has one.
 
 ### Place order (checkout)
 
@@ -315,7 +320,7 @@ sequenceDiagram
             Note over O: Mark group FAILED: OFFER_UNAVAILABLE<br/>Cart items for this group remain in cart
         else all offers ACTIVE
             O->>P: SELECT amount, price_type, min_qty, starts_at, ends_at<br/>FROM pricing.offer_price<br/>WHERE offer_id IN :offer_ids AND inactive_at IS NULL
-            Note over O,P: No currency predicate — offer_price has no currency column#59; every row is in the offer's native_currency_code. Resolution by price_type: SALE (live window) then LIST. Account type and quantity are not inputs — B2B_TIER is not a V1 price type (D-02)
+            Note over O,P: No currency predicate — offer_price has no currency column#59; every row is in the offer's native_currency_code. Resolution by price_type: SALE (live window) then LIST. Account type and quantity are not inputs — B2B_TIER is not a V1 price type
             O->>P: SELECT rate, as_of FROM pricing.fx_rate<br/>WHERE base_currency_code = :offer_currency<br/>AND quote_currency_code = :buyer_display_currency
             Note over O,P: The capture rate. Read once, here, and written to fulfillment_item.fx_rate_used_at_capture.<br/>1.00000000 when the two currencies are the same. No later read re-derives it.
             alt resolved price differs from the confirmed/shown price beyond CHECKOUT_PRICE_TOLERANCE
@@ -467,17 +472,13 @@ sequenceDiagram
     C->>A: GET /orders<br/>?status=filter&limit=20&cursor=opaque
     activate A
     A->>G: validate JWT + BUYER role
-    alt not authenticated or not BUYER
-        G-->>A: 401 / 403
-        A-->>C: 401 / 403
-    end
     G-->>A: authorized { buyer_id }
     A->>O: listOrders(buyer_id, { status, limit, cursor })
     activate O
     O->>P: SELECT o.id, o.display_id, o.placement_outcome, o.currency_code,<br/>o.buyer_currency_grand_total, o.placed_at,<br/>f.id, f.display_id, f.seller_profile_id, f.seller_name_snapshot, f.status,<br/>f.currency_code, f.total_amount, f.buyer_display_currency, f.buyer_currency_total,<br/>f.tracking_number, f.estimated_delivery_at<br/>FROM orders.order o<br/>JOIN orders.fulfillment f ON f.order_id = o.id<br/>WHERE o.buyer_id = :buyer_id<br/>  [AND (o.placed_at, o.id) < (:cursor_placed_at, :cursor_id)]<br/>ORDER BY o.placed_at DESC, o.id DESC<br/>LIMIT :limit + 1 orders
     Note over O,P: Keyset pagination on the ORDER's (placed_at, id) — unique and stable even when<br/>two orders share a timestamp. The limit applies to orders, not to joined fulfillment rows,<br/>so the query pages order ids first and then fetches their fulfillments.<br/>No COUNT(*) is issued: the envelope carries no total.
     P-->>O: order rows, each with its fulfillment rows
-    Note over O: Derive orderStatus per order from its fulfillment statuses, using the<br/>13-row table in Derived Order Status. Apply the :status filter to that derived value.<br/>Money fields are read from the stored snapshots — nothing is converted or summed here.
+    Note over O: Derive orderStatus per order from its fulfillment statuses, using the<br/>table in Derived Order Status. Apply the :status filter to that derived value.<br/>Money fields are read from the stored snapshots — nothing is converted or summed here.
     O-->>A: paginated list DTO (amounts as strings)
     deactivate O
     A-->>C: 200 { data: [ order with fulfillments[] ], meta: { nextCursor, hasMore } }
@@ -580,10 +581,6 @@ sequenceDiagram
     C->>A: GET /orders/:orderId
     activate A
     A->>G: validate JWT + BUYER role
-    alt not authenticated or not BUYER
-        G-->>A: 401 / 403
-        A-->>C: 401 / 403
-    end
     G-->>A: authorized { buyer_id }
     A->>O: getOrderDetail(buyer_id, orderId)
     activate O
@@ -600,7 +597,7 @@ sequenceDiagram
     O->>P: SELECT orders.fulfillment_item<br/>WHERE fulfillment_id IN (:fulfillment_ids)
     Note over O,P: Immutable snapshot — unit_price, currency_code, tax,<br/>buyer_currency_unit_price, buyer_currency_tax, fx_rate_used_at_capture<br/>captured at checkout. Never re-derived from live pricing.offer_price<br/>or pricing.fx_rate rows (FR-P-03).
     P-->>O: fulfillment_item rows
-    Note over O: Derive orderStatus from the fulfillment statuses using the 13-row table.<br/>No status column is read, because none exists.
+    Note over O: Derive orderStatus from the fulfillment statuses using the Derived Order Status table.<br/>No status column is read, because none exists.
     O-->>A: order detail DTO (amounts as strings, each already in its display currency)
     deactivate O
     A-->>C: 200 { data: { id, displayId, orderStatus, placementOutcome, placedAt,<br/>  buyerDisplayCurrency, buyerCurrencyGrandTotal, shippingAddress,<br/>  fulfillments[] } }

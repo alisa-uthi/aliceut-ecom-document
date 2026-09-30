@@ -2,16 +2,12 @@
 
 Cross-phase convention for time-bounded data cleanup.
 
+**Status:** Complete  
+**Source of truth:** [BRD v1.4](../phase-1/requirements/BRD.md)
+
 Phase-specific job inventory, schedules and retention windows: [phase-1/technical-design/cleanup-jobs.md](../phase-1/technical-design/cleanup-jobs.md)
 
 ---
-
-## Summary
-
-- [Convention](#convention)
-
-<a id="convention"></a>
-## Convention
 
 - **Scheduling lives in the application, not in the database.** There is no in-database scheduler: PostgreSQL runs a stock image with no `pg_cron` and no scheduling extension, and no cleanup rule may require one. Adding an extension would mean maintaining a custom Postgres image for the sake of a crontab.
 - Every job is an `@nestjs/schedule` declaration (`@Cron` or `@Interval`) hosted by the `workers` process.

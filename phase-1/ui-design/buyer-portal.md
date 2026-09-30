@@ -39,11 +39,9 @@ These apply to every screen below and are not repeated per screen.
 
 ### Components and imports
 
-Composite components come from the `@aliceut/shared-ui` barrel: `ProductCardComponent`, `PriceDisplayComponent`, `StatusBadgeComponent`, `CurrencyInputComponent`, `DataTableComponent`, `ConfirmDialogComponent`, `NotificationBellComponent`, `FileUploadComponent`, `EmptyStateComponent`, plus the `currencyDisplay`, `timeAgo`, `truncate` and `safe` pipes ([design-system.md § 8](../../conventions/design-system.md#8-shared-component-library-libsui), [§ 15](../../conventions/design-system.md#15-custom-pipes)).
+Where each component comes from and how it is imported is [shared-components.md § 2](shared-components.md#2-where-a-component-comes-from); standalone + OnPush, lazy feature routes, `trackBy` on every changeable list, reactive forms and cursor pagination are [§ 7](shared-components.md#7-rules-every-screen-follows). Neither is restated per screen below, and it is why the wireframes name `mat-*` primitives directly.
 
-**Angular Material primitives are imported directly by the feature component that uses them** — `MatCardModule`, `MatButtonModule`, `MatFormFieldModule`, `MatStepperModule`, `MatChipsModule`, `MatSnackBar` and the rest go in that component's own `imports: []`, named individually. `libs/ui` re-exports no Material module, and no wrapper exists merely to pass a primitive through; a screen that needs a primitive with no composite equivalent imports the primitive. This is the import rule in [frontend-coding-standards.md § 8](../../conventions/frontend-coding-standards.md#8-angular-material-usage-rules), and it is why the wireframes below name `mat-*` elements directly.
-
-Every component in this portal is **standalone**, uses `ChangeDetectionStrategy.OnPush`, and every feature route is **lazily loaded** with `loadComponent` or `loadChildren`. Every `*ngFor` over a list that can change carries `trackBy` — the wireframes show it once per list rather than restating the handler each time. Smart (page) components inject services and fetch data; the composites above are presentational and inject no domain service.
+Smart (page) components inject services and fetch data; the `libs/ui` composites are presentational and inject no domain service.
 
 ### Money
 
@@ -61,8 +59,7 @@ Every list is **cursor-paginated**: the request carries `limit` (default 20, max
 
 - There is **no `MatPaginator` and no page-number control on any screen.** Tables use the `DataTable` Previous/Next footer; grids and feeds use either a Previous/Next pair or a "Load more" button. The smart component owns the cursor stack — push `meta.nextCursor` on Next, pop on Previous — because the cursor is opaque and no component may construct one.
 - No count of results is ever displayed, and no page count or "N of M". Because the buyer cannot infer position from a page number, every list states its boundaries: an empty result renders `EmptyState`, and the last page disables Next with an "End of list" caption.
-- **Query parameters carry what defines the list, never a position in it.** `q`, filters and `sortBy` are in the URL and are shareable, idempotent and stable. `page` and `pageSize` do not exist, and `limit` is not user-facing — it is the client's fixed request size.
-- **No cursor ever appears in a URL, a bookmark, or a shared link.** A cursor is a server-issued token, it is invalidated by any change to the sort or filter set, and a pasted stale one yields a plain `400` for the recipient rather than a list. A shared link therefore always opens at the **first** page of the named list. That is the accepted cost of cursor pagination; it is not a regression to be fixed by reintroducing `page`.
+- **Query parameters carry what defines the list, never a position in it**, and **no cursor ever appears in a URL, a bookmark or a shared link** — so a shared link always opens at the first page of the named list. The full rule, and why `page` is not coming back, is in [navigation-routing.md § 8](navigation-routing.md#deep-link-behavior).
 
 ### Display ids
 
@@ -74,7 +71,7 @@ An order's status is **derived on read** from its fulfillments and arrives as `o
 
 ### States
 
-Every data-fetching screen defines loading, empty and error states with a discriminated `ViewState<T>` union rather than chained `*ngIf` on `data && !loading && !error`, which produces invisible error states ([frontend-coding-standards.md § 2](../../conventions/frontend-coding-standards.md#2-component-architecture)). Loading uses skeletons for grids and tables, a spinner inside the button for an in-flight action.
+Every data-fetching screen defines loading, empty and error through the `ViewState<T>` union in [shared-components.md § 7](shared-components.md#7-rules-every-screen-follows). On this portal loading is skeletons for grids and tables, and a spinner inside the button for an in-flight action.
 
 ### Images
 
@@ -82,7 +79,7 @@ Catalog and search responses carry product images as `images[].storageKey`, not 
 
 ### Accessibility
 
-Every portal shell opens with `<a class="skip-link" href="#main-content">Skip to main content</a>` as the first focusable element. Every `mat-form-field` carries a `mat-label`; `placeholder` is never the only label. Every icon-only button carries `aria-label`. Every `<img>` carries `alt` — product images use the product title, decorative images use `alt=""`. Status is never conveyed by colour alone. Product images below the fold use `loading="lazy"`.
+The skip link, the `mat-label` rule, `aria-label` on icon-only buttons, `alt` on every image and never-colour-alone are [shared-components.md § 7](shared-components.md#7-rules-every-screen-follows). One rule is specific to this portal: product images below the fold use `loading="lazy"`, and the PDP's primary image uses `loading="eager"`.
 
 ### Out of scope in V1
 
@@ -310,7 +307,7 @@ div.search-layout [display: flex; gap: 24px]
 
 ### Data source and mapping
 
-`GET /search/products`. Each result carries `productId`, `title`, `brand`, `categoryId`, `categoryPath`, `images[].storageKey`, `lowestOffer`, `inStock` and `score`. `lowestOffer` maps to `ProductCard.effectivePrice`; its `displayAmount` / `displayCurrency` / `fxRate` / `fxAsOf` / `fxStale` fields drive the `≈` prefix and the indicative-rate tooltip inside `PriceDisplay`. `lowestOffer.priceType` is only ever `LIST` or `SALE` — `B2B_TIER` is not a V1 price type (D-02).
+`GET /search/products`. Each result carries `productId`, `title`, `brand`, `categoryId`, `categoryPath`, `images[].storageKey`, `lowestOffer`, `inStock` and `score`. `lowestOffer` maps to `ProductCard.effectivePrice`; its `displayAmount` / `displayCurrency` / `fxRate` / `fxAsOf` / `fxStale` fields drive the `≈` prefix and the indicative-rate tooltip inside `PriceDisplay`. `lowestOffer.priceType` is only ever `LIST` or `SALE` — `B2B_TIER` is not a V1 price type.
 
 `facets.categories` supplies the per-category counts beside the tree checkboxes. `facets.priceRange` supplies `displayMin` / `displayMax`, which bound the two `CurrencyInput` fields; both are `null` together when no FX rate exists for the pair, and the fields then have no bounds.
 
@@ -454,7 +451,7 @@ There is no `variantGroups` field in the catalog contract. The selector is deriv
 
 ### Effective price
 
-Resolution is server-side and picks a `price_type` by current time only — `SALE` (live window) → `LIST` fallback. Account type and quantity are not inputs (BRD FR-P-06b, D-02). **There is no currency ambiguity:** an offer has exactly one pricing currency, `effectivePrice.currency`, and a seller wanting a second currency publishes a second offer. When the resolved `priceType` is `SALE`, `compareAtAmount` holds the live LIST amount and is bound to `PriceDisplay` for struck-through display (US-B-05).
+Resolution is server-side and picks a `price_type` by current time only — `SALE` (live window) → `LIST` fallback. Account type and quantity are not inputs (BRD FR-P-06b). **There is no currency ambiguity:** an offer has exactly one pricing currency, `effectivePrice.currency`, and a seller wanting a second currency publishes a second offer. When the resolved `priceType` is `SALE`, `compareAtAmount` holds the live LIST amount and is bound to `PriceDisplay` for struck-through display (US-B-05).
 
 ### Add to cart
 
@@ -1168,71 +1165,37 @@ Cards stack full width. The timeline stays vertical. Line items wrap the unit-pr
 
 ### Layout
 
+The card shell, the email and password fields, the error banner and the submit button are the shared auth pattern in [shared-components.md § 8.1–8.3](shared-components.md#8-auth-screen-pattern). Title "Sign in to AliceUT", the AliceUT logo as the portal mark, footer "Don't have an account? Register" → `/register`. What this screen adds:
+
 ```
-div.auth-page [display: flex; justify-content: center; align-items: flex-start; padding: 48px 16px]
-  mat-card [width: 100%; max-width: 440px; padding: 32px]
-    mat-card-header [text-align: center; margin-bottom: 24px]
-      img [src=aliceut-logo.svg; alt="AliceUT"; height=48px]
-      mat-card-title — Sign in to AliceUT
-    mat-card-content
-      <!-- Shown when ?returnUrl contains '/checkout' -->
-      mat-card.info-banner *ngIf="hasCheckoutIntent"
-        mat-icon — shopping_cart
-        span — Sign in to complete your purchase
+mat-card-content
+  <!-- Shown when ?returnUrl contains '/checkout' -->
+  mat-card.info-banner *ngIf="hasCheckoutIntent"
+    mat-icon — shopping_cart
+    span — Sign in to complete your purchase
 
-      form [formGroup]="loginForm" (ngSubmit)="login()"
-        mat-form-field [appearance=outline; fullWidth; subscriptSizing=dynamic; margin-bottom: 16px]
-          mat-label — Email address
-          input matInput type="email" formControlName="email" autocomplete="email"
-          mat-error *ngIf="email.touched && email.hasError('required')" — Email is required
-          mat-error *ngIf="email.touched && email.hasError('email')" — Enter a valid email
+  [shared form: email + password + error banner + "Sign In" submit]
 
-        mat-form-field [appearance=outline; fullWidth; subscriptSizing=dynamic]
-          mat-label — Password
-          input matInput [type]="showPassword ? 'text' : 'password'" formControlName="password" autocomplete="current-password"
-          button mat-icon-button matSuffix type="button" (click)="showPassword = !showPassword"
-            [attr.aria-label]="showPassword ? 'Hide password' : 'Show password'"
-            mat-icon — {{ showPassword ? 'visibility_off' : 'visibility' }}
-          mat-error *ngIf="password.touched && password.hasError('required')" — Password is required
+  div [display: flex; justify-content: flex-end; margin: 4px 0 16px]
+    a mat-button routerLink="/forgot-password" — Forgot password?
 
-        div [display: flex; justify-content: flex-end; margin: 4px 0 16px]
-          a mat-button routerLink="/forgot-password" — Forgot password?
+  mat-divider [margin: 24px 0]
+    span mat-body-2 color="secondary" — or continue with
 
-        mat-card.error-banner *ngIf="loginError" [margin-bottom: 16px]
-          mat-icon — error_outline
-          span — {{ loginError }}
-
-        button mat-flat-button color="primary" [fullWidth] type="submit" [disabled]="loginForm.invalid || isLoading"
-          mat-spinner *ngIf="isLoading" [diameter]="20"
-          span *ngIf="!isLoading" — Sign In
-
-      mat-divider [margin: 24px 0]
-        span mat-body-2 color="secondary" — or continue with
-
-      div [display: flex; gap: 12px; margin-bottom: 24px]
-        button mat-stroked-button [flex: 1] (click)="loginWithGoogle()"
-          img [src=google-icon.svg; alt=""; height=18px; margin-right: 8px]
-          span — Google
-        button mat-stroked-button [flex: 1] (click)="loginWithFacebook()"
-          img [src=facebook-icon.svg; alt=""; height=18px; margin-right: 8px]
-          span — Facebook
-
-    mat-card-footer [text-align: center; padding: 16px]
-      span mat-body-2 — Don't have an account?
-      a mat-button color="primary" routerLink="/register" — Register
+  div [display: flex; gap: 12px; margin-bottom: 24px]
+    button mat-stroked-button [flex: 1] (click)="loginWithGoogle()"
+      img [src=google-icon.svg; alt=""; height=18px; margin-right: 8px]
+      span — Google
+    button mat-stroked-button [flex: 1] (click)="loginWithFacebook()"
+      img [src=facebook-icon.svg; alt=""; height=18px; margin-right: 8px]
+      span — Facebook
 ```
 
 ### Request and outcomes
 
-`POST /auth/login` with `{ email, password, portal: "BUYER" }`. **`portal` is required** and names the portal the credentials were entered at; separation between the buyer, seller and admin portals is enforced server-side, not by hiding a button. Rate limit 10 attempts per IP per 15 minutes; there is no account lockout in V1.
+`POST /auth/login` with `{ email, password, portal: "BUYER" }`. The `portal` field and the `401` / `403` / `429` outcomes are the cross-portal rules in [shared-components.md § 8.5](shared-components.md#8-auth-screen-pattern). Rate limit on this form is 10 attempts per IP per 15 minutes.
 
-| Outcome | Handling |
-|---|---|
-| `200` | Access token held **in memory only** by `AuthService`; the refresh token arrives as an HttpOnly cookie the client never reads. If `user.emailVerified` is `false`, navigate to the verification-pending screen; otherwise honour `?returnUrl=` (validated to be a relative path, to prevent open redirects) or go home. |
-| `401` | Generic "Incorrect email or password." — no field-level enumeration of which half was wrong. |
-| `403` role/portal mismatch | "This account cannot sign in from this portal." A correct password at the wrong portal is a `403`, not a `401`, because retrying the password cannot help. |
-| `403` suspended | "This account is suspended." |
-| `429` | "Too many attempts. Try again shortly." with the `Retry-After` interval. |
+On `200` the access token is held **in memory only** by `AuthService` and the refresh token arrives as an HttpOnly cookie the client never reads. If `user.emailVerified` is `false` the client navigates to the verification-pending screen; otherwise it honours `?returnUrl=` — validated to be a relative path, to prevent open redirects — or goes home.
 
 **There is no resend-verification control on this page.** `POST /auth/resend-verification` is JWT-guarded, and an unverified account that has just signed in is routed to the verification-pending screen, which holds the resend action.
 
@@ -1285,21 +1248,7 @@ mat-card [max-width: 440px]
 
 `POST /auth/register` with `{ email, password, fullName, accountType }`, where `accountType` is `"B2B"` when the business checkbox is ticked and `"B2C"` otherwise. B2B differentiation in V1 is branding only — a badge, the business name and the logo on invoices; there is no bulk pricing, no invoicing screen and no separate B2B catalogue. `409` maps to the `emailTaken` error on the email field.
 
-### Password policy
-
-Applied identically on registration, change-password and reset-password across all portals.
-
-```
-Pattern: /^(?=.*[a-zA-Z])(?=.*\d).{8,128}$/
-- Minimum 8 characters, maximum 128
-- At least one letter (either case) and at least one digit
-- Validator messages:
-  - Too short:               "Password must be at least 8 characters."
-  - Too long:                "Password must not exceed 128 characters."
-  - Missing letter or digit: "Password must contain at least one letter and one digit."
-```
-
-The same rule is enforced server-side; see [backend coding standards](../../conventions/backend-coding-standards.md) for the validator definition.
+The password field, its hint and the policy behind it are the shared ones in [shared-components.md § 8.2](shared-components.md#8-auth-screen-pattern) and [§ 8.4](shared-components.md#8-auth-screen-pattern) — the pattern, the bounds and the three validator messages live there and are not restated per portal.
 
 ### Post-registration
 
@@ -1488,9 +1437,9 @@ mat-card [max-width: 440px; margin: 48px auto]
   a mat-button routerLink="/login" — Back to sign in
 ```
 
-`POST /auth/forgot-password` with `{ email, portal: "BUYER" }`. The `202` response is **byte-identical** whether the email is unregistered, registered without the buyer role, or registered with it — the three cases must not be distinguishable, so the success banner is shown after every submission and the form is not re-armed with a different message. Rate limit 3 per hour per email; `429` renders the retry interval.
+`POST /auth/forgot-password` with `{ email, portal: "BUYER" }`. The byte-identical `202`, the 3-per-hour-per-email rate limit and the terminal submitted state are the cross-portal rules in [shared-components.md § 8.5](shared-components.md#8-auth-screen-pattern).
 
-The emailed link points at `/reset-password?token=<raw>&mode=reset|set`, and the token is scoped to the buyer portal: it opens the buyer reset form only and is rejected at the seller one.
+The emailed link points at `/reset-password?token=<raw>&mode=reset|set` — `mode` is the buyer-only display hint described in [Screen 14](#screen-14-reset-password).
 
 ### States
 
@@ -1534,16 +1483,9 @@ The emailed link points at `/reset-password?token=<raw>&mode=reset|set`, and the
 </div>
 ```
 
-`POST /auth/reset-password` with `{ token, newPassword, portal: "BUYER" }`. On success every session for the account is revoked and the page navigates to `/login?passwordReset=true`.
+`POST /auth/reset-password` with `{ token, newPassword, portal: "BUYER" }`. The optimistic form, the single indistinguishable `400`, the 5-attempts-per-token-per-hour limit, the session revocation on success and the `?passwordReset=true` redirect are the cross-portal rules in [shared-components.md § 8.5](shared-components.md#8-auth-screen-pattern).
 
-`mode` is a **display hint only**, carried on the link so the SPA can render the "Set a password" wording for an OAuth-only account without a round trip. The server validates the token and applies the same update either way, so a tampered `mode` changes nothing.
-
-### States
-
-- **Form (initial):** the form is shown optimistically. There is no token pre-validation endpoint — validity is decided by the `POST /auth/reset-password` response.
-- **Invalid (`400`):** one message covers expired, already used, and wrong-portal tokens. They are deliberately indistinguishable: telling them apart would confirm that an account exists at another portal.
-- **Rate limited (`429`):** 5 attempts per token per hour; the banner names the retry interval.
-- **Success:** redirect to `/login?passwordReset=true`, where a success banner is shown.
+`mode` is a **display hint only**, carried on the link so the SPA can render the "Set a password" wording for an OAuth-only account without a round trip. It is buyer-only — the seller link carries no `mode`. The server validates the token and applies the same update either way, so a tampered `mode` changes nothing.
 
 ---
 
@@ -1597,75 +1539,18 @@ The emailed link points at `/reset-password?token=<raw>&mode=reset|set`, and the
 **Guard:** authenticated  
 **Component:** `BuyerNotificationsComponent`
 
-### Layout
+### Layout, rendering and API calls
 
-```
-div.notifications-header [display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px]
-  h1 mat-headline-4 — Notifications
-  button mat-stroked-button [disabled]="unreadCount === 0 || markingAll" (click)="markAllRead()" — Mark all as read
+The layout, the client-side composition of each row's two lines, the cursor-paging rules, the API call table and the four states are the shared notifications pattern in [shared-components.md § 9](shared-components.md#9-notifications-page-pattern). This portal's specifics:
 
-div.notifications-list [max-width: 800px]
-  mat-card.notification-card *ngFor="let n of notifications; trackBy: trackByNotificationId"
-    [class.unread]="!n.readAt"
-    (click)="handleClick(n)" [attr.role]="'button'" [attr.tabindex]="0" (keydown.enter)="handleClick(n)"
-    [display: flex; align-items: flex-start; gap: 16px; padding: 16px; cursor: pointer]
-    mat-icon [color]="typeIconColor(n.type)" [font-size: 24px] — {{ typeIcon(n.type) }}
-    div [flex: 1]
-      p mat-body-1 [font-weight]="!n.readAt ? '600' : '400'" — {{ titleFor(n) }}
-      p mat-body-2 color="secondary" — {{ bodyFor(n) }}
-      p mat-caption color="secondary" — {{ n.createdAt | timeAgo }}
-    div.unread-dot *ngIf="!n.readAt" [width: 8px; height: 8px; border-radius: 50%; background: var(--mat-primary); flex-shrink: 0; margin-top: 6px]
-      span.cdk-visually-hidden — Unread
-
-  div.load-more *ngIf="hasMore" [text-align: center; margin-top: 16px]
-    button mat-stroked-button (click)="loadMore()" [disabled]="loadingMore"
-      mat-spinner *ngIf="loadingMore" [diameter]="16"
-      span *ngIf="!loadingMore" — Load more
-  p.end-of-list mat-caption *ngIf="!hasMore && notifications.length > 0" [text-align: center] — End of list
-
-<aliceut-empty-state *ngIf="!loading && notifications.length === 0"
-  icon="notifications_none"
-  title="No notifications yet"
-  message="Order updates and alerts will appear here.">
-</aliceut-empty-state>
-```
-
-### Rendering a notification
-
-The API returns `{ id, type, payload, readAt, createdAt }` and **no title, body or link**: `payload` is an opaque JSON object whose keys follow the source event's payload. The title and body are therefore composed **client-side** from `type`, using the message-pattern table in the [appendix](#appendix-buyer-notifications) with substitutions taken from `payload`; the icon comes from the same table. A `type` the client does not recognise renders a generic title and no body rather than an empty card, so a newly added notification type degrades instead of disappearing.
-
-Any monetary value substituted into a message — the refund amount, for instance — is a string from `payload` and is rendered with the `currencyDisplay` pipe against its own currency code. No amount is parsed to a number or arithmetically combined.
-
-The navigation target is likewise derived from `type` plus the ids in `payload` — an order notification opens `/orders/{orderId}` — because no `link` field exists. A type with no destination marks the notification read and navigates nowhere.
-
-### API calls
-
-| Action | Call |
-|---|---|
-| Initial load | `GET /notifications?limit=20` |
-| Load more | `GET /notifications?limit=20&cursor={meta.nextCursor}` — cursor pagination; there is no `page` parameter and no total |
-| Unread filter (bell dropdown) | `GET /notifications?unreadOnly=true&limit=20` |
-| Badge count | `GET /notifications/unread-count` → `{ data: { unreadCount } }` |
-| Mark one read | `PATCH /notifications/:notificationId/read` → `{ data: { id, readAt } }`; the echoed `id` is the key the rendered row is matched against. A repeat call is a no-op that returns the original `readAt` |
-| Mark all read | `PATCH /notifications/read-all` → `{ data: { markedCount } }` |
-
-A `404` on mark-read means the notification does not exist **or** belongs to another user; the two are indistinguishable by design, and the client removes the row and refreshes the page.
+- Heading is `h1 mat-headline-4 — Notifications`; the header carries no filter control, only "Mark all as read".
+- Paging is the **"Load more"** variant: `button mat-stroked-button (click)="loadMore()" [disabled]="loadingMore"` with a 16px spinner while loading, replaced by the "End of list" caption once `hasMore` is false.
+- `EmptyState` copy: `icon="notifications_none"`, `title="No notifications yet"`, `message="Order updates and alerts will appear here."`
+- `titleFor(n)` / `bodyFor(n)` / `typeIcon(n.type)` resolve against the [appendix](#appendix-buyer-notifications) table below. An order notification navigates to `/orders/{orderId}` from the ids in `payload`.
 
 ### Notification types displayed
 
 `ORDER_PLACED`, `ORDER_COMPLETED`, `SHIPMENT_UPDATE`, `DELIVERY_UPDATE`, `FULFILLMENT_CANCELLED`, `REFUND_ISSUED` — the buyer-relevant subset of the `type` enum in [notifications.md](../technical-design/api-design/notifications.md). This list and the appendix table below are the same six types. Seller- and admin-only types (`KYC_*`, `LOW_STOCK`, `LISTING_*`, `SELLER_*`, `SUSPENSION_EXPIRED`) never reach a buyer account and are not rendered here.
-
-### States
-
-- **Loading:** three skeleton cards.
-- **Empty:** `EmptyState` as above.
-- **End of list:** "Load more" is replaced by the "End of list" caption.
-- **Error:** error banner with a Retry action; already-loaded pages stay visible.
-- **All read:** "Mark all as read" is disabled when `unreadCount` is `0`.
-
-### Mobile
-
-Full-width cards. "Mark all as read" moves below the heading on narrow viewports.
 
 ---
 

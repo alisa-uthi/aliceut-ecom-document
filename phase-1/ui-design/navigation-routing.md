@@ -99,6 +99,14 @@ export const appRoutes: Routes = [
         // Public — handles ?token= from the email link; navigates to login on success/failure
       },
       {
+        path: 'auth/callback',
+        loadComponent: () => import('./features/auth/oauth-callback/oauth-callback.component'),
+        // Public — the redirect target of GET /auth/google/callback and /auth/facebook/callback.
+        // Exchanges ?code= (opaque, single-use, 60s TTL) via POST /auth/oauth/exchange, or renders
+        // the failure named by ?error=. No access or refresh token ever appears in this URL.
+        // Buyer portal only: OAuth is not offered on the seller or admin portals.
+      },
+      {
         path: 'reset-password',
         loadComponent: () => import('./features/auth/reset-password/reset-password.component'),
         // Public — handles ?token= from the email link
@@ -411,6 +419,7 @@ A `CanActivateFn` can only allow or deny. A guard therefore never "shows a compo
 | `/orders/**` | `authGuard` | Email verification is not required to read past orders |
 | `/account/**` | `authGuard` | — |
 | `/notifications` | `authGuard` | Buyer notifications page; bell "View all" target |
+| `/auth/callback` | — | Public; exchanges the one-time OAuth code, then follows the buyer-login rules above |
 | `/seller/login`, `/seller/register`, `/seller/forgot-password` | `guestGuard` | All three are public endpoints |
 | `/seller/reset-password` | — | Public; reads `?token=` |
 | `/seller/**` (shell) | `sellerAuthGuard` | Everything inside the shell needs a SELLER token |
@@ -481,7 +490,7 @@ Every feature route is lazily loaded with `loadComponent` or `loadChildren`; eag
 | buyer-app | `checkout` | `/checkout` |
 | buyer-app | `orders` | `/orders` |
 | buyer-app | `account` | `/account` |
-| buyer-app | `auth` | any of the login / register / verify / reset routes |
+| buyer-app | `auth` | any of the login / register / verify / reset / OAuth-callback routes |
 | buyer-app | `notifications` | `/notifications` |
 | seller-app | `auth` | any of the seller login / register / reset routes |
 | seller-app | `kyc` | `/seller/kyc` |
@@ -572,7 +581,7 @@ Not a routed page. A failed data request renders the component's own `error` sta
 | Event | Navigation |
 |-------|------------|
 | Buyer login success | `returnUrl` when set and relative, else `/` |
-| Buyer login via Google or Facebook | Same as above |
+| Buyer login via Google or Facebook | Provider → `GET /auth/{provider}/callback` → redirect to `/auth/callback?code=`; the SPA exchanges the code, then follows the row above. A `?error=` instead renders the failure on that page with a link back to `/login` |
 | Buyer registration success | `/email-verification-pending` for email/password, `/` for OAuth |
 | Email verified | `/login?verified=true` — the login page shows a success snackbar |
 | Buyer password reset success | `/login?passwordReset=true` |
@@ -621,6 +630,7 @@ There is **no `minRating`** and no rating sort. Reviews and ratings are out of V
 | `source` | Admin moderation | `?source=KEYWORD_MATCH` | Flag source — `KEYWORD_MATCH`, `PROHIBITED_CATEGORY`, `ADMIN_MANUAL` |
 | `kycStatus` | Admin sellers | `?kycStatus=APPROVED` | Seller profile KYC standing — `PENDING_KYC`, `APPROVED`, `REJECTED` |
 | `suspensionStatus` | Admin sellers | `?suspensionStatus=SUSPENDED` | `ACTIVE` or `SUSPENDED`. Independent of `kycStatus`, so the two are separate parameters and never merged into one |
+| `status` | Seller listings | `?status=FLAGGED` | Offer status — `ACTIVE`, `INACTIVE`, `REMOVED`, `FLAGGED`. There is no `DRAFT`: a listing goes live on submit |
 | `caseStatus` | Seller listings | `?caseStatus=OPEN` | Moderation-case filter on the seller's own offers |
 | `country` | Admin KYC | `?country=TH` | ISO 3166-1 alpha-2 |
 | `q` | Seller orders, admin sellers, blocklist | `?q=FUL-000003871` | Display-id search on the seller queue; free-text across business name, email and tax ID on the admin seller list; substring match on the term in the blocklist |
@@ -640,6 +650,8 @@ There is **no `page`, `pageSize`, `offset` or `total`** on any route, and `limit
 | `passwordReset` | Buyer and seller login | `?passwordReset=true` | Triggers the post-reset success banner |
 | `token` | Verify email, reset password | `?token=xxx` | One-time link token from an email. This is the only token that ever appears in a URL; an access or refresh token never does |
 | `orderId` | Checkout confirmation | `?orderId=<uuid>` | The order the checkout created — an order id, never a fulfillment id, because a checkout produces one order containing one fulfillment per seller and currency group |
+| `code` | Buyer `/auth/callback` | `?code=<opaque>` | The one-time OAuth authorization code, single-use with a 60-second TTL, exchanged by `POST /auth/oauth/exchange`. It is not a session token |
+| `error` | Buyer `/auth/callback` | `?error=oauth_state_invalid` | The failure the provider callback redirected with, in place of `code` |
 
 No V1 query parameter is array-valued. Every filter above takes a single value, so there is no repeated-parameter convention to apply; a multi-select filter would need the endpoint to accept a list first.
 
@@ -675,6 +687,7 @@ export class AppTitleStrategy extends TitleStrategy {
 | `/seller/kyc` | `Business Verification — Seller Hub` |
 | `/seller/profile` | `Business Profile — Seller Hub` |
 | `/seller/listings` | `My Listings — Seller Hub` |
+| `/seller/notifications` | `Notifications — Seller Hub` |
 | `/seller/orders` | `Orders — Seller Hub` |
 | `/seller/inventory` | `Inventory — Seller Hub` |
 | `/admin/dashboard` | `Dashboard — Admin` |
@@ -682,6 +695,7 @@ export class AppTitleStrategy extends TitleStrategy {
 | `/admin/moderation` | `Moderation — Admin` |
 | `/admin/sellers` | `Sellers — Admin` |
 | `/admin/keyword-blocklist` | `Keyword Blocklist — Admin` |
+| `/admin/notifications` | `Notifications — Admin` |
 
 ---
 

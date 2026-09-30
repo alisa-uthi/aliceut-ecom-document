@@ -3,9 +3,8 @@
 **Status:** Complete  
 **Module:** `Catalog`  
 **Parent:** [API Design Index](../api-design.md)  
-**Source of truth:** [BRD v1.3](../../requirements/BRD.md), [ERD](../data-model-erd.md)  
-**Conventions:** [api-conventions.md](../../../conventions/api-conventions.md) — `operationId` naming (`<Module>_<verb><Resource>`), response envelope, cursor pagination, error shape, money-as-string  
-**Correlation:** every endpoint accepts an `X-Correlation-ID` request header, generates a UUIDv7 when it is absent, echoes it on the response, and carries the same value into every log line and into the `correlation_id` field of every Kafka event envelope and `platform.outbox_event` row it writes — see [observability.md § Correlation ID](../../../conventions/observability.md#correlation-id).
+**Source of truth:** [BRD v1.4](../../requirements/BRD.md), [ERD](../data-model-erd.md)  
+**Conventions:** [api-conventions.md](../../../conventions/api-conventions.md) — `operationId` naming (`<Module>_<verb><Resource>`), response envelope, cursor pagination, error shape, money-as-string. Correlation-ID propagation, the error envelope and rate-limit headers apply to every endpoint in this document and are stated once in [api-design.md § 1 Conventions](../api-design.md#conventions).
 
 ---
 
@@ -42,12 +41,12 @@
 **Note:** Catalog endpoints are read-only public routes. All writes go through the Seller API (`/seller/products`, `/seller/offers`). Elasticsearch is the search read model — see [search.md](search.md) for `/search/products`.
 
 <a id="offer-currency-and-price-resolution"></a>
-**Offer currency and price resolution.** Every offer has exactly one pricing currency, `catalog.offer.native_currency_code` (V1: `USD`, `THB`, `JPY`, `SGD`), and `pricing.offer_price` carries no currency column of its own — a price row's currency is always its parent offer's. There is therefore no currency ambiguity to resolve on a product page: `effectivePrice.currency` is always the offer's `native_currency_code`, and effective-price resolution picks a `price_type` by current time only (BRD FR-P-06b, D-02):
+**Offer currency and price resolution.** Every offer has exactly one pricing currency, `catalog.offer.native_currency_code` (V1: `USD`, `THB`, `JPY`, `SGD`), and `pricing.offer_price` carries no currency column of its own — a price row's currency is always its parent offer's. There is therefore no currency ambiguity to resolve on a product page: `effectivePrice.currency` is always the offer's `native_currency_code`, and effective-price resolution picks a `price_type` by current time only (BRD FR-P-06b):
 
 1. `SALE` — a live row where `now()` falls between `starts_at` and `ends_at`.
 2. `LIST` — the fallback; every offer always has exactly one active `LIST` row.
 
-Rows with a non-null `inactive_at` never participate. Account type and quantity are not inputs to price resolution. See [pricing.md](pricing.md#get-effective-price) for the single-offer form of the same resolution.
+Rows with a non-null `inactive_at` never participate. Account type and quantity are not inputs to price resolution. `effectivePrice.compareAtAmount` is the offer's live `LIST` amount when the resolved `priceType` is `SALE`, which is what enables the struck-through original price display (US-B-05), and is `null` when `priceType` is `LIST`. `amount` and `compareAtAmount` are strings (money-as-string convention). See [pricing.md](pricing.md#get-effective-price) for the single-offer form of the same resolution.
 
 **Seller eligibility.** Every offer-returning query filters on `seller.seller_profile.kyc_status = 'APPROVED' AND suspension_status = 'ACTIVE'`. Offers from unapproved or suspended sellers are not browsable.
 
@@ -190,7 +189,7 @@ sequenceDiagram
 ```
 GET /catalog/products/:productId
 Tag: Catalog
-Auth: PUBLIC (JWT claims are not used for price resolution — D-02)
+Auth: PUBLIC (JWT claims are not used for price resolution)
 ```
 **Response 200**
 ```json
@@ -226,9 +225,7 @@ Auth: PUBLIC (JWT claims are not used for price resolution — D-02)
 }
 ```
 **Field semantics:**
-- `effectivePrice.currency` is always the offer's `native_currency_code` — see [Offer currency and price resolution](#offer-currency-and-price-resolution). `amount` is a string (money-as-string convention).
-- `effectivePrice.priceType` is `LIST` or `SALE`. Resolution is by price type and current time only; account type and quantity are not inputs (BRD FR-P-06b, D-02).
-- `effectivePrice.compareAtAmount` is the offer's live `LIST` amount when `priceType = 'SALE'`, enabling the struck-through original price display (US-B-05). It is `null` when `priceType = 'LIST'`.
+- `effectivePrice` (`amount`, `currency`, `priceType`, `compareAtAmount`, `saleEndsAt`) — resolved per [Offer currency and price resolution](#offer-currency-and-price-resolution).
 - `availableQty` is `COALESCE(on_hand_qty - reserved_qty, 0)` — an offer with no `inventory.stock` row is returned with `availableQty: 0`, not omitted.
 - No `currency` query param and no FX conversion on this endpoint. For a buyer display currency use `GET /catalog/products/:id/offers?currency=` or `GET /pricing/offers/:id/effective-price?currency=`.
 
@@ -244,7 +241,7 @@ sequenceDiagram
     participant Postgres
 
     Client->>API: GET /catalog/products/:productId
-    Note over API: PUBLIC — optional Bearer token; JWT claims are not used for price resolution (D-02)
+    Note over API: PUBLIC — optional Bearer token; JWT claims are not used for price resolution
     API->>CatalogService: getProductDetail(productId)
     CatalogService->>Postgres: SELECT id, title, brand, description, category_id, status, attributes<br/>FROM catalog.product WHERE id = :productId AND status = 'ACTIVE'
     Postgres-->>CatalogService: product row
@@ -259,7 +256,7 @@ sequenceDiagram
         CatalogService->>Postgres: SELECT o.id, o.seller_profile_id, o.variant_id, o.native_currency_code,<br/>op.amount, op.price_type, op.starts_at, op.ends_at,<br/>COALESCE(s.on_hand_qty - s.reserved_qty, 0) AS available_qty<br/>FROM catalog.offer o<br/>JOIN seller.seller_profile sp ON sp.id = o.seller_profile_id<br/>JOIN pricing.offer_price op ON op.offer_id = o.id AND op.inactive_at IS NULL<br/>LEFT JOIN inventory.stock s ON s.offer_id = o.id<br/>WHERE o.product_id = :productId AND o.status = 'ACTIVE'<br/>AND sp.kyc_status = 'APPROVED' AND sp.suspension_status = 'ACTIVE'
         Note over CatalogService,Postgres: LEFT JOIN on inventory.stock with COALESCE — an offer with no stock row is returned with available_qty 0, never dropped.<br/>Seller eligibility filtered here, not in the client.
         Postgres-->>CatalogService: eligible active offers with their live price rows and stock
-        Note over CatalogService: Resolve effectivePrice per offer in the offer's native_currency_code: SALE (NOW() between starts_at and ends_at) → LIST fallback. Account type and quantity are not inputs (D-02). When the resolved type is SALE, read the offer's live LIST row amount into compareAtAmount for strikethrough display.
+        Note over CatalogService: Resolve effectivePrice per offer in the offer's native_currency_code: SALE (NOW() between starts_at and ends_at) → LIST fallback. Account type and quantity are not inputs. When the resolved type is SALE, read the offer's live LIST row amount into compareAtAmount for strikethrough display.
         CatalogService-->>API: product + variants + images + offers with effectivePrice (amount, currency, priceType, compareAtAmount, saleEndsAt) + availableQty
         API-->>Client: 200 { data: { id, title, brand, description, variants, images, offers } }
     end
@@ -303,18 +300,8 @@ Auth: PUBLIC
 }
 ```
 **Field semantics:**
-- `effectivePrice.amount` / `effectivePrice.currency` — the offer's `native_currency_code` and the amount of the resolved price row. There is one currency per offer, so no selection is required; see [Offer currency and price resolution](#offer-currency-and-price-resolution).
-- `effectivePrice.priceType` is `LIST` or `SALE`. Resolution is by price type and current time only; account type and quantity are not inputs (BRD FR-P-06b, D-02).
-- `effectivePrice.compareAtAmount` is the offer's live `LIST` amount when `priceType = 'SALE'`, enabling the struck-through original price display on the buyer-facing PDP (US-B-05). It is `null` when `priceType = 'LIST'`.
-- `effectivePrice.displayAmount` / `displayCurrency` / `fxRate` / `fxAsOf` / `fxStale` — the same amount rendered in the buyer's requested display currency, converted with `pricing.fx_rate`. This is a **browse-time estimate only**; nothing here is ever captured on an order. The five keys are always present, with three cases:
-
-  | Case | `displayAmount` | `displayCurrency` | `fxRate` | `fxAsOf` | `fxStale` |
-  |---|---|---|---|---|---|
-  | `?currency` equals the offer's native currency | echoes `amount` | echoes `currency` | `null` | `null` | `false` |
-  | FX row exists for the pair | converted amount | requested currency | the rate | the row's `as_of` | `true` when `now() - as_of > FX_STALE_AFTER_HOURS` (env, default 24), else `false` |
-  | no FX row exists for the pair | `null` | requested currency | `null` | `null` | `null` |
-
-  A stale rate is still returned and still converted — the client labels it an indicative rate rather than hiding it. `displayAmount` is `null` only in the third case, and the client then shows the native amount alone. This is the single nullability contract shared with [`pricing.md`](pricing.md#get-effective-price), [`cart.md`](cart.md#get-cart) and [`search.md`](search.md#product-search).
+- `effectivePrice` (`amount`, `currency`, `priceType`, `compareAtAmount`, `saleEndsAt`) — resolved per [Offer currency and price resolution](#offer-currency-and-price-resolution).
+- `effectivePrice.displayAmount` / `displayCurrency` / `fxRate` / `fxAsOf` / `fxStale` — the `?currency` rendering of the same amount, a **browse-time estimate only**, per [pricing.md § Display-currency fields](pricing.md#fx-display-fields).
 - `availableQty` is `COALESCE(on_hand_qty - reserved_qty, 0)`.
 
 **Errors:** 404 product not found, 422 `currency` not supported
@@ -329,7 +316,7 @@ sequenceDiagram
     participant Postgres
 
     Client->>API: GET /catalog/products/:productId/offers?currency=USD
-    Note over API: PUBLIC — optional Bearer token. currency falls back to identity.user.preferred_currency, then USD. Account type and quantity are not used for price resolution (D-02)
+    Note over API: PUBLIC — optional Bearer token. currency falls back to identity.user.preferred_currency, then USD. Account type and quantity are not used for price resolution
     API->>CatalogService: getProductOffers(productId, { currency })
     CatalogService->>Postgres: SELECT o.id, o.seller_profile_id, o.variant_id, o.native_currency_code,<br/>sp.business_name AS seller_name<br/>FROM catalog.offer o<br/>JOIN seller.seller_profile sp ON sp.id = o.seller_profile_id<br/>WHERE o.product_id = :productId AND o.status = 'ACTIVE'<br/>AND sp.kyc_status = 'APPROVED' AND sp.suspension_status = 'ACTIVE'
     Postgres-->>CatalogService: offers from KYC-approved non-suspended sellers only, each with its single pricing currency
@@ -338,7 +325,7 @@ sequenceDiagram
     CatalogService->>Postgres: SELECT offer_id, (on_hand_qty - reserved_qty) AS available_qty<br/>FROM inventory.stock WHERE offer_id IN (:offerIds)
     Note over CatalogService: Offers with no stock row get available_qty 0 (COALESCE on the join result) — never dropped from the response
     Postgres-->>CatalogService: available stock per offer
-    Note over CatalogService: Resolve effectivePrice per offer in that offer's native currency: SALE (NOW() between starts_at and ends_at) → LIST fallback (D-02). When resolved type is SALE, read the offer's live LIST row amount into compareAtAmount.
+    Note over CatalogService: Resolve effectivePrice per offer in that offer's native currency: SALE (NOW() between starts_at and ends_at) → LIST fallback; account type and quantity are not inputs. When resolved type is SALE, read the offer's live LIST row amount into compareAtAmount.
     alt display currency != offer's native currency
         CatalogService->>Postgres: SELECT base_currency_code, quote_currency_code, rate, as_of<br/>FROM pricing.fx_rate<br/>WHERE (base_currency_code, quote_currency_code) IN (:pairs)
         Postgres-->>CatalogService: FX rate rows (one row per pair — the table keeps no history)

@@ -3,9 +3,8 @@
 **Status:** Complete  
 **Module:** `Pricing`  
 **Parent:** [API Design Index](../api-design.md)  
-**Source of truth:** [BRD v1.3](../../requirements/BRD.md), [ERD](../data-model-erd.md)  
-**Conventions:** [api-conventions.md](../../../conventions/api-conventions.md) — `operationId` naming (`<Module>_<verb><Resource>`), response envelope, cursor pagination, error shape, money-as-string  
-**Correlation:** every endpoint accepts an `X-Correlation-ID` request header, generates a UUIDv7 when it is absent, echoes it on the response, and carries the same value into every log line and into the `correlation_id` field of every Kafka event envelope and `platform.outbox_event` row it writes — see [observability.md § Correlation ID](../../../conventions/observability.md#correlation-id).
+**Source of truth:** [BRD v1.4](../../requirements/BRD.md), [ERD](../data-model-erd.md)  
+**Conventions:** [api-conventions.md](../../../conventions/api-conventions.md) — `operationId` naming (`<Module>_<verb><Resource>`), response envelope, cursor pagination, error shape, money-as-string. Correlation-ID propagation, the error envelope and rate-limit headers apply to every endpoint in this document and are stated once in [api-design.md § 1 Conventions](../api-design.md#conventions).
 
 ---
 
@@ -14,6 +13,7 @@
 - [Endpoint Index](#endpoint-index)
 - [DB Mapping](#db-mapping)
 - [Pricing Constraints](#pricing-constraints)
+- [Display-currency Fields](#fx-display-fields)
 - [Endpoints](#endpoints)
 
 <a id="endpoint-index"></a>
@@ -52,6 +52,8 @@ These are database constraints, not application checks; every write path in [sel
 
 The `SALE` constraint requires the `btree_gist` extension: `CREATE EXTENSION IF NOT EXISTS btree_gist;`, applied in migration `0001_create_extensions` before the `pricing` migration runs. The `tstzrange … WITH &&` operand is core, but `offer_id WITH =` is not — `offer_id` is `UUID`, PostgreSQL 16 ships no GiST operator class for `uuid`, and `gist_uuid_ops` comes only from `btree_gist`. Without the extension the migration fails with `data type uuid has no default operator class for access method "gist"`. `btree_gist` is a bundled contrib module present in the official `postgres:16-alpine` image and trusted since PG13, so the database owner creates it without superuser and no custom image is needed. The NFR-18 portability caveat is that a managed Postgres which blocks contrib modules blocks this constraint.
 
+**Price types.** V1 has exactly two: `LIST` and `SALE` (time-bounded). There is no `B2B_TIER` and no quantity-break tier, so `min_qty` is always `1` and plays no part in resolution, and an account type is never an input to it — resolution takes the price type and the current time only (BRD FR-P-06b). A seller-facing write that names any other `priceType` is a `422`.
+
 **At most one active `LIST` price per offer** follows from the partial unique index, since `LIST` rows always have `min_qty = 1`. US-S-04b:95 words this rule as "one active LIST price per offer per currency", but an offer has exactly one currency, so the per-currency qualifier collapses and the message drops it. A write that would create a second `LIST` row is rejected with:
 
 ```
@@ -59,6 +61,34 @@ A LIST price already exists for this offer. Edit or delete it before creating a 
 ```
 
 **At least one active `LIST` price per offer** is required for resolution to terminate: it is the fallback price type, so an offer with no live `LIST` row has no effective price and `GET /pricing/offers/:id/effective-price` answers `422`. Seller price deletion refuses to remove the last `LIST` row (US-S-04b:90).
+
+---
+
+<a id="fx-display-fields"></a>
+## Display-currency Fields
+
+The one nullability contract. Every response that renders
+an amount in a currency other than the offer's carries the same five keys —
+`displayAmount`, `displayCurrency`, `fxRate`, `fxAsOf`, `fxStale` — converted with
+`pricing.fx_rate`. All five are **always present**, with three cases:
+
+| Case | `displayAmount` | `displayCurrency` | `fxRate` | `fxAsOf` | `fxStale` |
+|---|---|---|---|---|---|
+| requested currency equals the offer's native currency | echoes `amount` | echoes `currency` | `null` | `null` | `false` |
+| an FX row exists for the pair | converted amount | requested currency | the rate | the row's `as_of` | `true` when `now() - as_of > FX_STALE_AFTER_HOURS` (env, default 24), else `false` |
+| no FX row exists for the pair | `null` | requested currency | `null` | `null` | `null` |
+
+`fxRate` is never `"1.00000000"` in the first case — that would imply a stored rate
+exists. A stale rate is still returned and still converted; the client labels it an
+indicative rate rather than hiding it. `displayAmount` is `null` only in the third case,
+and the client then shows the native amount alone. Conversion is `decimal.js`, rounded
+once with the display currency's `minor_unit_scale`. All of it is **display-only**:
+nothing here is ever captured on an order.
+
+This contract governs [`GET /pricing/offers/:id/effective-price`](#get-effective-price),
+[`catalog.md § Get product offers`](catalog.md#get-product-offers),
+[`cart.md § Get cart`](cart.md#get-cart) and [`search.md § Product search`](search.md#product-search)
+alike, and is stated only here.
 
 ---
 
@@ -94,17 +124,9 @@ Auth: PUBLIC
 }
 ```
 **Field semantics:**
-- `amount` / `currency` — the resolved price row's amount and the offer's `native_currency_code`. The `currency` **query param plays no part in choosing the row**: an offer has exactly one pricing currency, so resolution is by price type + current time only — `SALE` (live time window) → `LIST` fallback. Rows with a non-null `inactive_at` are excluded. Account type and quantity are not inputs (BRD FR-P-06b, D-02). See [Pricing Constraints](#pricing-constraints).
+- `amount` / `currency` — the resolved price row's amount and the offer's `native_currency_code`. The `currency` **query param plays no part in choosing the row**: an offer has exactly one pricing currency, so resolution is by price type + current time only — `SALE` (live time window) → `LIST` fallback. Rows with a non-null `inactive_at` are excluded. Account type and quantity are not inputs (BRD FR-P-06b). See [Pricing Constraints](#pricing-constraints).
 - `compareAtAmount` — the offer's live `LIST` amount when `priceType = 'SALE'`, enabling struck-through original price display (US-B-05). `null` when `priceType = 'LIST'`.
-- `displayCurrency` / `displayAmount` / `fxRate` / `fxAsOf` / `fxStale` — the same amount rendered in the requested display currency, converted with `pricing.fx_rate`. Display-only: nothing here is captured on an order. All five keys are always present, with three cases:
-
-  | Case | `displayAmount` | `displayCurrency` | `fxRate` | `fxAsOf` | `fxStale` |
-  |---|---|---|---|---|---|
-  | `currency` equals the offer's native currency | echoes `amount` | echoes `currency` | `null` | `null` | `false` |
-  | FX row exists for the pair | converted amount | requested currency | the rate | the row's `as_of` | `true` when `now() - as_of > FX_STALE_AFTER_HOURS` (env, default 24), else `false` |
-  | no FX row exists for the pair | `null` | requested currency | `null` | `null` | `null` |
-
-  A stale rate is still returned and still converted; the client presents it as an indicative rate rather than hiding it. `displayAmount` is `null` only when the pair has no row at all. This is the single nullability contract shared with [`catalog.md`](catalog.md#get-product-offers), [`cart.md`](cart.md#get-cart) and [`search.md`](search.md#product-search).
+- `displayCurrency` / `displayAmount` / `fxRate` / `fxAsOf` / `fxStale` — the `currency` query param's rendering of the same amount, per [Display-currency fields](#fx-display-fields).
 
 **Errors:** 404 offer not found, 422 currency not supported, 422 no active price available for this offer
 
@@ -118,7 +140,7 @@ sequenceDiagram
     participant Postgres
 
     Client->>API: GET /pricing/offers/:offerId/effective-price?currency=THB
-    Note over API: PUBLIC — no auth guard. Account type and quantity are not inputs to price resolution (D-02)
+    Note over API: PUBLIC — no auth guard. Account type and quantity are not inputs to price resolution
     API->>PricingService: getEffectivePrice({ offerId, currency })
 
     PricingService->>Postgres: SELECT id, status, native_currency_code FROM catalog.offer WHERE id = :offerId
@@ -143,7 +165,7 @@ sequenceDiagram
         API-->>Client: 422 Unprocessable Entity "No active price available for this offer"
     end
 
-    Note over PricingService: Price resolution (decimal.js), currency-independent: SALE if NOW() BETWEEN starts_at AND ends_at → LIST fallback. Account type and quantity are not inputs (D-02). When resolved type is SALE, compareAtAmount = live LIST row amount.
+    Note over PricingService: Price resolution (decimal.js), currency-independent: SALE if NOW() BETWEEN starts_at AND ends_at → LIST fallback. Account type and quantity are not inputs. When resolved type is SALE, compareAtAmount = live LIST row amount.
     Note over PricingService: FX display: if requestedCurrency == offer.native_currency_code — displayAmount = amount, displayCurrency = currency, fxRate = null, fxAsOf = null, fxStale = false. If different — read the single pricing.fx_rate row for the pair#59; row present: displayAmount = amount × rate (decimal.js, rounded once with the display currency's minor_unit_scale), fxAsOf = as_of, fxStale = now() - as_of > FX_STALE_AFTER_HOURS (env, default 24)#59; no row: displayAmount = null, fxRate = null, fxAsOf = null, fxStale = null.
     alt requestedCurrency differs from offer.native_currency_code
         PricingService->>Postgres: SELECT rate, as_of FROM pricing.fx_rate<br/>WHERE base_currency_code = :offerCurrency AND quote_currency_code = :displayCurrency

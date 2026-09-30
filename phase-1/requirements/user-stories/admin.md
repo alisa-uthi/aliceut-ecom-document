@@ -20,7 +20,7 @@ Priority: Must — trace: FR-A-01, FR-A-03, FR-A-05
 Priority: Must — trace: FR-A-01, NFR-05, NFR-07
 
 **Acceptance criteria**
-- Admin account is seeded directly in the database with `role: ADMIN` and no `seller.seller_profile` row at all, so no KYC status exists to hold — admin accounts bypass the seller KYC flow entirely rather than carrying a not-applicable value in it. The `seller_kyc_status` and `seller_suspension_status` access-token claims are therefore `null` for an admin, as they are for any non-seller. Email and hashed password are stored in the database.
+- Admin account is seeded directly in the database with `roles = ['ADMIN']` (the column is `TEXT[]`; `ADMIN` is never co-held with `BUYER` or `SELLER`) and no `seller.seller_profile` row at all, so no KYC status exists to hold — admin accounts bypass the seller KYC flow entirely rather than carrying a not-applicable value in it. The `seller_kyc_status` and `seller_suspension_status` access-token claims are therefore `null` for an admin, as they are for any non-seller. Email and hashed password are stored in the database.
 - On login, the JWT issued for an admin account includes `roles: ["ADMIN"]` in the payload alongside `sub` and `email_verified`.
 - All NestJS controllers under the `/admin/*` route prefix carry a `@Roles('ADMIN')` guard. Requests without a valid JWT carrying the ADMIN role receive HTTP 403 (not 401, to avoid leaking the existence of admin-only routes to authenticated non-admin users).
 - Buyer and seller routes do not require ADMIN role; the ADMIN role does not grant access to seller-only endpoints unless the admin account also holds a SELLER role (not the case for seeded admin accounts).
@@ -38,7 +38,7 @@ Priority: Must — trace: FR-A-01
 **Acceptance criteria**
 - List paginated, filterable by country, sortable by `submitted_at`.
 - Row: business name, country, submitted_at, days pending (SLA badge red if > 3 days).
-- SLA threshold: 72 hours (3 calendar days) from `submitted_at` in UTC. "Business days" language in earlier drafts was imprecise; implementation uses `submitted_at + INTERVAL '72 hours'`. SLA badge turns red when: `NOW() > submitted_at + INTERVAL '72 hours'`.
+- SLA threshold: **3 business days** from submission (BRD §12 #14). The deadline is computed once at submit into `seller.kyc_application.review_due_at` — business days are Mon–Fri in `Asia/Bangkok` with a 17:00 cutoff, and the public-holiday set is configurable and empty in V1. SLA badge turns red when: `NOW() > review_due_at`. Nothing recomputes the interval: an earlier draft of this line called business-day language "imprecise" and specified `submitted_at + INTERVAL '72 hours'`, which put one policy in four documents and contradicted the seller-facing copy promising business days.
 - Resubmissions show a "Resubmit" badge; hovering/expanding reveals the previous rejection reason and date.
 - **Empty state:** if no pending applications, show "No pending applications — all caught up."
 - Admin receives an email notification (→ ET-21) when a new or resubmitted KYC application arrives. The SLA badge (red if > 3 days) and dashboard count (US-A-00) remain the primary triage tools within the portal.

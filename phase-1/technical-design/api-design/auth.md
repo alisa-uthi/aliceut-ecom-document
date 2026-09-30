@@ -1,10 +1,12 @@
 # Auth API — Identity & Auth
 
+**Status:** Complete  
 **Module:** `Identity` / `Auth`  
 **Parent:** [API Design Index](../api-design.md)  
-**Source of truth:** [BRD v1.3](../../requirements/BRD.md), [auth-jwt-design](../../../conventions/auth-jwt-design.md), [ERD](../data-model-erd.md)
+**Source of truth:** [BRD v1.4](../../requirements/BRD.md), [auth-jwt-design](../../../conventions/auth-jwt-design.md), [ERD](../data-model-erd.md)  
+**Conventions:** [api-conventions.md](../../../conventions/api-conventions.md) — `operationId` naming (`<Module>_<verb><Resource>`), response envelope, cursor pagination, error shape, money-as-string. Correlation-ID propagation, the error envelope and rate-limit headers apply to every endpoint in this document and are stated once in [api-design.md § 1 Conventions](../api-design.md#conventions).
 
-> **Conventions:** every endpoint below accepts an `X-Correlation-ID` request header, generates a UUIDv7 when it is absent, echoes it on the response, and carries the same value into every log line and into the `correlation_id` of every `platform.outbox_event` row and Kafka envelope it writes — see [observability.md § Correlation ID Propagation](../../../conventions/observability.md#correlation-id). Error bodies use the envelope and code table in [api-conventions.md § Standard Error Shape](../../../conventions/api-conventions.md#standard-error-shape); throttled endpoints return `X-RateLimit-Limit`, `X-RateLimit-Remaining` and, on `429`, `Retry-After`. Passwords, tokens, cookies and authorization headers are masked out of every log line by the sanitizer's `DEFAULT_SENSITIVE_KEYS`.
+> **Log masking.** Passwords, tokens, cookies and authorization headers are masked out of every log line by the sanitizer's `DEFAULT_SENSITIVE_KEYS` ([observability.md](../../../conventions/observability.md#nestjs-logger)).
 
 ---
 
@@ -61,17 +63,7 @@ Rules, applied to `POST /auth/login`, `POST /auth/forgot-password` and `POST /au
 
 ### Rate limits
 
-Per [auth-jwt-design § 5](../../../conventions/auth-jwt-design.md#rate-limiting). Each limit is restated on its endpoint below.
-
-| Endpoint | Limit | Window |
-|----------|-------|--------|
-| `POST /auth/register` | 5 requests | 15 minutes per IP |
-| `POST /auth/login` | 10 requests | 15 minutes per IP |
-| `POST /auth/forgot-password` | 3 requests | 1 hour per email |
-| `POST /auth/resend-verification` | 3 requests | 1 hour per authenticated user |
-| `POST /auth/reset-password` | 5 requests | 1 hour per token |
-| `GET /auth/google`, `GET /auth/facebook` | 20 requests | 1 minute per IP |
-| Everything else | 100 requests | 1 minute per IP (default) |
+The per-endpoint limits and their throttle keys are defined once in [auth-jwt-design § 5](../../../conventions/auth-jwt-design.md#rate-limiting), and each throttled endpoint restates its own on its `Rate limit:` line below. Unthrottled `/auth` routes fall to the 100-request-per-minute-per-IP default. Throttled endpoints return `X-RateLimit-Limit`, `X-RateLimit-Remaining` and, on `429`, `Retry-After`.
 
 ---
 
@@ -518,7 +510,7 @@ sequenceDiagram
 POST /auth/resend-verification
 Tag: Auth
 Auth: JWT
-Rate limit: 3 per hour per email address
+Rate limit: 3 per hour per authenticated user
 ```
 **Response 202** `{ "data": { "message": "Verification email queued" } }`  
 **Errors:** 409 already verified, 429 rate limited

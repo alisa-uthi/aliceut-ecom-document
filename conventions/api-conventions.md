@@ -3,7 +3,7 @@
 Cross-phase REST API conventions for all AliceUT services.
 
 **Status:** Complete  
-**Source of truth:** [BRD v1.3](../phase-1/requirements/BRD.md)
+**Source of truth:** [BRD v1.4](../phase-1/requirements/BRD.md)
 
 ---
 
@@ -35,7 +35,7 @@ Cross-phase REST API conventions for all AliceUT services.
 
 All monetary values in JSON requests and responses are **strings** (`"99.99"`), never numbers. The currency code is always sent alongside the amount.
 
-See also: CLAUDE.md § Money handling for storage and arithmetic rules.
+Storage (`NUMERIC(19,4)` + ISO 4217 code) and arithmetic (`decimal.js`, never JS `number`) are FR-P-04 / FR-P-04a; the code patterns are in [backend-coding-standards.md § 3](backend-coding-standards.md#3-money-handling-code-patterns).
 
 ---
 
@@ -173,8 +173,10 @@ Field `errors` is present only for 400 validation failures.
 | `SELLER` | JWT + `roles` contains `SELLER` |
 | `ADMIN` | JWT + `roles` contains `ADMIN` |
 | `EMAIL_VERIFIED` | JWT + `email_verified: true` |
-| `SELLER_APPROVED` | SELLER guard + `SellerProfile.kyc_status = APPROVED` |
-| `SELLER_ACTIVE` | SELLER_APPROVED + `SellerProfile.suspension_status != SUSPENDED` |
+| `SELLER_APPROVED` | SELLER guard + claim `seller_kyc_status = APPROVED` |
+| `SELLER_ACTIVE` | SELLER_APPROVED + claim `seller_suspension_status != SUSPENDED` |
+
+These labels are endpoint-spec shorthand, not class names. The NestJS classes behind them are `JwtAuthGuard`, `RolesGuard` (`BUYER` / `SELLER` / `ADMIN`), `EmailVerifiedGuard`, `SellerApprovedGuard` and `SellerNotSuspendedGuard` — see [auth-jwt-design.md § 4](auth-jwt-design.md#auth-guards).
 
 Suspended sellers may only access: `GET /seller/orders`, `GET /seller/orders/:id`, `POST /seller/orders/:id/ship`.
 

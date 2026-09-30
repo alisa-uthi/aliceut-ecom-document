@@ -5,10 +5,10 @@
 
 ## Key invariants
 
-- Admin receives ET-21 (with SLA deadline = submitted_at + 72 calendar hours / 3 calendar days) when seller submits or resubmits KYC; SLA badge in queue turns red after 72 hours (US-A-01)
+- Admin receives ET-21 (with SLA deadline = `kyc_application.review_due_at` — 3 business days, BRD §12 #14) when seller submits or resubmits KYC; SLA badge in queue turns red once `NOW() > review_due_at` (US-A-01)
 - KYC approval sets `seller.seller_profile.kyc_status = 'APPROVED'` only. `suspension_status` is an independent column and is never derived from it — the two are set by different actions (US-P-05, `data-model-erd.md` § `seller.seller_profile`)
 - All document views are logged for audit (NFR-09, US-A-02)
-- **Prohibited content is two-tier, and the tier comes from the matched blocklist term's stored `enforcement`, not from how precisely the text matched or from create-versus-edit** (FR-P-06c, D-05 as amended by D-14). Prohibited taxonomy node or an `enforcement = BLOCK` term → 422 at submit, no listing created and no edit persisted. An `enforcement = FLAG` term → listing created or saved as `FLAGGED` with an `admin.moderation_case` row. The strictest matched tier wins. `match_type` (`SUBSTRING` / `WORD` / `REGEX`) is an independent column — every matching mode exists on both tiers
+- **Prohibited content is two-tier, and the tier comes from the matched blocklist term's stored `enforcement`, not from how precisely the text matched or from create-versus-edit** (FR-P-06c, [BRD § Amendments](../requirements/BRD.md#amendments)). Prohibited taxonomy node or an `enforcement = BLOCK` term → 422 at submit, no listing created and no edit persisted. An `enforcement = FLAG` term → listing created or saved as `FLAGGED` with an `admin.moderation_case` row. The strictest matched tier wins. `match_type` (`SUBSTRING` / `WORD` / `REGEX`) is an independent column — every matching mode exists on both tiers. The seller-facing halves of the two outcomes are in [seller-portal.md § Prohibited-content outcomes on save](../ui-design/seller-portal.md#screen-6-create-edit-product)
 - The soft (`FLAG`) tier is the only input to FR-A-03's moderation queue; the hard tier produces no queue item because no listing exists
 - ET-08 CC'd to admin on every auto-flag — passive awareness without a dedicated admin action email (US-A-03)
 - ET-09 (removal digest) aggregates all same-day removals per seller; Kafka consumer batches by daily time window (US-A-04)

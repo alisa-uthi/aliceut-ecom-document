@@ -1,15 +1,13 @@
 # User Stories — AliceUT V1
 
 **Author:** Senior Business Analyst
-**Source:** BRD.md v1.3 (dated 2026-09-22; §12 decisions agreed 2026-08-19, amended 2026-09-14 and 2026-09-22). Stories below reflect all amendments in BRD § Amendments — notably offer-level pricing currency, the `FulfillmentItem` snapshot rename, removal of the rating filter and display, and the drop of the `B2B_TIER` price type.
+**Source:** BRD.md v1.4 (dated 2026-09-30; §12 decisions agreed 2026-08-19, amended 2026-09-14, 2026-09-22 and 2026-09-30). Stories below reflect all amendments in BRD § Amendments — notably offer-level pricing currency, the `FulfillmentItem` snapshot rename, removal of the rating filter and display, the drop of the `B2B_TIER` price type, and the 2026-09-30 round: price removed from FR-S-03's product attributes, `NUMERIC(19,8)` FX rates, and the 3-business-day KYC SLA persisted as `seller.kyc_application.review_due_at`.
 **Format:** Connextra + INVEST + Gherkin acceptance criteria
 **Scope:** V1 Must + Should items only. Out-of-scope (BRD §3.2) excluded.
 
 ---
 
 ## Files
-
-Stories split by role. One file per role for scalability.
 
 | File | Prefix | FR trace | Count |
 |------|--------|----------|-------|
@@ -22,14 +20,8 @@ Stories split by role. One file per role for scalability.
 
 ---
 
-## Legend
+## Story format
 
-- **US-B-*** — Buyer stories (maps to FR-B)
-- **US-S-*** — Seller stories (FR-S)
-- **US-A-*** — Admin stories (FR-A)
-- **US-P-*** — Platform / cross-cutting (FR-P)
-
-Each story:
 ```
 ID | Title
 As a <persona>, I want <capability>, so that <outcome>.  
@@ -47,19 +39,19 @@ Notes: preconditions, edge cases, dependencies
 | ID | Title | Priority | Trace |
 |----|-------|----------|-------|
 | US-B-00 | Login and session management | Must | FR-B-01, NFR-05, NFR-06 |
-| US-B-01 | Register account | Must | FR-B-01 |
-| US-B-02 | Search products by keyword | Must | FR-B-02 |
+| US-B-01 | Register account | Must | FR-B-01, NFR-05, NFR-06 |
+| US-B-02 | Search products by keyword | Must | FR-B-02, NFR-02 |
 | US-B-03 | Filter search results | Must | FR-B-03 |
 | US-B-04 | Sort search results | Must | FR-B-04 |
-| US-B-05 | View product detail page (PDP) | Must | FR-B-05 |
+| US-B-05 | View product detail page (PDP) | Must | FR-B-05, FR-P-01, FR-P-05 |
 | US-B-06 | Add to cart | Must | FR-B-06 |
 | US-B-07 | Persistent logged-in cart | Must | FR-B-07 |
 | US-B-08 | Guest cart persistence | Should | FR-B-08 |
-| US-B-09 | Checkout with fake payment | Must | FR-B-09 |
+| US-B-09 | Checkout with fake payment | Must | FR-B-09, FR-P-03, FR-P-04, NFR-14 |
 | US-B-10 | Order confirmation with mock tracking | Must | FR-B-10 |
 | US-B-11 | View order history + status | Must | FR-B-11 |
 | US-B-12 | Order lifecycle email notifications | Must | FR-B-10, FR-B-11 |
-| US-B-13 | Reset forgotten password | Must | FR-B-01 |
+| US-B-13 | Reset forgotten password | Must | FR-B-01, NFR-05 |
 | US-B-14 | Manage delivery addresses | Should | FR-B-09 |
 | US-B-15 | Manage account profile | Should | FR-B-01 |
 
@@ -67,57 +59,57 @@ Notes: preconditions, edge cases, dependencies
 | ID | Title | Priority | Trace |
 |----|-------|----------|-------|
 | US-S-00 | Seller dashboard overview | Must | FR-S-05, FR-S-08 |
-| US-S-01 | Seller onboarding application | Must | FR-S-01 |
+| US-S-01 | Seller onboarding application | Must | FR-S-01, NFR-09 |
 | US-S-02 | Block listing until KYC approved | Must | FR-S-02 |
-| US-S-03 | Create product listing | Must | FR-S-03 |
+| US-S-03 | Create product listing | Must | FR-S-03, FR-P-01, FR-P-06a, FR-P-06b, FR-P-06c |
 | US-S-04 | Edit and delete own products | Must | FR-S-04 |
-| US-S-04b | Manage offer pricing | Must | FR-P-01, FR-P-06a |
-| US-S-05 | Order fulfillment dashboard | Must | FR-S-05 |
+| US-S-04b | Manage offer pricing | Must | FR-P-01, FR-P-06a, FR-P-06b |
+| US-S-05 | Order fulfillment dashboard | Must | FR-S-05, FR-B-10 |
 | US-S-05b | Order detail view | Must | FR-S-05, FR-S-06 |
 | US-S-06 | Mark order shipped | Must | FR-S-06 |
 | US-S-07 | Issue refund | Must | FR-S-07 |
 | US-S-08 | Inventory + low-stock alerts | Must | FR-S-08 |
 | US-S-09 | Bulk inventory update via CSV | Should | FR-S-09 |
-| US-S-10 | View listing moderation status | Must | FR-A-03, FR-A-04 |
+| US-S-10 | View listing moderation status | Must | FR-A-03, FR-A-04, FR-S-04 |
 | US-S-11 | Cancel unfulfillable PENDING order | Should | FR-S-05, FR-S-07 |
 | US-S-12 | Reset forgotten password (seller portal) | Must | FR-S-01, NFR-05 |
 
 ### Admin ([admin.md](admin.md))
 | ID | Title | Priority | Trace |
 |----|-------|----------|-------|
-| US-A-00 | Admin dashboard overview | Must | FR-A-01, FR-A-03 |
+| US-A-00 | Admin dashboard overview | Must | FR-A-01, FR-A-03, FR-A-05 |
 | US-A-00b | Admin account and access control | Must | FR-A-01, NFR-05, NFR-07 |
 | US-A-01 | Pending seller applications queue | Must | FR-A-01 |
-| US-A-02 | Review KYC docs and decide | Must | FR-A-02 |
-| US-A-03 | Flagged listings queue | Must | FR-A-03 |
+| US-A-02 | Review KYC docs and decide | Must | FR-A-02, NFR-09 |
+| US-A-03 | Flagged listings queue | Must | FR-A-03, FR-P-06c |
 | US-A-04 | Remove listing with notification | Must | FR-A-04 |
 | US-A-04b | Clear false-positive flagged listing | Must | FR-A-03, FR-A-04 |
 | US-A-05 | Suspend seller account | Should | FR-A-05 |
 | US-A-05b | Reinstate suspended seller | Should | FR-A-05 |
-| US-A-06 | Seller search and profile lookup | Should | FR-A-01, FR-A-05 |
+| US-A-06 | Seller search and profile lookup | Should | FR-A-01, FR-A-02, FR-A-05 |
 
 ### Platform ([platform.md](platform.md))
 | ID | Title | Priority | Trace |
 |----|-------|----------|-------|
-| US-P-01 | Per-offer pricing currency model | Must | FR-P-01 |
-| US-P-02 | FX display conversion | Should | FR-P-02 |
+| US-P-01 | Per-offer pricing currency model | Must | FR-P-01, FR-P-06a |
+| US-P-02 | FX display conversion | Should | FR-P-02, BRD §12 Decision 5 |
 | US-P-03 | Order price snapshot immutability | Must | FR-P-03 |
-| US-P-04 | Decimal money handling end-to-end | Must | FR-P-04 |
+| US-P-04 | Decimal money handling end-to-end | Must | FR-P-04, FR-P-04a, FR-P-04b |
 | US-P-05 | Multi-seller offer selection | Should | FR-P-05 |
-| US-P-06 | Seed 100 curated products | Must | FR-P-06 |
+| US-P-06 | Seed 100 curated products | Must | FR-P-06, NFR-03 |
 | US-P-07 | B2B account branding differentiation | Must | FR-P-06d |
-| US-P-08 | Secrets in env only | Must | FR-P-07 |
-| US-P-09 | DTO validation on every endpoint | Must | FR-P-08 |
-| US-P-10 | Transactional outbox for domain events | Must | FR-P-09 |
-| US-P-11 | Async search index update | Must | FR-P-10 |
-| US-P-12 | Notifications via Kafka consumers | Must | FR-P-11 |
-| US-P-13 | Event envelope + idempotency | Must | FR-P-12 |
-| US-P-14 | Dead-letter topics | Should | FR-P-13 |
+| US-P-08 | Secrets in env only | Must | FR-P-07, NFR-10 |
+| US-P-09 | DTO validation on every endpoint | Must | FR-P-08, NFR-07 |
+| US-P-10 | Transactional outbox for domain events | Must | FR-P-09, NFR-14 |
+| US-P-11 | Async search index update | Must | FR-P-10, NFR-13 |
+| US-P-12 | Notifications via async consumers | Must | FR-P-11 |
+| US-P-13 | Event envelope + idempotency | Must | FR-P-12, NFR-14 |
+| US-P-14 | Dead-letter topics | Should | FR-P-13, NFR-15 |
 | US-P-15 | Mock delivery scheduler | Must | FR-B-10, FR-S-05 |
 | US-P-16 | Auto-refund monitor for suspended-seller orders | Should | FR-A-05 |
 | US-P-17 | Inventory reservation expiry scheduler | Must | FR-P-03, FR-B-09 |
 | US-P-18 | Suspension expiry scheduler | Should | FR-A-05 |
-| US-P-19 | FX rate refresh scheduler | Should | FR-P-02 |
+| US-P-19 | FX rate refresh scheduler | Should | FR-P-02, BRD §12 Decision 5 |
 
 ---
 

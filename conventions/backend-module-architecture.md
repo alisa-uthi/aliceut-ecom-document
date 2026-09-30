@@ -1,7 +1,7 @@
 # Module Architecture
 
 **Status:** Complete  
-**Source of truth:** [architecture-overview §10](../architecture-overview.md), [BRD v1.3](../phase-1/requirements/BRD.md)
+**Source of truth:** [architecture-overview §10](../architecture-overview.md), [BRD v1.4](../phase-1/requirements/BRD.md)
 
 ---
 
@@ -56,7 +56,7 @@ aliceut-ecom-backend/
 
 Not every module warrants the full hexagonal layout. Three tiers apply based on domain complexity.
 
-**Tier membership is declared, not inferred.** NFR-18 binds Tier 1 repositories only (BRD §8, amended by Wave 0 decision D-04), so "Tier 1" has to name modules rather than describe a kind of module — a requirement scoped to a tier whose membership is a matter of judgement is a requirement nobody can be held to. The table below is that declaration and is **exhaustive for Phase 1**: every module lib in [phase-1/technical-design/backend-module-architecture.md § Module summary table](../phase-1/technical-design/backend-module-architecture.md#module-summary-table) appears in exactly one row, and a module added later takes a tier in the same commit that adds it.
+**Tier membership is declared, not inferred.** NFR-18 binds Tier 1 repositories only (BRD §8, as amended), so "Tier 1" has to name modules rather than describe a kind of module — a requirement scoped to a tier whose membership is a matter of judgement is a requirement nobody can be held to. The table below is that declaration and is **exhaustive for Phase 1**: every module lib in [phase-1/technical-design/backend-module-architecture.md § Module summary table](../phase-1/technical-design/backend-module-architecture.md#module-summary-table) appears in exactly one row, and a module added later takes a tier in the same commit that adds it.
 
 | Tier | When to use | Modules (Phase 1, exhaustive)                        |
 |------|-------------|-----------------------------------------------------|
@@ -147,7 +147,7 @@ libs/identity/
 
 Tier 2 rules:
 - TypeORM decorators live directly on the entity — no separate `typeorm-entity` file.
-- No repository interface; inject TypeORM's `Repository<T>` directly inside the service. This is the rule NFR-18 exempts: as amended by Wave 0 decision D-04 the repository-interface requirement binds **Tier 1** repositories only — the transactional core whose portability the requirement exists to protect — and Tier 3 has no repositories at all. The two documents agree deliberately rather than by omission.
+- No repository interface; inject TypeORM's `Repository<T>` directly inside the service. This is the rule NFR-18 exempts: as amended, the repository-interface requirement binds **Tier 1** repositories only — the transactional core whose portability the requirement exists to protect — and Tier 3 has no repositories at all. The two documents agree deliberately rather than by omission.
 - No `commands/` or `queries/` subdirectory; the service methods are the use cases.
 - Outbox writes still go through `OutboxService` (from `platform`) inside a transaction.
 - `index.ts` exports only the service class, not internal entities.
@@ -623,6 +623,6 @@ Three rules over that mapping are conventions rather than phase-1 choices, and t
 
 - **[DESIGN DECISION]** URI versioning via `VersioningType.URI` with `defaultVersion: '1'`. `setGlobalPrefix` carries only `'api'` — version segment is injected by NestJS. Reason: baking version into the prefix locks all routes to one version forever; URI versioning lets individual controllers bump independently without touching bootstrap.
 - **[DESIGN DECISION]** No `@nestjs/cqrs` dependency in V1. Commands and queries are plain handler classes dispatched by the ApplicationService facade. Removes a framework dependency while retaining the pattern's clarity.
-- **[DESIGN DECISION]** TypeORM `synchronize: false` always. Raw SQL migrations are the only schema change mechanism — stored in `migrations/phase-N/` in this repo and applied via the TypeORM CLI through the `db-migrate.yml` GitHub Actions workflow (`workflow_dispatch`). See [conventions/database-migrations.md](database-migrations.md).
-- **[DESIGN DECISION]** There are two deliberate cross-module synchronous calls, each documented as a composition flow seam rather than an architecture leak: (1) Checkout calls Inventory's ApplicationService for the reservation step — inventory reservation must be atomic with order creation, not eventually consistent; (2) any module that serialises a monetary amount calls `PricingApplicationService.getCurrencyScale()` — the pricing schema owns the authoritative `minor_unit_scale` table and no other module may read it directly (D-03). Checkout→Inventory is replaced by a two-phase reservation API + saga when Inventory is extracted. Any module→Pricing is replaced by a Pricing-owned read model (scale map published on a Kafka topic) when Pricing is extracted or when the coupling proves unwelcome.
+- **[DESIGN DECISION]** TypeORM `synchronize: false` always. Raw SQL migrations are the only schema change mechanism — stored in `migrations/phase-N/` in the `aliceut-ecom-backend` repo and applied via the TypeORM CLI through the `db-migrate.yml` GitHub Actions workflow (`workflow_dispatch`). See [conventions/database-migrations.md](database-migrations.md).
+- **[DESIGN DECISION]** There are two deliberate cross-module synchronous calls, each documented as a composition flow seam rather than an architecture leak: (1) Checkout calls Inventory's ApplicationService for the reservation step — inventory reservation must be atomic with order creation, not eventually consistent; (2) any module that serialises a monetary amount calls `PricingApplicationService.getCurrencyScale()` — the pricing schema owns the authoritative `minor_unit_scale` table and no other module may read it directly (sole-writer rule). Checkout→Inventory is replaced by a two-phase reservation API + saga when Inventory is extracted. Any module→Pricing is replaced by a Pricing-owned read model (scale map published on a Kafka topic) when Pricing is extracted or when the coupling proves unwelcome.
 - **[DESIGN DECISION]** `libs/contracts/` holds Avro schemas (`.avsc` files), generated Avro TypeScript types, and the OpenAPI JSON. It is the boundary module — never depends on any domain module. Both `api` and `workers` may import from `contracts`.

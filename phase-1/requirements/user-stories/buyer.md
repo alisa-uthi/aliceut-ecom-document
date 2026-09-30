@@ -32,7 +32,7 @@ Priority: Must — trace: FR-B-01, NFR-05, NFR-06
 - Single-device logout: invalidates the current session's refresh token only.
 - All-sessions logout (accessible from Account → Security): invalidates all refresh tokens for the account.
 - Role-based routing on login success (buyer portal `/login` only):
-  - `BUYER` / `BUSINESS_BUYER` → buyer home.
+  - `roles` contains `BUYER` → buyer home, for either `account_type`. `roles` and `account_type` are orthogonal columns and neither has a `BUSINESS_BUYER` value ([data-model-erd § identity.user](../../technical-design/data-model-erd.md#table-identity-user)).
   - A single account may hold both BUYER and SELLER roles. The seller portal is accessed via `/seller/login` (email/password only); the buyer portal does not route to the seller dashboard.
   - Seller and admin accounts are not accessible via the buyer login portal.
 - Admin role is set at account creation via seed script; it is not self-assignable.
@@ -123,10 +123,10 @@ Priority: Must — trace: FR-B-05, FR-P-01, FR-P-05
 **Acceptance criteria**
 - PDP shows: title, gallery (≥ 1 image), description, category breadcrumb, variant selector (color/size), effective price (with strikethrough on SALE), currency, seller name, availability badge (in stock / out of stock).
 - Variant selection updates the availability badge and add-to-cart CTA to reflect the selected variant's available quantity. Out-of-stock variant: add-to-cart is disabled, badge shows "Out of stock." On page load, default variant is the first in-stock variant; if all variants are OOS, the first variant is shown with the OOS badge.
-- No B2B tier row on the PDP. `B2B_TIER` was dropped from V1 (BRD § Amendments, D-02) — B2B differentiation is branding only (FR-P-06d), and quantity-break pricing is deferred to Phase 2. B2C and B2B accounts see the same effective price.
+- No B2B tier row on the PDP. `B2B_TIER` was dropped from V1 (BRD § Amendments) — B2B differentiation is branding only (FR-P-06d), and quantity-break pricing is deferred to Phase 2. B2C and B2B accounts see the same effective price.
 - No rating display and no star widget. No review tab or review count link rendered (FR-B-03 amended 2026-09-14).
 - If multiple sellers offer same product → "Other sellers" section listing offers sorted by lowest price in buyer currency (FR-P-05).
-- Effective price resolved by price type and current time only: `SALE` if a live window covers now, otherwise `LIST`. Account type and quantity are **not** inputs (BRD § Amendments, D-02).
+- Effective price resolved by price type and current time only: `SALE` if a live window covers now, otherwise `LIST`. Account type and quantity are **not** inputs (BRD § Amendments).
 - If price in buyer currency missing: show cheapest available price converted via FX with "≈" prefix and tooltip "Estimated in <currency>".
 - Product description is rendered as formatted HTML from the Markdown source (bold, italic, ordered/unordered lists, headings, safe links). Rendering uses a sanitised parser (e.g. `marked` + `DOMPurify`) that strips disallowed HTML tags; raw Markdown characters are never displayed to buyers. US-P-09 DTO validation enforces the 5000-character input limit at write time.
 - **UI layout:** show category breadcrumbs, a thumbnail gallery with a primary image, seller name, price/list-price treatment, availability/fulfilment message, quantity control, and the add-to-cart CTA. Specifications may be shown in a product-details tab.
@@ -202,9 +202,7 @@ Priority: Must — trace: FR-B-09, FR-P-03, FR-P-04, NFR-14
      b. If reservation succeeds: snapshot item prices/quantities, create fulfillment (`PENDING`), clear those cart items — all atomically.
 
      c. If reservation fails: mark that group as failed; those cart items remain in cart.
-  5. Set placement outcome:
-     - `FULLY_PLACED` — all groups succeeded.
-     - `PARTIALLY_PLACED` — ≥ 1 group failed; failed cart items remain in cart.
+  5. Set the placement outcome (see the **Placement outcome** table below).
   6. Return order response including fulfillments, skipped items, and failed groups.
 - Submitting the same checkout twice (same idempotency key) returns the original order without creating a new one.
 - **Price revalidation at submit:** Immediately before creating the order, the system re-resolves the effective price for each valid line item. If any price differs from the price shown on the checkout summary page (configurable tolerance, e.g. ±0.01 in offer currency), the submission is halted and the buyer is presented with a "Price updated" notification listing the changed items and their new prices. The buyer must confirm before re-submitting. The order is not created until the buyer confirms the updated prices.
@@ -311,10 +309,7 @@ Priority: Must — trace: FR-B-10, FR-B-11
 | Fulfillment refunded | Buyer | [ET-04](email-templates.md#et-04--fulfillment-refunded-fulfillmentrefunded) | Order `ORD-000001042`, seller name, refunded items with snapshot pricing, refund amount. |
 | Order fully completed | Buyer | [ET-05](email-templates.md#et-05--order-completed-ordercompleted) | Order `ORD-000001042` complete — all items delivered. Only sent when order had ≥ 2 fulfillments; single-fulfillment orders rely on ET-03. |
 
-**Notes:**
-- Order placement email fires once per order regardless of fulfillment count.
-- Shipped/delivered/refunded emails fire per fulfillment — multi-seller order produces independent emails per seller.
-- Order completed email fires once when all placed fulfillments are delivered; skipped for single-fulfillment orders.
+**Notes:** shipped / delivered / refunded emails fire per fulfillment — a multi-seller order produces independent emails per seller.
 
 ---
 

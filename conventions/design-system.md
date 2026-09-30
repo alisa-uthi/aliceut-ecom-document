@@ -2,6 +2,7 @@
 ## Angular Material UI Specification
 
 **Status:** Complete  
+**Source of truth:** [Figma "AliceUT"](https://www.figma.com/design/F69ukaWjsqx4adgo26vDFQ/AliceUT) (`F69ukaWjsqx4adgo26vDFQ`) for visual design; [BRD v1.4](../phase-1/requirements/BRD.md) for stack and scope  
 **Stack:** Angular 22+ + Angular Material + Angular CDK
 
 ---
@@ -365,7 +366,6 @@ This map is the single owner of status colour. Any screen rendering a status not
 
 ---
 
-<a id="priceDisplay"></a>
 ### 8.3 PriceDisplay
 
 **This is the single authoritative prop surface for `PriceDisplayComponent`.** Portal documents (`seller-portal.md`, `buyer-portal.md`) reference this section rather than restating the prop list. Phase-1 binding sources per input are documented in [`shared-components.md § 4.3`](../phase-1/ui-design/shared-components.md#43-pricedisplay).
@@ -760,7 +760,7 @@ All pipes live in `libs/ui/src/lib/pipes/` and are exported from the `@aliceut/s
 **CurrencyDisplayPipe** (`currency-display.pipe.ts`)
 - Selector: `| currencyDisplay:currencyCode`
 - Parameters: `currencyCode: string` (ISO 4217)
-- Input: `string` (monetary amount as string per FR-P-04b, e.g. `"99.9900"`)
+- Input: `string` (monetary amount as string per FR-P-04b, e.g. `"99.99"`)
 - Output: Formatted string using `Intl.NumberFormat` for the given currency locale (e.g., `"$99.99"`, `"¥100"`, `"฿99.99"`)
 - NOTE: Input MUST be a string amount. Never pass a JS `number` — this would violate FR-P-04b.
 - Usage: `{{ item.unitPrice | currencyDisplay:item.currency }}`

@@ -8,7 +8,7 @@
 - **One pricing currency per offer**, held on the offer as `catalog.offer.native_currency_code`. `pricing.offer_price` has **no currency column** — every price row inherits the parent offer's currency. Selling the same product in a second currency means a second offer
 - Seller pricing currencies: USD, THB, JPY, SGD only (FR-P-06a); buyer display currency may differ — converted server-side via FX for display, never stored on the offer
 - Checkout captures the offer-currency price, the FX rate used, and the resulting buyer-currency amounts at capture time; browse-time display conversions are ephemeral and never stored (FR-P-03)
-- Price priority: SALE (within its time window) beats LIST. Price type and current time are the only inputs — account type and quantity are not (`B2B_TIER` dropped from V1, BRD § Amendments D-02)
+- Price priority: SALE (within its time window) beats LIST. Price type and current time are the only inputs — account type and quantity are not (`B2B_TIER` dropped from V1, [BRD § Amendments](../requirements/BRD.md#amendments))
 - SALE must have starts_at < ends_at; system auto-reverts to LIST after ends_at; overlapping SALE periods on the same offer rejected
 - At most one active LIST price per offer; a second one is rejected with an explicit error. Currency is not part of this key, because the offer has only one
 - FX stale (`now() - as_of > FX_STALE_AFTER_HOURS`, env, whole hours, default `24`): the converted amount is **still returned**, flagged `fxStale: true`, and the UI labels it an indicative rate. The conversion is omitted only when the currency pair has no FX row at all

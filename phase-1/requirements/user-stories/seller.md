@@ -26,7 +26,7 @@ Seller registration is at `/seller/register`. No existing buyer account is requi
 - **Step 2 — KYC application:** legal business name, business type (LLC / sole prop / corp), tax ID (country regex), country, business address, phone, uploads (business license PDF, ID doc, proof of address).
 - On KYC submit → application created with pending status; seller receives confirmation email (→ ET-14) and admin receives alert (→ ET-21).
 - Seller with a pending or approved application cannot submit a new one; rejected application shows "Update and resubmit" CTA instead of the new-application form.
-- The seller registration form does not include the "This is a business account" checkbox. Seller accounts are not BUYER or B2B_BUYER by default. A seller who also wants B2B buyer status must register or update a separate buyer account.
+- The seller registration form does not include the "This is a business account" checkbox: a new seller account gets `roles = ['SELLER']` and `account_type = 'B2C'`. A seller who also wants to buy adds the `BUYER` role to the **same** account through the linking step above — one user may hold `BUYER` and `SELLER` at once ([data-model-erd § identity.user](../../technical-design/data-model-erd.md#table-identity-user)) — and B2B buyer status is `account_type = 'B2B'` with `business_name` set on that same account. It is not a second account.
 
 ---
 
@@ -50,7 +50,7 @@ Priority: Must — trace: FR-S-03, FR-P-01, FR-P-06a, FR-P-06b, FR-P-06c
 **Acceptance criteria**
 - Fields: title (10–200 chars), description (Markdown ≤ 5000 chars), category (from taxonomy tree), images (1–10, JPEG/PNG/WebP, ≤ 5MB each), variants (name + options), inventory per SKU.
 - Images are orderable (drag-to-reorder); first image = primary (shown in search results and PDP hero).
-- Pricing sub-form: at least one LIST price required. Currencies: USD, THB, JPY, SGD (FR-P-06a). Optionally one `SALE` price. `LIST` and `SALE` are the only V1 price types — `B2B_TIER` was dropped (BRD § Amendments D-02).
+- Pricing sub-form: at least one LIST price required. Currencies: USD, THB, JPY, SGD (FR-P-06a). Optionally one `SALE` price. `LIST` and `SALE` are the only V1 price types — `B2B_TIER` was dropped (BRD § Amendments).
   - SALE price requires `starts_at < ends_at`; system automatically reverts to LIST price after `ends_at`.
 - Prohibited category guard: weapons, drugs, adult content → block submit (FR-P-06c). Keyword blocklist scans title and description on every save.
 - On success → product is live; search index updates within 5 seconds (NFR-13).
@@ -85,7 +85,7 @@ Priority: Must — trace: FR-P-01, FR-P-06a, FR-P-06b
 
 **Acceptance criteria**
 - Pricing panel accessible from the listing detail page, separate from the product edit form.
-- Displays all current Price rows: `LIST`, and `SALE` with its `starts_at`/`ends_at`. These are the only two V1 price types (BRD § Amendments D-02); the panel offers no tier row and no quantity-break field.
+- Displays all current Price rows: `LIST`, and `SALE` with its `starts_at`/`ends_at`. These are the only two V1 price types (BRD § Amendments); the panel offers no tier row and no quantity-break field.
 - The offer's pricing currency is fixed on the offer itself (`catalog.offer.native_currency_code`) and every price row on that offer is denominated in it. A price row carries no currency of its own, so the pricing panel shows the currency once, as a property of the listing, and each row is just an amount plus its type. Selling the same product in a second currency means creating a second offer, not adding a second price row.
 - Seller can add a `SALE` row, edit an existing row, or delete a non-LIST row. At least one LIST price must always remain.
 - SALE price: `starts_at < ends_at` enforced; overlapping SALE periods for the same offer are rejected.

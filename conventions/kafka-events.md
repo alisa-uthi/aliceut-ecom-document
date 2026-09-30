@@ -1,7 +1,7 @@
 # Kafka Event Conventions
 
 **Status:** Complete  
-**Source of truth:** [BRD v1.3](../phase-1/requirements/BRD.md)
+**Source of truth:** [BRD v1.4](../phase-1/requirements/BRD.md)
 
 Phase-specific event schemas and topic summary: [phase-1/technical-design/kafka-events.md](../phase-1/technical-design/kafka-events.md)
 

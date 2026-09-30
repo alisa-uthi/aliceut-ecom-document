@@ -2,10 +2,13 @@
 ## seller-app (port 4201)
 
 **Status:** Draft  
-**Stack:** Angular 22+ + Angular Material + `libs/ui/` shared components  
-**Auth:** Email/password only (no OAuth). JWT with SELLER role.
+**Stack:** Angular 22+ + Angular Material + `libs/ui/` (`@aliceut/shared-ui`) composite components  
+**Auth:** Email/password only (no OAuth). JWT with SELLER role.  
+**API contracts:** [seller.md](../technical-design/api-design/seller.md), [auth.md](../technical-design/api-design/auth.md), [notifications.md](../technical-design/api-design/notifications.md), [pricing.md](../technical-design/api-design/pricing.md)
 
-Component contracts are owned by [conventions/design-system.md § 8](../../conventions/design-system.md#8-shared-component-library-libsui) — in particular the prop surfaces of [`PriceDisplay` § 8.3](../../conventions/design-system.md#83-pricedisplay) and `CurrencyInput` § 8.4, which every `<aliceut-price-display>` and `<aliceut-currency-input>` below binds against and which this document does not restate. Phase-1 binding sources per input, including the rule that a seller price input's `currencyCode` is the parent offer's `nativeCurrencyCode`, are in [shared-components.md § 4.3](shared-components.md#43-pricedisplay) and [§ 4.4](shared-components.md#44-currencyinput). The cross-cutting rules every screen below follows — standalone + OnPush, `ViewState<T>`, reactive forms, cursor pagination, accessibility — are in [shared-components.md § 7](shared-components.md#7-rules-every-screen-follows) and are not repeated per screen.
+Component contracts are owned by [conventions/design-system.md § 8](../../conventions/design-system.md#8-shared-component-library-libsui) — in particular the prop surfaces of [`PriceDisplay` § 8.3](../../conventions/design-system.md#83-pricedisplay) and `CurrencyInput` § 8.4, which every `<aliceut-price-display>` and `<aliceut-currency-input>` below binds against and which this document does not restate. Phase-1 binding sources per input, including the rule that a seller price input's `currencyCode` is the parent offer's `nativeCurrencyCode`, are in [shared-components.md § 4.3](shared-components.md#43-pricedisplay) and [§ 4.4](shared-components.md#44-currencyinput). The cross-cutting rules every screen below follows — standalone + OnPush, `ViewState<T>`, reactive forms (no `[(ngModel)]`, including inline table edits), cursor pagination, accessibility — are in [shared-components.md § 7](shared-components.md#7-rules-every-screen-follows) and are not repeated per screen. The auth screens follow [§ 8](shared-components.md#8-auth-screen-pattern) and the notifications page follows [§ 9](shared-components.md#9-notifications-page-pattern).
+
+**Ids on this portal.** A row under `/seller/orders` is one `orders.fulfillment` — one seller's group within a buyer's checkout — so its id is `:fulfillmentId` and its display id is `FUL-` plus nine zero-padded digits. The buyer's `ORD-` id travels with it as `orderDisplayId` and is shown where the seller may need to quote what the buyer sees, but the record the screen is about is the fulfillment. A row under `/seller/listings` is an **offer**, so its id is `:offerId` ([seller.md § Endpoint Index](../technical-design/api-design/seller.md#endpoint-index), [navigation-routing.md § 3](navigation-routing.md#seller-app-route-tree)).
 
 ---
 
@@ -19,18 +22,22 @@ Component contracts are owned by [conventions/design-system.md § 8](../../conve
 - [Screen 5 — Product Listings](#screen-5-product-listings)
 - [Screen 6 — Create / Edit Product](#screen-6-create-edit-product)
 - [Screen 7 — Order Queue](#screen-7-order-queue)
-- [Screen 8 — Order Detail](#screen-8-order-detail)
+- [Screen 8 — Fulfillment Detail](#screen-8-order-detail)
 - [Screen 9 — Inventory](#screen-9-inventory)
-- [Screen 10 — Notification Panel](#screen-10-notification-panel)
-- [Screen 11 — Offer Pricing](#screen-11-offer-pricing)
-- [Screen 12 — Seller Forgot Password](#screen-12-seller-forgot-password)
-- [Screen 13 — Seller Reset Password](#screen-13-seller-reset-password)
-- [Screen 14 — Seller Notifications](#screen-14-seller-notifications)
+- [Screen 10 — Offer Pricing](#screen-10-offer-pricing)
+- [Screen 11 — Seller Forgot Password](#screen-11-seller-forgot-password)
+- [Screen 12 — Seller Reset Password](#screen-12-seller-reset-password)
+- [Screen 13 — Seller Notifications](#screen-13-seller-notifications)
+- [Appendix — Seller Notification Types](#appendix-seller-notifications)
+
+**Not a screen on this portal.** The notification bell in the toolbar is the shared `NotificationBellComponent`, whose contract is [design-system.md § 8.7](../../conventions/design-system.md#8-shared-component-library-libsui) and whose Phase-1 bindings are [shared-components.md § 4.1](shared-components.md#41-notificationbell); the types it renders are the appendix table below. `/seller/profile` is a route this portal serves — it is the redirect target of `sellerNotSuspendedGuard` and the one screen that states a suspension's reason and end date — and it has **no wireframe here yet**.
 
 <a id="shell-layout"></a>
 ## Shell Layout
 
 ```
+a.skip-link href="#main-content" — Skip to main content     ← first focusable element in the DOM
+
 mat-sidenav-container [fullscreen]
   mat-sidenav #drawer [mode]="isDesktop ? 'side' : 'over'" [opened]="isDesktop" [fixedInViewport]
     div.brand [padding: 16px 24px; display: flex; align-items: center; gap: 12px]
@@ -62,16 +69,18 @@ mat-sidenav-container [fullscreen]
         mat-icon — menu
       span — AliceUT Seller Hub
       span.spacer [flex: 1]
-      <aliceut-notification-bell [notifications]="notifications" [unreadCount]="unreadCount">
+      <aliceut-notification-bell [notifications]="notifications" [unreadCount]="unreadCount"
+        (markAsRead)="markRead($event)" (markAllRead)="markAllRead()">
       button mat-button [matMenuTriggerFor]="profileMenu"
         mat-icon — account_circle
         span — {{ sellerProfile.businessName || sellerName }}
       mat-menu #profileMenu
+        button mat-menu-item routerLink="/seller/profile" — store icon — Business Profile
         button mat-menu-item routerLink="/seller/kyc" *ngIf="!isApproved" — assignment icon — KYC Application
         mat-divider
         button mat-menu-item (click)="logout()" — logout icon — Sign Out
 
-    main.seller-content [padding: 24px]
+    main#main-content.seller-content [padding: 24px]
       <!-- Suspension banner — shown when seller is SUSPENDED -->
       mat-card.error-banner *ngIf="isSuspended" [margin-bottom: 16px]
         mat-icon color="warn" — block
@@ -95,7 +104,9 @@ mat-sidenav-container [fullscreen]
       router-outlet
 ```
 
-**Sidebar navigation note:** During suspension, all nav items except "Orders" are visible but clicking them shows "Your account is suspended" instead of the normal view. [DESIGN DECISION: Show nav items greyed out rather than hidden to maintain orientation and avoid confusion.]
+**Shell data.** `notifications` is the first page of `GET /notifications?limit=20`, `unreadCount` is `GET /notifications/unread-count`, and `pendingOrderCount` on the Orders nav item is the pending count from `GET /seller/dashboard/summary` — which is `SELLER_ACTIVE`-only, so the badge is absent for an unapproved or suspended seller. The bell polls on page focus and on a 60 s interval; there is no WebSocket in V1.
+
+**Sidebar navigation during suspension.** Nav items stay **visible and greyed out** rather than being hidden, so the seller keeps their orientation. Clicking a guarded item does not render its screen: `sellerNotSuspendedGuard` redirects to `/seller/profile`, the one screen that states the suspension reason and end date, and the shell's suspension banner stays visible from every surviving screen. Orders, KYC, profile, dashboard and notifications survive a suspension; listings and inventory do not ([navigation-routing.md § 5](navigation-routing.md#auth-guard-matrix)).
 
 ---
 
@@ -105,45 +116,27 @@ mat-sidenav-container [fullscreen]
 **Route:** `/seller/login`  
 **Auth:** None (redirect to dashboard if authenticated)
 
+The card shell, the two fields with their visibility toggle, the error banner and the submit button are [shared-components.md § 8.1–8.3](shared-components.md#8-auth-screen-pattern). Portal mark `mat-icon storefront` at 48px, title "Seller Portal Sign In", subtitle "Manage your listings and orders". What this screen adds:
+
 ```
-div.auth-page [display: flex; justify-content: center; padding: 48px 16px]
-  mat-card [width: 100%; max-width: 440px; padding: 32px]
-    mat-card-header [text-align: center; margin-bottom: 24px]
-      mat-icon [font-size: 48px; color: primary] — storefront
-      mat-card-title — Seller Portal Sign In
-      mat-card-subtitle — Manage your listings and orders
-    mat-card-content
-      form [formGroup]="loginForm" (ngSubmit)="login()"
-        mat-form-field [appearance=outline; fullWidth; margin-bottom: 16px]
-          mat-label — Email address
-          input matInput type="email" formControlName="email" autocomplete="email"
-          mat-error — {{ emailError }}
-        mat-form-field [appearance=outline; fullWidth]
-          mat-label — Password
-          input matInput [type]="showPw ? 'text' : 'password'" formControlName="password"
-          button mat-icon-button matSuffix type="button" (click)="showPw = !showPw"
-            mat-icon — {{ showPw ? 'visibility_off' : 'visibility' }}
-        div [text-align: right; margin: 4px 0 16px]
-          a mat-button routerLink="/seller/forgot-password" — Forgot password?
+mat-card-content
+  [shared form: email + password + error banner + "Sign In" submit]
 
-        mat-card.error-banner *ngIf="loginError" [margin-bottom: 16px]
-          mat-icon — error_outline
-          span — {{ loginError }}
+  div [text-align: right; margin: 4px 0 16px]
+    a mat-button routerLink="/seller/forgot-password" — Forgot password?
 
-        button mat-flat-button color="primary" [fullWidth] type="submit" [disabled]="loginForm.invalid || isLoading"
-          mat-spinner *ngIf="isLoading" [diameter]="20"
-          span *ngIf="!isLoading" — Sign In
+  p mat-body-2 [text-align: center; margin-top: 24px]
+    span — New seller?
+    a mat-button color="primary" routerLink="/seller/register" — Create seller account
 
-      p mat-body-2 [text-align: center; margin-top: 24px]
-        span — New seller?
-        a mat-button color="primary" routerLink="/seller/register" — Create seller account
-
-      p mat-caption [text-align: center; margin-top: 8px]
-        span — Looking for the buyer store?
-        a mat-button routerLink="http://localhost:4200" — Visit AliceUT
+  p mat-caption [text-align: center; margin-top: 8px]
+    span — Looking for the buyer store?
+    a mat-button [href]="buyerAppUrl" — Visit AliceUT     ← absolute cross-origin link, so href and not routerLink
 ```
 
-**Note:** No Google/Facebook OAuth buttons on seller login per US-B-00.
+`buyerAppUrl` is the buyer portal's origin from the app's environment configuration; the buyer store is a separate application on a separate origin, so it is never reachable through the router.
+
+**No Google/Facebook OAuth buttons.** `POST /auth/login` here carries `portal: "SELLER"`, and OAuth is buyer-only (US-B-00, [shared-components.md § 8.5](shared-components.md#8-auth-screen-pattern)).
 
 ---
 
@@ -152,38 +145,35 @@ div.auth-page [display: flex; justify-content: center; padding: 48px 16px]
 
 **Route:** `/seller/register`
 
+The card shell (at the 480px width), the fields, the error banner and the submit button are [shared-components.md § 8.1–8.4](shared-components.md#8-auth-screen-pattern) — including the password hint and the policy behind it. Title "Create a Seller Account", subtitle "Sell on AliceUT. Reach global buyers." What this screen adds:
+
 ```
-div.auth-page [display: flex; justify-content: center; padding: 48px 16px]
-  mat-card [width: 100%; max-width: 480px; padding: 32px]
-    mat-card-title — Create a Seller Account
-    mat-card-subtitle — Sell on AliceUT. Reach global buyers.
-    mat-card-content
-      form [formGroup]="registerForm" (ngSubmit)="register()"
-        h4 mat-h6 [margin-bottom: 16px] — Step 1: Account Details
-        mat-form-field [appearance=outline; fullWidth] — mat-label "Full Name" — formControlName="fullName"
-        mat-form-field [appearance=outline; fullWidth] — mat-label "Email address" — input type="email" formControlName="email"
-          mat-hint — If this email already has a buyer account, you'll be asked to sign in to link roles.
-        mat-form-field [appearance=outline; fullWidth] — mat-label "Password"
-          input [type]="showPw ? 'text' : 'password'" formControlName="password"
-          mat-hint — At least 8 characters, 1 letter, 1 number
-        mat-form-field [appearance=outline; fullWidth] — mat-label "Confirm Password" — formControlName="confirmPassword"
+mat-card-content
+  form [formGroup]="registerForm" (ngSubmit)="register()"
+    h4 mat-h6 [margin-bottom: 16px] — Step 1: Account Details
+    mat-form-field [appearance=outline; fullWidth] — mat-label "Full Name" — formControlName="fullName" autocomplete="name"
+    [shared email field]
+      mat-hint — If this email already has a buyer account, you'll be asked to sign in to link roles.
+    [shared password field]  +  [shared confirm-password field]
 
-        <!-- Existing account detected state -->
-        mat-card.info-banner *ngIf="existingAccountDetected" [margin-bottom: 16px]
-          mat-icon — info_outline
-          span — This email already has an account. Sign in with your password to add the Seller role.
-          mat-form-field [appearance=outline; fullWidth; margin-top: 12px] — mat-label "Your Password" — input type="password" formControlName="existingPassword"
+    <!-- Existing account detected state -->
+    mat-card.info-banner *ngIf="existingAccountDetected" [margin-bottom: 16px]
+      mat-icon — info_outline
+      span — This email already has an account. Sign in with your password to add the Seller role.
+      mat-form-field [appearance=outline; fullWidth; margin-top: 12px]
+        mat-label — Your Password
+        input matInput type="password" formControlName="existingPassword" autocomplete="current-password"
 
-        button mat-flat-button color="primary" [fullWidth] type="submit" [disabled]="registerForm.invalid || isLoading"
-          mat-spinner *ngIf="isLoading" [diameter]="20"
-          span *ngIf="!isLoading" — Create Account & Continue to KYC
+    [shared submit — label "Create Account & Continue to KYC"]
 
-      p mat-body-2 [text-align: center; margin-top: 16px]
-        span — Already a seller?
-        a mat-button routerLink="/seller/login" — Sign in
+  p mat-body-2 [text-align: center; margin-top: 16px]
+    span — Already a seller?
+    a mat-button routerLink="/seller/login" — Sign in
 ```
 
-After successful registration, redirect to `/seller/kyc` to complete Step 2 (KYC application form).
+`POST /seller/register` is **public** — it takes no token, because a prospective seller may hold no AliceUT account at all. A new email creates the account; an email that already holds one proves ownership with `existingPassword` in the body, not with a buyer JWT, and the SELLER role is linked to it. An **OAuth-only** buyer account has no local password to prove: the response is `409 PASSWORD_REQUIRED_FOR_LINK`, rendered as an inline banner pointing at the buyer portal's set-password flow (US-B-15), and the form stays where it is.
+
+On success the response opens a SELLER session and the client redirects to `/seller/kyc` for step 2.
 
 ---
 
@@ -209,9 +199,8 @@ ng-container *ngIf="kycStatus === 'APPROVED'"
   <aliceut-empty-state
     icon="verified_user"
     title="Your account is already verified"
-    message="Your KYC application has been approved. You can create listings from your dashboard."
-    [actionLabel]="'Go to Dashboard'"
-    actionRoute="/seller/dashboard">
+    message="Your KYC application has been approved. You can create listings from your dashboard.">
+    <button mat-flat-button color="primary" routerLink="/seller/dashboard">Go to Dashboard</button>
   </aliceut-empty-state>
 
 mat-stepper [linear] [orientation]="isDesktop ? 'horizontal' : 'vertical'"
@@ -254,19 +243,19 @@ mat-stepper [linear] [orientation]="isDesktop ? 'horizontal' : 'vertical'"
 
     div.doc-section [margin-bottom: 24px]
       h4 mat-h6 — Business License / Registration Certificate *
-      <aliceut-file-upload [accept]="'application/pdf,image/*'" [maxSizeMb]="10" [multiple]="false"
+      <aliceut-file-upload [accept]="'application/pdf,image/jpeg,image/png'" [maxSizeMb]="10" [multiple]="false" [maxFiles]="1"
         (filesChange)="businessLicenseFile = $event[0]">
       mat-error *ngIf="docsSubmitted && !businessLicenseFile" — Business license document is required.
 
     div.doc-section [margin-bottom: 24px]
       h4 mat-h6 — Government-Issued ID (Passport / National ID) *
-      <aliceut-file-upload [accept]="'application/pdf,image/*'" [maxSizeMb]="10" [multiple]="false"
+      <aliceut-file-upload [accept]="'application/pdf,image/jpeg,image/png'" [maxSizeMb]="10" [multiple]="false" [maxFiles]="1"
         (filesChange)="idDocFile = $event[0]">
       mat-error *ngIf="docsSubmitted && !idDocFile" — Identity document is required.
 
     div.doc-section [margin-bottom: 24px]
       h4 mat-h6 — Bank Statement or Proof of Address *
-      <aliceut-file-upload [accept]="'application/pdf,image/*'" [maxSizeMb]="10" [multiple]="false"
+      <aliceut-file-upload [accept]="'application/pdf,image/jpeg,image/png'" [maxSizeMb]="10" [multiple]="false" [maxFiles]="1"
         (filesChange)="bankStatementFile = $event[0]">
       mat-error *ngIf="docsSubmitted && !bankStatementFile" — Bank statement / proof of address is required.
 
@@ -350,7 +339,7 @@ mat-card.success-banner *ngIf="showFirstApprovalBanner" [margin-bottom: 24px]
 <!-- Stats cards row -->
 div.stats-grid [display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px]
 
-  mat-card.stat-card [cursor: pointer] (click)="navigate('/seller/orders?tab=pending')"
+  mat-card.stat-card [cursor: pointer] (click)="navigate('/seller/orders', { status: 'PENDING' })"
     mat-card-content
       div [display: flex; justify-content: space-between; align-items: flex-start]
         div
@@ -360,7 +349,7 @@ div.stats-grid [display: grid; grid-template-columns: repeat(auto-fill, minmax(2
     mat-card-footer [padding: 8px 16px; background: primary-50]
       span mat-caption — View all pending →
 
-  mat-card.stat-card (click)="navigate('/seller/inventory?filter=lowstock')"
+  mat-card.stat-card (click)="navigate('/seller/inventory')"     ← see the low-stock note below
     mat-card-content
       div [display: flex; justify-content: space-between; align-items: flex-start]
         div
@@ -381,7 +370,7 @@ div.stats-grid [display: grid; grid-template-columns: repeat(auto-fill, minmax(2
     mat-card-footer [padding: 8px 16px; background: primary-50]
       span mat-caption — Manage listings →
 
-  mat-card.stat-card (click)="navigate('/seller/listings?status=FLAGGED')"
+  mat-card.stat-card (click)="navigate('/seller/listings', { status: 'FLAGGED' })"
     mat-card-content
       div [display: flex; justify-content: space-between]
         div
@@ -397,7 +386,7 @@ mat-card.warning-banner *ngIf="lowStockAlerts.length > 0" [margin-bottom: 24px]
   mat-icon color="warn" — warning_amber
   h4 mat-h6 — Low Stock Alert
   mat-chip-listbox aria-label="Low stock SKUs" [margin-top: 8px]
-    mat-chip *ngFor="let sku of lowStockAlerts" [removable]="false" color="warn"
+    mat-chip *ngFor="let sku of lowStockAlerts; trackBy: trackBySkuId" [removable]="false" color="warn"
       {{ sku.skuName }}: {{ sku.available }} left
 
 <!-- Quick actions -->
@@ -416,15 +405,20 @@ div.quick-actions [display: flex; gap: 12px; margin-bottom: 24px; flex-wrap: wra
 div.recent-orders *ngIf="recentPendingOrders.length > 0"
   h2 mat-h5 [margin-bottom: 16px] — Recent Pending Orders
   mat-list
-    mat-list-item *ngFor="let order of recentPendingOrders"
+    mat-list-item *ngFor="let f of recentPendingFulfillments; trackBy: trackByFulfillmentId"
       mat-icon matListItemIcon — receipt_long
-      span mat-list-item-title — {{ order.displayId }}
-      span mat-list-item-line — {{ order.itemSummary }} · {{ order.placedAt | timeAgo }}
-      <aliceut-status-badge matListItemMeta [status]="order.status" [statusType]="'fulfillment'">
-      button mat-icon-button matListItemMeta [routerLink]="['/seller/orders', order.id]" — chevron_right
+      span mat-list-item-title — {{ f.displayId }}            ← FUL-000003871
+      span mat-list-item-line — {{ f.itemCount }} item(s) · {{ f.placedAt | timeAgo }}
+      <aliceut-status-badge matListItemMeta [status]="f.status" [statusType]="'fulfillment'">
+      button mat-icon-button matListItemMeta [routerLink]="['/seller/orders', f.id]"
+             aria-label="View fulfillment" — chevron_right
 ```
 
-**First-approval banner note:** `showFirstApprovalBanner` is true when `kycStatus === 'APPROVED'` AND `localStorage.getItem('firstApprovalBannerDismissed') !== 'true'`. Dismissed state persisted in `localStorage`. Banner is not shown once dismissed — `dismissFirstApprovalBanner()` sets `localStorage.setItem('firstApprovalBannerDismissed', 'true')`.
+**Stats and the recent list come from `GET /seller/dashboard/summary`** — the four US-S-00 counts plus the recent pending fulfillments. The guard is `SELLER_ACTIVE`, which is why the dashboard route carries no approval or suspension guard of its own and the component decides whether to make the call at all ([navigation-routing.md § 3](navigation-routing.md#seller-app-route-tree)).
+
+**Low-stock card.** It navigates to `/seller/inventory` with no filter: `GET /seller/offers` accepts `status` and `caseStatus` and no low-stock parameter, so a `?filter=lowstock` query would be a URL the API cannot honour. The inventory screen's own low-stock banner and its per-row warning are the affordance.
+
+**First-approval banner.** `showFirstApprovalBanner` is true when `kycStatus === 'APPROVED'` and `localStorage.getItem('firstApprovalBannerDismissed') !== 'true'`; `dismissFirstApprovalBanner()` writes that key. This is a per-viewer convenience, which is the one thing browser storage is used for on this portal — no domain state lives there.
 
 ---
 
@@ -456,13 +450,16 @@ div.page-header [display: flex; justify-content: space-between; align-items: cen
         mat-option value="REMOVED" — Removed
 
   ng-container matColumnDef="select"
-    th mat-header-cell — <mat-checkbox (change)="toggleAllRows($event)">
-    td mat-cell — <mat-checkbox [(ngModel)]="selection.isSelected(row)" (change)="toggleRow(row)">
+    th mat-header-cell
+      mat-checkbox [formControl]="selectAllControl" aria-label="Select all listings on this page"
+    td mat-cell
+      mat-checkbox [checked]="selection.isSelected(row)" (change)="selection.toggle(row)"
+        [aria-label]="'Select ' + row.title"
 
   ng-container matColumnDef="image"
     th mat-header-cell — Image
     td mat-cell
-      img [src]="row.primaryImageUrl" [alt]="" [width="48px" height="48px" border-radius="4px" object-fit="cover"]
+      img [src]="imageUrl(row.primaryImage)" alt="" [width="48px" height="48px" border-radius="4px" object-fit="cover"]
 
   ng-container matColumnDef="title" [sticky]
     th mat-header-cell mat-sort-header — Title
@@ -484,7 +481,7 @@ div.page-header [display: flex; justify-content: space-between; align-items: cen
   ng-container matColumnDef="price"
     th mat-header-cell — Prices
     td mat-cell
-      div *ngFor="let price of row.listPrices"
+      div *ngFor="let price of row.prices; trackBy: trackByPriceType"
         <aliceut-price-display [amount]="price.amount" [currency]="row.nativeCurrencyCode" [priceType]="price.priceType">
 
   ng-container matColumnDef="inventory"
@@ -501,10 +498,10 @@ div.page-header [display: flex; justify-content: space-between; align-items: cen
         mat-icon — more_vert
   mat-menu #rowMenu
     ng-template matMenuContent let-row="row"
-      button mat-menu-item [routerLink]="['/seller/listings', row.id, 'edit']" [disabled]="row.status === 'REMOVED'"
+      button mat-menu-item [routerLink]="['/seller/listings', row.offerId, 'edit']" [disabled]="row.status === 'REMOVED'"
         mat-icon — edit
         span — Edit Listing
-      button mat-menu-item [routerLink]="['/seller/listings', row.id, 'pricing']"
+      button mat-menu-item [routerLink]="['/seller/listings', row.offerId, 'pricing']"
         mat-icon — currency_exchange
         span — Manage Pricing
       mat-divider
@@ -516,12 +513,16 @@ div.page-header [display: flex; justify-content: space-between; align-items: cen
 </aliceut-data-table>
 ```
 
+### Data source
+
+`GET /seller/offers?status=&caseStatus=&limit=&cursor=` — one row is one **offer**, and the status filter above is `offer_status` (`ACTIVE | INACTIVE | REMOVED | FLAGGED`; there is no `DRAFT`, because a listing goes live on submit). The same endpoint also accepts `caseStatus` (`OPEN | RESOLVED | DISMISSED`) for filtering on the offer's own moderation cases. Paging is the `DataTable` Previous/Next footer over the cursor stack ([shared-components.md § 4.6](shared-components.md#46-datatable)).
+
 ---
 
 <a id="screen-6-create-edit-product"></a>
 ## Screen 6 — Create / Edit Product
 
-**Route:** `/seller/listings/new` and `/seller/listings/:id/edit`  
+**Route:** `/seller/listings/new` and `/seller/listings/:offerId/edit`  
 **Auth:** SELLER + APPROVED (and not suspended)
 
 ### Layout
@@ -567,7 +568,7 @@ mat-card [margin-bottom: 24px; padding: 24px]
     (filesChange)="onImagesChange($event)">
   <!-- Uploaded image thumbnails with drag-to-reorder -->
   div.image-preview-list [display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px]
-    div.image-thumb *ngFor="let img of uploadedImages; let i = index"
+    div.image-thumb *ngFor="let img of uploadedImages; let i = index; trackBy: trackByStorageKey"
       [draggable]="true" (dragstart)="onDragStart(i)" (drop)="onDrop(i)" (dragover)="$event.preventDefault()"
       [position: relative; cursor: grab]
       img [src]="img.previewUrl || img.url" [width="80px" height="80px" border-radius="4px" object-fit="cover"]
@@ -582,7 +583,7 @@ mat-card [margin-bottom: 24px; padding: 24px]
   h2 mat-h5 [margin-bottom: 8px] — Variants (Optional)
   p mat-body-2 color="secondary" [margin-bottom: 16px] — Add variants if your product comes in different sizes, colors, etc.
   mat-accordion
-    mat-expansion-panel *ngFor="let group of variantGroups; let gi = index" [formArrayName]="'variantGroups'"
+    mat-expansion-panel *ngFor="let group of variantGroups; let gi = index; trackBy: trackByIndex" [formArrayName]="'variantGroups'"
       mat-expansion-panel-header
         mat-panel-title — {{ group.controls.name.value || 'Variant Group ' + (gi+1) }}
         mat-panel-description — {{ group.controls.options.value.length }} option(s)
@@ -652,23 +653,26 @@ mat-card [margin-bottom: 24px; padding: 24px]
 mat-card [margin-bottom: 24px; padding: 24px]
   h2 mat-h5 [margin-bottom: 16px] — Inventory
   p mat-body-2 color="secondary" [margin-bottom: 16px] — Set initial stock per SKU. SKUs are auto-generated from variant combinations.
-  mat-table [dataSource]="skuRows"
+  <!-- One FormGroup per SKU inside a 'skus' FormArray — reactive forms only, no ngModel -->
+  mat-table [dataSource]="skuRows" [formArrayName]="'skus'"
     ng-container matColumnDef="sku"
       th mat-header-cell — SKU
-      td mat-cell — {{ row.sku }}
+      td mat-cell — {{ row.value.sku }}
     ng-container matColumnDef="variantLabel"
       th mat-header-cell — Variant
-      td mat-cell — {{ row.label }}
+      td mat-cell — {{ row.value.label }}
     ng-container matColumnDef="onHand"
       th mat-header-cell — On Hand
-      td mat-cell
+      td mat-cell [formGroupName]="rowIndex"
         mat-form-field [appearance=outline; subscriptSizing=dynamic; width: 100px]
-          input matInput type="number" min="0" [(ngModel)]="row.onHand"
+          mat-label — On hand
+          input matInput type="number" min="0" formControlName="onHand"
     ng-container matColumnDef="threshold"
       th mat-header-cell — Low-Stock Alert At
-      td mat-cell
+      td mat-cell [formGroupName]="rowIndex"
         mat-form-field [appearance=outline; subscriptSizing=dynamic; width: 100px]
-          input matInput type="number" min="0" [(ngModel)]="row.lowStockThreshold"
+          mat-label — Alert at
+          input matInput type="number" min="0" formControlName="lowStockThreshold"
           mat-hint — Default: 5
     [rowDef]
 
@@ -681,13 +685,23 @@ div.form-actions [display: flex; justify-content: flex-end; gap: 12px; padding: 
   mat-hint *ngIf="hasUploadsPending" — Please wait — images are uploading…
 ```
 
-### Keyword / Category Guard
+### Prohibited-content outcomes on save
 
-If title/description/category triggers the prohibited content check on save, the submit is blocked and a `mat-snack-bar` error appears: "Your listing was flagged for review — it will not be visible until an admin clears it." The listing is saved as FLAGGED status.
+The listing-time scan reads the chosen taxonomy node plus the title and description, and produces **two distinct outcomes**. The tier comes from the **stored `enforcement` of the blocklist term that matched** — `BLOCK` or `FLAG` — not from how precisely the text matched; `match_type` (`SUBSTRING` / `WORD` / `REGEX`) is an independent column and every matching mode exists on both tiers. The strictest matched tier wins (FR-P-06c, [BRD § Amendments](../requirements/BRD.md#amendments); [diagram 04](../diagrams/04-admin-moderation.md)).
 
-### API Flow (Create New Listing)
+| Outcome | Trigger | What the seller sees |
+|---|---|---|
+| **Hard tier — rejected at submit** | A prohibited taxonomy node, or a matched term whose `enforcement` is `BLOCK` | `422`. **No listing is created and no edit is persisted.** The form stays where it is with its values intact, and a page-level `mat-card.error-banner` above the actions names what was rejected: "This listing cannot be published. Weapons, drugs and adult content are not permitted." A prohibited category additionally sets the `prohibited` error on the category field. Nothing appears in My Listings. |
+| **Soft tier — created and held** | A matched term whose `enforcement` is `FLAG` | `201` / `200`. The listing **is** created or saved, with `offer_status = FLAGGED`, hidden from search, and an `admin.moderation_case` row is opened — this is the moderation queue's only input (FR-A-03). A `MatSnackBar` says "Your listing was saved and flagged for review — it will not be visible to buyers until an admin clears it.", and the row shows the `FLAGGED` badge with its flag reason. |
 
-**API flow for create (new listing):** (1) `POST /seller/products` with product fields (title, description, category, images, variants) → receives `productId`. (2) `POST /seller/offers` with `productId` + pricing. If step 2 fails, show an error: "Your product was saved but pricing could not be set — please try again from the Listings page." The `productId` from step 1 is retained so the user can retry offer creation without duplicating the product.
+The two must not be collapsed into one message: a `422` leaves the seller with nothing to find in My Listings, and telling them it was "flagged for review" would send them looking for a row that does not exist.
+
+### API flow — create a new listing
+
+1. `POST /seller/products` with the product fields (title, description, category, images, variants) → returns `productId`.
+2. `POST /seller/offers` with that `productId` plus `nativeCurrencyCode` and the price rows.
+
+The hard tier can reject either call. If step 2 fails the page shows "Your product was saved but pricing could not be set — please try again from the Listings page." and retains the `productId` from step 1, so a retry does not duplicate the product. Editing an existing listing is `PATCH /seller/products/:productId` against the product the loaded offer points at; the route carries the offer id only and the component resolves the product id from it ([navigation-routing.md § 3](navigation-routing.md#seller-app-route-tree)).
 
 ---
 
@@ -726,77 +740,95 @@ div [display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; align-items
     mat-datepicker-toggle matSuffix [for]="toDate"
     mat-datepicker #toDate
 
-<aliceut-data-table [dataSource]="orders" [loading]="loading" [emptyMessage]="tabEmptyMessage">
-  ng-container matColumnDef="orderId"
-    th mat-header-cell — Order ID
-    td mat-cell — {{ row.displayId }}
+<aliceut-data-table [dataSource]="fulfillments" [loading]="loading" [emptyMessage]="tabEmptyMessage"
+  [hasMore]="hasMore" [hasPrevious]="hasPrevious"
+  (nextPage)="next()" (previousPage)="previous()" (sortChange)="onSort($event)">
+  ng-container matColumnDef="displayId"
+    th mat-header-cell scope="col" — Fulfillment
+    td mat-cell
+      div — {{ row.displayId }}                      ← FUL-000003871
+      p mat-caption color="secondary" — Order {{ row.orderDisplayId }}
   ng-container matColumnDef="placedAt"
-    th mat-header-cell mat-sort-header — Date
+    th mat-header-cell scope="col" mat-sort-header — Date
     td mat-cell — {{ row.placedAt | date:'mediumDate' }}
   ng-container matColumnDef="buyer"
-    th mat-header-cell — Buyer
-    td mat-cell — {{ row.maskedBuyerName }}   ← e.g. "J. Doe"
-  ng-container matColumnDef="items"
-    th mat-header-cell — Items
-    td mat-cell — {{ row.itemSummary }}   ← "2 items"
+    th mat-header-cell scope="col" — Buyer
+    td mat-cell — {{ row.buyerNameMasked }}   ← e.g. "J. Doe"
+  ng-container matColumnDef="itemCount"
+    th mat-header-cell scope="col" — Items
+    td mat-cell — {{ row.itemCount }}
   ng-container matColumnDef="total"
-    th mat-header-cell — Total
+    th mat-header-cell scope="col" — Total
     td mat-cell
-      <aliceut-price-display [amount]="row.total" [currency]="row.currency" [priceType]="'LIST'">
+      <aliceut-price-display [amount]="row.totalAmount" [currency]="row.currencyCode" [priceType]="'LIST'">
+      p mat-caption color="secondary" *ngIf="row.currencyCode !== row.buyerDisplayCurrency"
+        — Buyer paid {{ row.buyerCurrencyTotal | currencyDisplay:row.buyerDisplayCurrency }}
   ng-container matColumnDef="status"
-    th mat-header-cell — Status
+    th mat-header-cell scope="col" — Status
     td mat-cell
       <aliceut-status-badge [status]="row.status" [statusType]="'fulfillment'">
-      mat-chip *ngIf="row.listingRemoved" [color=warn; font-size: 10px] — Listing removed
+      mat-chip *ngIf="row.hasRemovedListing" [color=warn; font-size: 10px] — Listing removed
   ng-container matColumnDef="actions"
-    th mat-header-cell — —
+    th mat-header-cell scope="col" — <span class="cdk-visually-hidden">Actions</span>
     td mat-cell
       button mat-flat-button color="primary" [routerLink]="['/seller/orders', row.id]" — View
       button mat-flat-button color="accent" (click)="markShipped(row)" *ngIf="row.status === 'PENDING'" — Mark Shipped
 ```
 
-**Empty states per tab (from US-S-05):**
+### Data source
+
+`GET /seller/orders?status=&placedFrom=&placedTo=&q=&limit=&cursor=`, default sort `placed_at DESC`. Every column above is a field of the list row: `id`, `displayId`, `orderDisplayId`, `status`, `placedAt`, `buyerNameMasked`, `itemCount`, `hasRemovedListing`, `totalAmount`, `currencyCode`, `buyerCurrencyTotal`, `buyerDisplayCurrency`.
+
+The active tab **is** the `status` filter, encoded as `?status=PENDING` so a refresh restores it; there is no separate `tab` parameter duplicating the same fact ([navigation-routing.md § 6.2](navigation-routing.md#navigation-patterns)). Switching tabs discards the cursor stack. The search box maps to `q`, a display-id search, and the two date pickers to `placedFrom` / `placedTo`.
+
+The seller's own amounts are the captured native figures (`totalAmount` in `currencyCode`); `buyerCurrencyTotal` is shown as a secondary caption only where the two differ. Neither is re-derived and neither is summed in the client.
+
+**Empty states per tab (US-S-05):**
 - Pending → "No pending orders — new orders appear here."
-- Shipped/Delivered/Refunded/Cancelled → "No orders in this status."
+- Shipped / Delivered / Refunded / Cancelled → "No orders in this status."
 
 ---
 
 <a id="screen-8-order-detail"></a>
-## Screen 8 — Order Detail
+## Screen 8 — Fulfillment Detail
 
-**Route:** `/seller/orders/:id`  
-**Auth:** SELLER (owns this fulfillment)
+**Route:** `/seller/orders/:fulfillmentId`  
+**Auth:** SELLER (owns this fulfillment; suspended sellers keep the read and the ship action)
+
+This screen is one **fulfillment** — `f` below. Its heading carries the `FUL-` id, with the buyer's `ORD-` id beside it so the seller can quote what the buyer sees.
 
 ### Layout
 
 ```
 div.page-header [display: flex; align-items: center; gap: 16px; margin-bottom: 24px]
-  button mat-icon-button routerLink="/seller/orders" — arrow_back
-  h1 mat-h4 — Order {{ order.displayId }}
-  <aliceut-status-badge [status]="order.status" [statusType]="'fulfillment'">
+  button mat-icon-button routerLink="/seller/orders" aria-label="Back to orders" — arrow_back
+  h1 mat-h4 — Fulfillment {{ f.displayId }}
+  span mat-body-2 color="secondary" — Order {{ f.orderDisplayId }}
+  <aliceut-status-badge [status]="f.status" [statusType]="'fulfillment'">
 
 div.detail-grid [display: grid; grid-template-columns: 1fr 340px; gap: 24px]
   <!-- Left: Items -->
   div
     mat-card [padding: 24px; margin-bottom: 16px]
-      h2 mat-h6 [margin-bottom: 16px] — Order Items
+      h2 mat-h6 [margin-bottom: 16px] — Items
       mat-list
-        mat-list-item *ngFor="let item of order.items"
-          img matListItemAvatar [src]="item.imageUrl" [alt]=""
+        mat-list-item *ngFor="let item of f.items; trackBy: trackByOfferId"
+          img matListItemAvatar [src]="imageUrl(item.primaryImage)" alt=""
           span mat-list-item-title — {{ item.productTitle }}
-          span mat-list-item-line — {{ item.variantLabel }} · Qty: {{ item.qty }}
-          span mat-list-item-line — Unit price (snapshotted):
-          <aliceut-price-display mat-list-item-line [amount]="item.unitPrice" [currency]="item.currency" [priceType]="'LIST'">
-          <aliceut-price-display matListItemMeta [amount]="item.lineTotal" [currency]="order.currency" [priceType]="'LIST'">
+          span mat-list-item-line — {{ item.variantLabel }} · Qty: {{ item.quantity }}
+          span mat-list-item-line — Unit price (snapshotted at checkout):
+          <aliceut-price-display mat-list-item-line [amount]="item.unitPrice" [currency]="f.currencyCode" [priceType]="'LIST'">
+          <aliceut-price-display matListItemMeta [amount]="item.lineTotal" [currency]="f.currencyCode" [priceType]="'LIST'">
       mat-divider [margin: 12px 0]
       div [display: flex; justify-content: flex-end]
         span mat-h6 — Total:
-        <aliceut-price-display [amount]="order.total" [currency]="order.currency" [priceType]="'LIST'">
+        <aliceut-price-display [amount]="f.totalAmount" [currency]="f.currencyCode" [priceType]="'LIST'">
 
-    mat-card [padding: 24px] *ngIf="order.trackingNumber"
+    mat-card [padding: 24px] *ngIf="f.trackingNumber"
       h2 mat-h6 — Tracking
-      p mat-body-2 — Tracking number: <strong>{{ order.trackingNumber }}</strong>
-      p mat-body-2 — Estimated delivery: {{ order.eta | date:'mediumDate' }}
+      p mat-body-2 — Tracking number: <strong>{{ f.trackingNumber }}</strong>
+      p mat-body-2 — Estimated delivery: {{ f.estimatedDeliveryAt | date:'mediumDate' }}
+      p mat-caption color="secondary" — Assigned when the fulfillment was created, not at shipment — it does not change when you mark this shipped.
 
   <!-- Right: Buyer Info + Actions -->
   aside
@@ -805,47 +837,55 @@ div.detail-grid [display: grid; grid-template-columns: 1fr 340px; gap: 24px]
       mat-icon [color=secondary; margin-bottom: 8px] — lock
       p mat-caption color="secondary" [margin-bottom: 8px] — Address visible for fulfillment purposes. Access is logged.
       address [font-style: normal; line-height: 1.8]
-        strong — {{ order.shippingAddress.fullName }}
+        strong — {{ f.shippingAddress.fullName }}
         br
-        {{ order.shippingAddress.line1 }}
+        {{ f.shippingAddress.addressLine1 }}
         br
-        {{ order.shippingAddress.line2 }}
-        br *ngIf="order.shippingAddress.line2"
-        {{ order.shippingAddress.city }}, {{ order.shippingAddress.state }} {{ order.shippingAddress.postalCode }}
+        {{ f.shippingAddress.addressLine2 }}
+        br *ngIf="f.shippingAddress.addressLine2"
+        {{ f.shippingAddress.city }}, {{ f.shippingAddress.stateProvince }} {{ f.shippingAddress.postalCode }}
         br
-        {{ order.shippingAddress.country }}
+        {{ countryName(f.shippingAddress.countryCode) }}
+      p mat-caption color="secondary" — This is the address as it was at checkout.
 
     mat-card [padding: 24px]
       h2 mat-h6 [margin-bottom: 16px] — Actions
 
       <!-- Mark Shipped -->
-      div *ngIf="order.status === 'PENDING'" [margin-bottom: 12px]
-        p mat-body-2 [margin-bottom: 8px] — Mark this order as shipped once dispatched.
-        p mat-caption color="secondary" [margin-bottom: 8px] — Tracking number {{ order.trackingNumber }} will be sent to the buyer.
-        button mat-flat-button color="primary" [fullWidth] (click)="markShipped()"
+      div *ngIf="f.status === 'PENDING'" [margin-bottom: 12px]
+        p mat-body-2 [margin-bottom: 8px] — Mark this fulfillment as shipped once dispatched.
+        p mat-caption color="secondary" [margin-bottom: 8px] — Tracking number {{ f.trackingNumber }} will be sent to the buyer.
+        button mat-flat-button color="primary" [fullWidth] (click)="markShipped()" [disabled]="isActing"
           mat-icon — local_shipping
           span — Mark as Shipped
 
       <!-- Issue Refund / Cancel -->
-      div *ngIf="order.status === 'PENDING' || order.status === 'SHIPPED'" [margin-top: 12px]
-        button mat-stroked-button color="warn" [fullWidth] (click)="openRefundDialog()" *ngIf="order.status === 'PENDING' || order.status === 'SHIPPED'"
+      div *ngIf="f.status === 'PENDING' || f.status === 'SHIPPED'" [margin-top: 12px]
+        button mat-stroked-button color="warn" [fullWidth] (click)="openRefundDialog()" [disabled]="isActing || isSuspended"
           mat-icon — currency_exchange
           span — Issue Refund
-        button mat-stroked-button color="warn" [fullWidth; margin-top: 8px] (click)="openCancelDialog()" *ngIf="order.status === 'PENDING'"
+        button mat-stroked-button color="warn" [fullWidth; margin-top: 8px] (click)="openCancelDialog()"
+                *ngIf="f.status === 'PENDING'" [disabled]="isActing || isSuspended"
           mat-icon — cancel
-          span — Cancel Order
+          span — Cancel Fulfillment
 
       <!-- Terminal state messages -->
-      div *ngIf="['DELIVERED','REFUNDED','CANCELLED'].includes(order.status)"
+      div *ngIf="['DELIVERED','REFUNDED','CANCELLED'].includes(f.status)"
         mat-icon [color]="terminalIconColor" — {{ terminalIcon }}
         p mat-body-2 — {{ terminalMessage }}
 ```
 
-**Mark Shipped** triggers `ConfirmDialog` with message: "Confirm shipment. Tracking number {{ order.trackingNumber }} will be shared with the buyer."
+### Actions and their endpoints
 
-**Issue Refund** triggers `ConfirmDialog` with `requireReason=true`: "Are you sure you want to refund this order? This cannot be undone."
+All three confirm through `ConfirmDialog` ([shared-components.md § 4.7](shared-components.md#47-confirmdialog)); the refund and cancel reasons come back on the dialog result and are sent to the API.
 
-**Cancel Order** triggers `ConfirmDialog` with `requireReason=true` and `danger=true`.
+| Action | Call | Dialog |
+|---|---|---|
+| Mark as Shipped | `POST /seller/orders/:fulfillmentId/ship` — SELLER, **survives suspension** | "Confirm shipment. Tracking number {{ f.trackingNumber }} will be shared with the buyer." No reason required |
+| Issue Refund | `POST /seller/orders/:fulfillmentId/refund` — `SELLER_ACTIVE` | `requireReason: true`, `danger: true`. "Refund this fulfillment? This cannot be undone." Valid from `PENDING` and `SHIPPED`; a `PENDING` refund restores stock and a `SHIPPED` one does not, so the message names which case applies (US-S-07) |
+| Cancel Fulfillment | `POST /seller/orders/:fulfillmentId/cancel` — `SELLER_ACTIVE` | `requireReason: true`, `danger: true`. Valid from `PENDING` only; restores stock (US-S-11) |
+
+Refund and cancel are `SELLER_ACTIVE`, so both buttons are disabled for a suspended seller while Mark as Shipped stays live — the obligation to dispatch a fulfillment placed before the suspension survives it ([navigation-routing.md § 5](navigation-routing.md#auth-guard-matrix)). Stock restoration is written by the inventory consumer from the event, never by this screen ([diagram 03](../diagrams/03-fulfillment-lifecycle.md)).
 
 ---
 
@@ -882,9 +922,13 @@ mat-card.warning-banner *ngIf="lowStockCount > 0" [margin-bottom: 16px]
   ng-container matColumnDef="onHand"
     th mat-header-cell — On Hand
     td mat-cell
-      mat-form-field [appearance=outline; subscriptSizing=dynamic; width: 80px] *ngIf="row.editing"
-        input matInput type="number" min="0" [(ngModel)]="row.editValue" (blur)="saveQty(row)"
-      span *ngIf="!row.editing" (click)="row.editing=true" [cursor: pointer] — {{ row.onHand }}
+      <!-- Inline edit is a FormControl held by the page component, keyed by offerId — never ngModel -->
+      mat-form-field [appearance=outline; subscriptSizing=dynamic; width: 80px] *ngIf="editingOnHand === row.offerId"
+        mat-label — On hand
+        input matInput type="number" min="0" [formControl]="onHandCtrl" (blur)="saveQty(row)"
+      button mat-button *ngIf="editingOnHand !== row.offerId" (click)="startEditOnHand(row)"
+             [attr.aria-label]="'Edit on-hand quantity for ' + row.sku"
+        span — {{ row.onHand }}
         mat-icon [font-size: 14px; vertical-align: middle] — edit
   ng-container matColumnDef="reserved"
     th mat-header-cell [matTooltip]="'Units held by PENDING orders'"] — Reserved
@@ -898,11 +942,20 @@ mat-card.warning-banner *ngIf="lowStockCount > 0" [margin-bottom: 16px]
   ng-container matColumnDef="threshold"
     th mat-header-cell — Alert Threshold
     td mat-cell
-      mat-form-field [appearance=outline; subscriptSizing=dynamic; width: 80px] *ngIf="row.editingThreshold"
-        input matInput type="number" min="0" [(ngModel)]="row.thresholdValue" (blur)="saveThreshold(row)"
-      span *ngIf="!row.editingThreshold" (click)="row.editingThreshold=true" — {{ row.lowStockThreshold }}
+      mat-form-field [appearance=outline; subscriptSizing=dynamic; width: 80px] *ngIf="editingThreshold === row.offerId"
+        mat-label — Alert at
+        input matInput type="number" min="0" [formControl]="thresholdCtrl" (blur)="saveThreshold(row)"
+      button mat-button *ngIf="editingThreshold !== row.offerId" (click)="startEditThreshold(row)"
+             [attr.aria-label]="'Edit low-stock threshold for ' + row.sku"
+        span — {{ row.lowStockThreshold }}
         mat-icon [font-size: 14px] — edit
 ```
+
+### Data source and writes
+
+There is **no `GET /seller/inventory` endpoint.** The table reads `GET /seller/offers`, whose row carries the stock join — `onHand`, `reserved`, `available` and `lowStockThreshold` — alongside the offer. Each inline save is `PATCH /seller/inventory/:offerId { onHandQty?, lowStockThreshold? }`, and the CSV import is `POST /seller/inventory/bulk` ([seller.md § Endpoint Index](../technical-design/api-design/seller.md#endpoint-index)). Both writes are `SELLER_ACTIVE`, which is why the route carries `sellerApprovedGuard` and `sellerNotSuspendedGuard`.
+
+`reserved` is units held by `PENDING` fulfillments and is never editable here: it is released by the refund, cancel and ship paths, each of which is written by the inventory consumer from the event rather than by this screen.
 
 ### CSV Import Dialog
 
@@ -913,7 +966,7 @@ mat-dialog-title — Bulk Inventory Update
 mat-dialog-content
   p mat-body-2 — Upload a CSV with columns: sku, on_hand, low_stock_threshold (optional)
   a mat-button href="/assets/inventory-template.csv" download — Download template
-  <aliceut-file-upload [accept]="'.csv'" [maxSizeMb]="5" [multiple]="false" (filesChange)="csvFile = $event[0]">
+  <aliceut-file-upload [accept]="'.csv'" [maxSizeMb]="5" [multiple]="false" [maxFiles]="1" (filesChange)="csvFile = $event[0]">
 
   <!-- After file parse: preview diff table -->
   div *ngIf="previewRows.length > 0" [margin-top: 16px]
@@ -938,34 +991,17 @@ mat-dialog-actions [align=end]
 
 ---
 
-<a id="screen-10-notification-panel"></a>
-## Screen 10 — Notification Panel
+<a id="screen-10-offer-pricing"></a>
+## Screen 10 — Offer Pricing
 
-Rendered as `NotificationBell` component in toolbar. Notification types relevant to seller:
-
-| Event | Icon | Message pattern |
-|-------|------|-----------------|
-| New order | `receipt_long` | "New order [FUL-000003871] placed" |
-| Low stock | `warning_amber` (warn) | "[SKU name] is running low (N left)" |
-| Listing flagged | `flag` (warn) | "'[Product title]' has been flagged for review" |
-| Listing removed | `block` (warn) | "'[Product title]' was removed by admin" |
-| KYC approved | `check_circle_outline` (success) | "Your KYC application was approved" |
-| KYC rejected | `cancel` (warn) | "Your KYC application was rejected" |
-| Suspension | `block` (error) | "Your account has been suspended" |
-
----
-
-<a id="screen-11-offer-pricing"></a>
-## Screen 11 — Offer Pricing
-
-**Route:** `/seller/listings/:id/pricing`  
+**Route:** `/seller/listings/:offerId/pricing`  
 **Auth:** SELLER + APPROVED + Not Suspended (`KycApprovedGuard + SellerActiveGuard`)
 
 ### Layout
 
 ```
 div.page-header [display: flex; align-items: center; gap: 16px; margin-bottom: 24px]
-  button mat-icon-button [routerLink]="['/seller/listings', offerId]" — arrow_back
+  button mat-icon-button routerLink="/seller/listings" aria-label="Back to listings" — arrow_back
   h1 mat-h4 — Manage Pricing — {{ productTitle }}
 
 <!-- Offer currency (read-only) -->
@@ -1044,166 +1080,117 @@ mat-card *ngIf="showPriceForm" [padding: 24px; margin-top: 16px]
 
 ---
 
-<a id="screen-12-seller-forgot-password"></a>
-## Screen 12 — Seller Forgot Password
+<a id="screen-11-seller-forgot-password"></a>
+## Screen 11 — Seller Forgot Password
 
 **Route:** `/seller/forgot-password`  
 **Auth:** Public (no authentication required)
 
 ### Layout
 
+The card shell, the email field, the error banner and the submit button are [shared-components.md § 8.1–8.3](shared-components.md#8-auth-screen-pattern). Portal mark `mat-icon lock_reset`, title "Forgot your password?", subtitle "Enter your email and we'll send a reset link.", submit label "Send Reset Link". What this screen adds:
+
 ```
-div.auth-page [display: flex; justify-content: center; padding: 48px 16px]
-  mat-card [width: 100%; max-width: 440px; padding: 32px]
-    mat-card-header [text-align: center; margin-bottom: 24px]
-      mat-icon [font-size: 48px; color: primary] — lock_reset
-      mat-card-title — Forgot your password?
-      mat-card-subtitle — Enter your email and we'll send a reset link.
-    mat-card-content
+mat-card-content
+  <!-- Default state: form -->
+  ng-container *ngIf="!submitted"
+    [shared form: email + error banner + "Send Reset Link" submit]
+    p mat-body-2 [text-align: center; margin-top: 16px]
+      a mat-button routerLink="/seller/login" — Back to Sign In
 
-      <!-- Default state: form -->
-      ng-container *ngIf="!submitted"
-        form [formGroup]="forgotForm" (ngSubmit)="sendResetLink()"
-          mat-form-field [appearance=outline; fullWidth; margin-bottom: 16px]
-            mat-label — Email address
-            input matInput type="email" formControlName="email" autocomplete="email"
-            mat-error — Enter a valid email address
-
-          button mat-flat-button color="primary" [fullWidth] type="submit" [disabled]="forgotForm.invalid || isLoading"
-            mat-spinner *ngIf="isLoading" [diameter]="20"
-            span *ngIf="!isLoading" — Send Reset Link
-
-        p mat-body-2 [text-align: center; margin-top: 16px]
-          a mat-button routerLink="/seller/login" — Back to Sign In
-
-      <!-- Success state: email sent -->
-      ng-container *ngIf="submitted"
-        div [text-align: center; padding: 16px 0]
-          mat-icon [font-size: 48px; color: success] — mark_email_read
-          h3 mat-h5 [margin-top: 16px] — Check your email
-          p mat-body-2 [margin-top: 8px] — If an account with that email exists, we sent a reset link. Check your inbox.
-          p mat-caption [margin-top: 8px] color="secondary" — Didn't receive it? Check your spam folder or
-          button mat-button color="primary" (click)="resend()" — resend the email.
-          p mat-body-2 [margin-top: 16px]
-            a mat-button routerLink="/seller/login" — Back to Sign In
+  <!-- Success state: terminal for the page -->
+  ng-container *ngIf="submitted"
+    div [text-align: center; padding: 16px 0]
+      mat-icon [font-size: 48px; color: success] — mark_email_read
+      h3 mat-h5 [margin-top: 16px] — Check your email
+      p mat-body-2 [margin-top: 8px] — If an account with that email exists, we sent a reset link. Check your inbox.
+      p mat-caption [margin-top: 8px] color="secondary" — Not in your inbox? Check your spam folder.
+      p mat-body-2 [margin-top: 16px]
+        a mat-button routerLink="/seller/login" — Back to Sign In
 ```
+
+`POST /auth/forgot-password` with `{ email, portal: "SELLER" }`. The byte-identical `202`, the 3-per-hour-per-email rate limit and the **terminal** submitted state are the cross-portal rules in [shared-components.md § 8.5](shared-components.md#8-auth-screen-pattern): there is no resend control, because a second submission would answer identically and re-arming the form invites the reader to treat the first answer as a signal about whether the address exists.
 
 ---
 
-<a id="screen-13-seller-reset-password"></a>
-## Screen 13 — Seller Reset Password
+<a id="screen-12-seller-reset-password"></a>
+## Screen 12 — Seller Reset Password
 
 **Route:** `/seller/reset-password?token=`  
 **Auth:** Public; reads `?token=` query param on component init
 
 ### Layout
 
+The card shell, the password and confirm-password fields with their `showPassword` / `showConfirmPassword` toggles, the hint and the submit button are [shared-components.md § 8.1–8.4](shared-components.md#8-auth-screen-pattern). Portal mark `mat-icon lock_reset`, title "Reset your password", submit label "Set New Password". Three states, switched on `tokenState`:
+
 ```
-div.auth-page [display: flex; justify-content: center; padding: 48px 16px]
-  mat-card [width: 100%; max-width: 440px; padding: 32px]
-    mat-card-header [text-align: center; margin-bottom: 24px]
-      mat-icon [font-size: 48px; color: primary] — lock_reset
-      mat-card-title — Reset your password
-    mat-card-content
+mat-card-content
+  <!-- 'form' — shown optimistically on mount; there is no token pre-validation endpoint -->
+  ng-container *ngIf="tokenState === 'form'"
+    [shared form: password + confirm password + "Set New Password" submit]
 
-      <!-- Form shown optimistically on mount; token validity determined by POST /auth/reset-password response on submit (400 = expired/used). No pre-validation endpoint exists. -->
-      ng-container *ngIf="tokenState !== 'expired' && tokenState !== 'invalid' && tokenState !== 'success'"
-        form [formGroup]="resetForm" (ngSubmit)="resetPassword()"
-          mat-form-field [appearance=outline; fullWidth; margin-bottom: 16px]
-            mat-label — New password
-            input matInput [type]="showPw ? 'text' : 'password'" formControlName="password" autocomplete="new-password"
-            button mat-icon-button matSuffix type="button" (click)="showPw = !showPw"
-              mat-icon — {{ showPw ? 'visibility_off' : 'visibility' }}
-            mat-hint — At least 8 characters, 1 letter, 1 number
-            mat-error — {{ passwordError }}
-          mat-form-field [appearance=outline; fullWidth; margin-bottom: 16px]
-            mat-label — Confirm password
-            input matInput [type]="showPwConfirm ? 'text' : 'password'" formControlName="confirmPassword" autocomplete="new-password"
-            button mat-icon-button matSuffix type="button" (click)="showPwConfirm = !showPwConfirm"
-              mat-icon — {{ showPwConfirm ? 'visibility_off' : 'visibility' }}
-            mat-error *ngIf="resetForm.errors?.['mismatch']" — Passwords do not match
+  <!-- 'invalid' — after the submit returns 400 -->
+  ng-container *ngIf="tokenState === 'invalid'"
+    div [text-align: center; padding: 16px 0]
+      mat-icon [font-size: 48px; color: warn] — link_off
+      h3 mat-h5 [margin-top: 16px] — Reset link no longer valid
+      p mat-body-2 [margin-top: 8px] — This link has expired, has already been used, or is not valid for this portal. Request a new one.
+      button mat-flat-button color="primary" routerLink="/seller/forgot-password" [margin-top: 16px] — Request new link
+      p mat-body-2 [margin-top: 16px]
+        a mat-button routerLink="/seller/login" — Back to Sign In
 
-          button mat-flat-button color="primary" [fullWidth] type="submit" [disabled]="resetForm.invalid || isSaving"
-            mat-spinner *ngIf="isSaving" [diameter]="20"
-            span *ngIf="!isSaving" — Set New Password
-
-      <!-- Expired / used token (shown after submit returns 400) -->
-      ng-container *ngIf="tokenState === 'expired' || tokenState === 'invalid'"
-        div [text-align: center; padding: 16px 0]
-          mat-icon [font-size: 48px; color: warn] — link_off
-          h3 mat-h5 [margin-top: 16px] — Reset link expired
-          p mat-body-2 [margin-top: 8px] — This link has expired or has already been used. Request a new one.
-          button mat-flat-button color="primary" routerLink="/seller/forgot-password" [margin-top: 16px] — Request new link
-          p mat-body-2 [margin-top: 16px]
-            a mat-button routerLink="/seller/login" — Back to Sign In
-
-      <!-- Success state: redirect imminent -->
-      ng-container *ngIf="tokenState === 'success'"
-        div [text-align: center; padding: 16px 0]
-          mat-icon [font-size: 48px; color: success] — check_circle_outline
-          h3 mat-h5 [margin-top: 16px] — Password updated
-          p mat-body-2 [margin-top: 8px] — Your password has been reset. Redirecting you to sign in…
+  <!-- 'success' — redirect imminent -->
+  ng-container *ngIf="tokenState === 'success'"
+    div [text-align: center; padding: 16px 0]
+      mat-icon [font-size: 48px; color: success] — check_circle_outline
+      h3 mat-h5 [margin-top: 16px] — Password updated
+      p mat-body-2 [margin-top: 8px] — Your password has been reset. Redirecting you to sign in…
 ```
 
-**On success:** Redirect to `/seller/login?passwordReset=true`. The login page shows a success banner: "Password reset successfully — please sign in with your new password."
+`POST /auth/reset-password` with `{ token, newPassword, portal: "SELLER" }`. The optimistic form, the single `400` that covers expired, already-used **and wrong-portal** tokens without distinguishing them, the 5-attempts-per-token-per-hour limit and the revocation of every session on success are the cross-portal rules in [shared-components.md § 8.5](shared-components.md#8-auth-screen-pattern). There is no `mode` parameter on a seller link — that hint is buyer-only.
+
+**On success:** redirect to `/seller/login?passwordReset=true`, where the login page shows a success banner: "Password reset successfully — please sign in with your new password."
 
 ---
 
-<a id="screen-14-seller-notifications"></a>
-## Screen 14 — Seller Notifications
+<a id="screen-13-seller-notifications"></a>
+## Screen 13 — Seller Notifications
 
-**Route:** `/seller/notifications`
-**Guard:** `SellerApprovedGuard` (seller must be KYC-approved; listing/order notifications only relevant post-approval)
+**Route:** `/seller/notifications`  
+**Guard:** *(shell only)* — `GET /notifications` is plain JWT, and an unapproved or suspended seller has notifications to read, the suspension notice among them ([navigation-routing.md § 5](navigation-routing.md#auth-guard-matrix))  
 **Component:** `SellerNotificationsComponent`
 
-### Layout
+### Layout, rendering and API calls
 
-Identical structure to buyer notifications page (see buyer-portal.md Screen 16). Seller-specific notification types only.
+The layout, the client-side composition of each row's two lines, the cursor-paging rules, the API call table and the four states are the shared notifications pattern in [shared-components.md § 9](shared-components.md#9-notifications-page-pattern). This portal's specifics:
 
-```
-h1 mat-h4 — "Notifications"
-div.notifications-header [display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px]
-  button mat-stroked-button [disabled]="allRead" (click)="markAllRead()" — Mark all as read
-
-div.notifications-list [max-width: 800px]
-  mat-card.notification-card *ngFor="let n of notifications"
-    [class.unread]="!n.readAt"
-    [cursor: pointer] (click)="handleClick(n)"
-    [display: flex; align-items: flex-start; gap: 16px; padding: 16px]
-    mat-icon [color]="typeIconColor(n.type)" — {{ typeIcon(n.type) }}
-    div [flex: 1]
-      p mat-body-1 [font-weight]="!n.readAt ? '600' : '400'" — {{ n.title }}
-      p mat-body-2 *ngIf="n.body" — {{ n.body }}
-      p mat-caption color="secondary" — {{ n.createdAt | timeAgo }}
-    div.unread-dot *ngIf="!n.readAt"
-
-  div.load-more *ngIf="hasMore"
-    button mat-stroked-button (click)="loadMore()" — Load more
-
-<aliceut-empty-state *ngIf="!loading && notifications.length === 0"
-  icon="notifications_none"
-  title="No notifications"
-  message="Order and listing alerts will appear here.">
-</aliceut-empty-state>
-```
-
-### Notification types displayed
-
-`ORDER_PLACED`, `LISTING_FLAGGED`, `FULFILLMENT_CANCELLED`, `KYC_DECIDED`, `KYC_SUBMITTED`,
-`LOW_STOCK`, `LISTING_REMOVED`, `SELLER_SUSPENDED`, `SELLER_REINSTATED`, `SUSPENSION_EXPIRED`
-(seller-relevant canonical types from `notifications.md`; `KYC_DECIDED` payload carries `decision: APPROVED | REJECTED`)
-
-### API calls
-
-- `GET /notifications?page=1&limit=20`
-- `GET /notifications?page=N&limit=20` — load more
-- `PATCH /notifications/read-all`
-- `PATCH /notifications/:id/read`
-
-### Mobile
-
-Full-width cards, same as buyer notifications.
+- Heading is `h1 mat-h4 — Notifications`; the header carries no filter control, only "Mark all as read".
+- Paging is the **"Load more"** variant, ending in the "End of list" caption.
+- `EmptyState` copy: `icon="notifications_none"`, `title="No notifications"`, `message="Order and listing alerts will appear here."`
+- `titleFor(n)` / `bodyFor(n)` / `typeIcon(n.type)` resolve against the [appendix](#appendix-seller-notifications) table below.
 
 ---
 
-*Last updated: phase-1 design*
+<a id="appendix-seller-notifications"></a>
+## Appendix — Seller Notification Types
+
+The types a seller account receives, rendered by `<aliceut-notification-bell>` in the shell and by `/seller/notifications`. The API supplies `type` and an opaque `payload`; the icon and the message are composed client-side from this table, with each bracketed value taken from `payload` ([shared-components.md § 9.2](shared-components.md#9-notifications-page-pattern)).
+
+| Type | Icon | Message pattern | Opens |
+|---|---|---|---|
+| `ORDER_PLACED` | `receipt_long` | "New order [FUL- display id] placed" | `/seller/orders/{fulfillmentId}` |
+| `FULFILLMENT_CANCELLED` | `cancel` (warn) | "Fulfillment [FUL- display id] was cancelled" | `/seller/orders/{fulfillmentId}` |
+| `LOW_STOCK` | `warning_amber` (warn) | "[SKU] is running low ([N] left)" | `/seller/inventory` |
+| `LISTING_FLAGGED` | `flag` (warn) | "'[product title]' has been flagged for review" | `/seller/listings/{offerId}/edit` |
+| `LISTING_REMOVED` | `block` (warn) | "'[product title]' was removed by an admin" | `/seller/listings` |
+| `KYC_SUBMITTED` | `assignment` | "Your KYC application was received" | `/seller/kyc` |
+| `KYC_DECIDED` | `check_circle_outline` (success) on `APPROVED`, `cancel` (warn) on `REJECTED` | "Your KYC application was [approved / rejected]" — the `payload` carries `decision: APPROVED \| REJECTED`, so one type drives both lines | `/seller/kyc` |
+| `SELLER_SUSPENDED` | `block` (warn) | "Your account has been suspended" | `/seller/profile` |
+| `SELLER_REINSTATED` | `lock_open` (success) | "Your account has been reinstated" | `/seller/profile` |
+| `SUSPENSION_EXPIRED` | `lock_open` (success) | "Your suspension has ended and your listings are active again" | `/seller/profile` |
+
+These are the seller-relevant canonical types in [notifications.md](../technical-design/api-design/notifications.md). `SUSPENSION_EXPIRED` exists as a notification **type** only; it is not a stored status and nothing passes it to a `StatusBadge` ([shared-components.md § 5](shared-components.md#5-status-vocabulary)).
+
+---
+
+*Last updated: 2026-09-24 (UI-design consolidation)*

@@ -6,7 +6,7 @@
 **Auth:** Email/password only. JWT with ADMIN role. No self-registration, no OAuth, no password-reset flow.  
 **API:** [admin.md](../technical-design/api-design/admin.md), [notifications.md](../technical-design/api-design/notifications.md)
 
-Component contracts are owned by [conventions/design-system.md § 8](../../conventions/design-system.md#8-shared-component-library-libsui); the cross-cutting rules every screen below follows — standalone + OnPush, `ViewState<T>`, reactive forms, cursor pagination, accessibility — are in [shared-components.md § 7](shared-components.md#7-rules-every-screen-follows) and are not repeated per screen.
+Component contracts are owned by [conventions/design-system.md § 8](../../conventions/design-system.md#8-shared-component-library-libsui); the cross-cutting rules every screen below follows — standalone + OnPush, `ViewState<T>`, reactive forms, cursor pagination, accessibility — are in [shared-components.md § 7](shared-components.md#7-rules-every-screen-follows) and are not repeated per screen. Screen 1 follows the shared auth card ([§ 8](shared-components.md#8-auth-screen-pattern)) and Screen 10 the shared notifications page ([§ 9](shared-components.md#9-notifications-page-pattern)).
 
 ---
 
@@ -114,40 +114,16 @@ The bell also polls on a 60 s interval. There is no WebSocket in V1.
 **Route:** `/admin/login`  
 **Guard:** `guestGuard` — an authenticated admin is sent to `/admin/dashboard`
 
+The card shell, the two fields with their visibility toggle, the error banner and the submit button are [shared-components.md § 8.1–8.3](shared-components.md#8-auth-screen-pattern) — at this portal's 400px / 40px variant, on a `background: grey-50; min-height: 100vh` page with `padding: 64px 16px`. Portal mark `mat-icon admin_panel_settings` at 56px, title "AliceUT Admin", subtitle "Restricted access — authorised personnel only". Two deltas:
+
 ```
-div.admin-login-page [display: flex; justify-content: center; align-items: flex-start; padding: 64px 16px; background: grey-50; min-height: 100vh]
-  mat-card [width: 100%; max-width: 400px; padding: 40px]
-    mat-card-header [text-align: center; margin-bottom: 32px]
-      mat-icon [font-size: 56px; color: primary] — admin_panel_settings
-      mat-card-title mat-h4 — AliceUT Admin
-      mat-card-subtitle — Restricted access — authorised personnel only
-    mat-card-content
-      form [formGroup]="loginForm" (ngSubmit)="login()"
-        mat-form-field [appearance=outline; subscriptSizing=dynamic; fullWidth; margin-bottom: 16px]
-          mat-label — Admin email
-          input matInput type="email" formControlName="email" autocomplete="email"
-          mat-icon matPrefix — mail_outline
-          mat-error *ngIf="loginForm.controls.email.hasError('required')" — Email is required
-          mat-error *ngIf="loginForm.controls.email.hasError('email')" — Enter a valid email address
-        mat-form-field [appearance=outline; subscriptSizing=dynamic; fullWidth]
-          mat-label — Password
-          input matInput [type]="showPw ? 'text' : 'password'" formControlName="password" autocomplete="current-password"
-          button mat-icon-button matSuffix type="button" (click)="showPw = !showPw" aria-label="Toggle password visibility"
-            mat-icon — {{ showPw ? 'visibility_off' : 'visibility' }}
-          mat-error — Password is required
-
-        mat-card.error-banner *ngIf="loginError" [margin-bottom: 16px]
-          mat-icon — error_outline
-          span — {{ loginError }}
-
-        button mat-flat-button color="primary" [fullWidth] type="submit" [disabled]="loginForm.invalid || isSubmitting"
-          mat-spinner *ngIf="isSubmitting" [diameter]="20"
-          span *ngIf="!isSubmitting" — Sign In
+mat-form-field — mat-label "Admin email"     ← not the shared "Email address"
+  mat-icon matPrefix — mail_outline           ← the only auth field carrying a prefix icon
 ```
 
 **No register link, no OAuth buttons, no "Forgot password?" link.** Admin accounts are provisioned by the seed script (`admin@aliceut.dev`) and a password change is a direct database update by the developer in V1 — so a reset link would lead nowhere.
 
-**Errors.** A wrong credential and a non-ADMIN account produce the same generic message — "Invalid credentials" — because distinguishing them tells an attacker which emails are admin accounts. A `429` renders as "Too many attempts. Try again in a few minutes."
+**Errors.** `POST /auth/login` carries `portal: "ADMIN"`. A wrong credential and a non-ADMIN account produce the same generic message — "Invalid credentials" — because distinguishing them tells an attacker which emails are admin accounts. That is narrower than the buyer and seller portals, where a portal mismatch is its own `403` message ([shared-components.md § 8.5](shared-components.md#8-auth-screen-pattern)): here the two are deliberately collapsed. A `429` renders as "Too many attempts. Try again in a few minutes."
 
 The response's access token is held in memory by `AuthService`; the refresh token arrives as an HttpOnly cookie scoped to `/api/v1/auth`. Neither is written to `localStorage`, and neither appears in a URL.
 
@@ -444,7 +420,7 @@ div.review-grid [display: grid; grid-template-columns: 1fr 380px; gap: 24px]
             mat-icon — cancel
             span — Reject application
 
-      mat-spinner *ngIf="isActing" [diameter]="32] [margin: 16px auto; display: block]
+      mat-spinner *ngIf="isActing" [diameter]="32" [margin: 16px auto; display: block]
 ```
 
 **The response is nested, and this screen renders it as it arrives.** `seller` is an object carrying `businessName`, `taxId` and `email`; `submittedData` is an **opaque object** the API does not schematise, so the component renders its keys as a label/value list rather than binding named fields that may not be there. `country` is one of those keys — it is what the queue's country filter reads (`submitted_data->>'country'`) and it is an ISO 3166-1 alpha-2 code.
@@ -1036,7 +1012,8 @@ mat-card.info-banner [margin-bottom: 16px]
     td mat-cell — {{ matchTypeLabel(row.matchType) }}
   ng-container matColumnDef="category"
     th mat-header-cell scope="col" — Category
-    td mat-cell — <mat-chip [font-size: 10px] — {{ categoryLabel(row.category) }}
+    td mat-cell
+      mat-chip [font-size: 10px] — {{ categoryLabel(row.category) }}
   ng-container matColumnDef="isActive"
     th mat-header-cell scope="col" — Status
     td mat-cell
@@ -1125,43 +1102,30 @@ mat-dialog-actions [align=end]
 **Guard:** none of its own — the parent `/admin` route applies `adminAuthGuard`  
 **API:** `GET /notifications`, `GET /notifications/unread-count`, `PATCH /notifications/:notificationId/read`, `PATCH /notifications/read-all`
 
-### Layout
+### Layout, rendering and API calls
+
+The layout, the client-side composition of each row's two lines, the cursor-paging rules, the API call table and the four states are the shared notifications pattern in [shared-components.md § 9](shared-components.md#9-notifications-page-pattern). This portal's specifics:
 
 ```
-div.notifications-header [display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px]
-  h1 mat-h4 — Notifications
+div.notifications-header — h1 mat-h4 "Notifications"
   div [display: flex; gap: 12px; align-items: center]
     mat-slide-toggle [formControl]="unreadOnly" — Unread only
     button mat-stroked-button [disabled]="unreadCount === 0 || isActing" (click)="markAllRead()" — Mark all as read
 
-div.notifications-list [max-width: 800px]
-  mat-card.notification-card *ngFor="let n of notifications; trackBy: trackById"
-    [class.unread]="!n.readAt"
-    [display: flex; align-items: flex-start; gap: 16px; padding: 16px]
-    mat-icon [color]="typeIconColor(n.type)" — {{ typeIcon(n.type) }}
-    div [flex: 1]
-      p mat-body-1 [font-weight]="!n.readAt ? '600' : '400'" — {{ titleFor(n) }}
-      p mat-body-2 — {{ detailFor(n) }}
-      p mat-caption color="secondary" — {{ n.createdAt | timeAgo }}
-    button mat-icon-button *ngIf="!n.readAt" (click)="markRead(n.id)"
-            aria-label="Mark notification as read" [matTooltip]="'Mark as read'"
-      mat-icon — done
+  <!-- Per-row explicit mark-read, in place of the whole-card click target -->
+  button mat-icon-button *ngIf="!n.readAt" (click)="markRead(n.id)"
+          aria-label="Mark notification as read" [matTooltip]="'Mark as read'"
+    mat-icon — done
 
 div.list-footer [display: flex; justify-content: center; gap: 12px; margin-top: 16px]
   button mat-stroked-button [disabled]="!hasPrevious || loading" (click)="previous()" — Previous
   button mat-stroked-button [disabled]="!hasMore || loading" (click)="next()" — Next
   span mat-caption color="secondary" *ngIf="!hasMore" — End of list
-
-<aliceut-empty-state *ngIf="!loading && notifications.length === 0"
-  icon="notifications_none"
-  title="No notifications"
-  message="Platform alerts appear here.">
-</aliceut-empty-state>
 ```
 
-**A notification row carries a `type` and an opaque `payload` — there is no `title` and no `body`.** Both lines of copy are composed in the client from the type plus the payload's fields; `titleFor(n)` and `detailFor(n)` are the mapping below.
-
-**Cursor pagination, not pages.** `GET /notifications?limit=20&cursor=…` with `unreadOnly` as an optional filter. `meta.hasMore` drives Next, the component's cursor stack drives Previous, and there is no page number, no `page` parameter and no total. Toggling `unreadOnly` discards the stack and refetches from the first page.
+- Paging is the **Previous / Next** variant over the component's cursor stack; toggling `unreadOnly` discards the stack and refetches from the first page.
+- `EmptyState` copy: `icon="notifications_none"`, `title="No notifications"`, `message="Platform alerts appear here."`; with the unread filter on, "Nothing unread" plus a Show all action.
+- Both admin types are actionable, so clicking a row navigates to the record it names, and the explicit per-row `done` button exists so an admin can clear a row without opening it. `titleFor(n)` and `detailFor(n)` resolve against the table below.
 
 ### Notification types reaching an admin
 
@@ -1170,23 +1134,12 @@ div.list-footer [display: flex; justify-content: center; gap: 12px; margin-top: 
 | `KYC_SUBMITTED` | `assignment_ind` | "{{ businessName }} submitted a KYC application" — clicking opens the application |
 | `LISTING_FLAGGED` | `flag` (warn) | "'{{ productTitle }}' was flagged for review" — clicking opens the moderation case |
 
-Those are the two events the catalogue fans out to admins: `seller.kyc.submitted` reaches every admin, and `listing.flagged` copies the admin alongside the seller. Every other notification type is buyer- or seller-addressed and never lands in an admin's list.
-
-Both types are actionable, so clicking a row navigates to the record it names. There is no admin notification that is informational only.
+Those are the two events the catalogue fans out to admins: `seller.kyc.submitted` reaches every admin, and `listing.flagged` copies the admin alongside the seller. Every other notification type is buyer- or seller-addressed and never lands in an admin's list. There is no admin notification that is informational only.
 
 ### States
 
-| State | Rendering |
-|---|---|
-| Loading | Three skeleton notification cards; both paging buttons disabled |
-| Empty | `EmptyState` "No notifications"; with the unread filter on: "Nothing unread" plus a Show all action |
-| Error | Error banner in place of the list with Retry |
-| Acting | The row's mark-read button disables; a failure reverts the row's read styling and shows an error snackbar |
-
-### Mobile
-
-Full-width cards, and the header's toggle and button wrap onto a second line below the heading.
+Per [shared-components.md § 9.4](shared-components.md#9-notifications-page-pattern), plus one delta: **Acting** disables the row's mark-read button, and a failure reverts the row's read styling and shows an error snackbar.
 
 ---
 
-*Last updated: 2026-09-14 (design alignment)*
+*Last updated: 2026-09-24 (UI-design consolidation)*

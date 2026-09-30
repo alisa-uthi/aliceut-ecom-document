@@ -3,9 +3,8 @@
 **Status:** Complete  
 **Module:** `Cart`  
 **Parent:** [API Design Index](../api-design.md)  
-**Source of truth:** [BRD v1.3](../../requirements/BRD.md), [ERD](../data-model-erd.md)  
-**Conventions:** [api-conventions.md](../../../conventions/api-conventions.md) — `operationId` naming (`<Module>_<verb><Resource>`), response envelope, cursor pagination, error shape, money-as-string  
-**Correlation:** every endpoint accepts an `X-Correlation-ID` request header, generates a UUIDv7 when it is absent, echoes it on the response, and carries the same value into every log line and into the `correlation_id` field of every Kafka event envelope and `platform.outbox_event` row it writes — see [observability.md § Correlation ID](../../../conventions/observability.md#correlation-id).
+**Source of truth:** [BRD v1.4](../../requirements/BRD.md), [ERD](../data-model-erd.md)  
+**Conventions:** [api-conventions.md](../../../conventions/api-conventions.md) — `operationId` naming (`<Module>_<verb><Resource>`), response envelope, cursor pagination, error shape, money-as-string. Correlation-ID propagation, the error envelope and rate-limit headers apply to every endpoint in this document and are stated once in [api-design.md § 1 Conventions](../api-design.md#conventions).
 
 ---
 
@@ -49,6 +48,11 @@
 
 <a id="endpoints"></a>
 ## Endpoints
+
+> **`A->>G: validate JWT + BUYER role` in every sequence below** stands for the same
+> chain: a missing, invalid or expired access token is `401 Unauthorized`, and a valid
+> token whose `roles` claim does not contain `BUYER` is `403 Forbidden`. The guard
+> compares decoded claims and queries no table ([auth-jwt-design § 4](../../../conventions/auth-jwt-design.md#auth-guards)).
 
 ### Get cart
 
@@ -107,8 +111,8 @@ Auth: BUYER
 Effective price is resolved live on GET (not cached from add-to-cart time).
 
 **Field semantics:**
-- `effectivePrice.amount` / `effectivePrice.currency` — the amount of the resolved price row and the offer's `native_currency_code`. Each offer has exactly one pricing currency, so no currency selection happens here; resolution picks a `price_type` by current time only (`SALE` if live, else `LIST`) — account type and quantity are not inputs (BRD FR-P-06b, D-02). See [pricing.md § Pricing Constraints](pricing.md#pricing-constraints).
-- `effectivePrice.displayAmount` / `displayCurrency` / `fxRate` / `fxAsOf` / `fxStale` — the same amount in the buyer's display currency (`identity.user.preferred_currency`, read server-side). All five keys are always present and follow the single nullability contract documented in [catalog.md § Get product offers](catalog.md#get-product-offers): same currency → display echoes native with `fxRate: null`, `fxStale: false`; FX row present → converted, with the row's `as_of` and a `fxStale` flag; no FX row for the pair → `displayAmount: null`, `fxRate: null`, `fxAsOf: null`, `fxStale: null`.
+- `effectivePrice.amount` / `effectivePrice.currency` — the amount of the resolved price row and the offer's `native_currency_code`. Each offer has exactly one pricing currency, so no currency selection happens here; resolution picks a `price_type` by current time only (`SALE` if live, else `LIST`) — account type and quantity are not inputs (BRD FR-P-06b). See [pricing.md § Pricing Constraints](pricing.md#pricing-constraints).
+- `effectivePrice.displayAmount` / `displayCurrency` / `fxRate` / `fxAsOf` / `fxStale` — the same amount in the buyer's display currency (`identity.user.preferred_currency`, read server-side), per [pricing.md § Display-currency fields](pricing.md#fx-display-fields).
 - `lineTotal` — `unitPrice × quantity`, computed on the server in `decimal.js` and returned as strings in both the offer's native currency and the display currency. **No client ever multiplies or sums money** (FR-P-04a); the browser renders these strings. `fxAsOf` and `fxStale` on `lineTotal` mirror those on `effectivePrice` — same rate used for both. When the offer's currency equals the display currency, `fxAsOf` is `null` and `fxStale` is `false`. The UI must show a visible "estimated" label on any converted `lineTotal` (FR-P-02, BRD:136); `fxStale = true` adds a separate indicative-rate warning but does not gate the label.
 - `groups[]` — one entry per seller/currency group, matching the grouping checkout will use, with the group `subtotal` (sum of that group's `lineTotal` values) in the group's own currency plus its display-currency equivalent. `cartItemIds` lets the UI lay the cart out per seller without regrouping client-side. `fxAsOf`/`fxStale` on the group follow the same rules as `effectivePrice`: same currency → `fxAsOf: null, fxStale: false`; converted and rate present → carries the rate's `as_of` and staleness; no rate → `fxAsOf: null, fxStale: null` (and `displaySubtotal` is then `null`). The UI must show a visible "estimated" label on any converted group subtotal (FR-P-02, BRD:136); `fxStale = true` adds a separate indicative-rate warning but does not gate the label.
 - `itemSubtotal` — the sum of every group's `displaySubtotal`, in the buyer's display currency, since that is the only currency all groups share. `fxAsOf` is the oldest non-null rate timestamp among all constituent groups (the most stale rate governs the whole total); `fxStale` is `true` when any constituent rate is stale. `complete` is `false` when any group's conversion was unavailable (`displaySubtotal: null` on one group), in which case `displayAmount` covers only the convertible groups and the UI must say so rather than present it as the cart total.
@@ -131,16 +135,7 @@ sequenceDiagram
     C->>A: GET /cart
     activate A
     A->>G: validate JWT + BUYER role
-    activate G
-    alt token missing or expired
-        G-->>A: 401 Unauthorized
-        A-->>C: 401
-    else roles does not contain BUYER
-        G-->>A: 403 Forbidden
-        A-->>C: 403
-    end
     G-->>A: authorized { buyer_id }
-    deactivate G
     A->>S: getCart(buyer_id)
     activate S
     S->>P: SELECT cart.cart WHERE user_id = :buyer_id
@@ -148,7 +143,7 @@ sequenceDiagram
     S->>P: SELECT preferred_currency FROM identity.user WHERE id = :buyer_id
     P-->>S: display currency (NULL falls back to USD) — read server-side, never a JWT claim
     S->>P: SELECT cart.cart_item<br/>JOIN catalog.offer (status, native_currency_code, seller_profile_id)<br/>JOIN pricing.offer_price ON offer_id AND inactive_at IS NULL<br/>LEFT JOIN pricing.fx_rate (base=offer.native_currency_code, quote=display currency)<br/>LEFT JOIN inventory.stock<br/>WHERE cart_id = :cart_id
-    Note over S,P: Effective price resolved live — never cached from add-to-cart time. Resolution is by price type + current time only: SALE (NOW() between starts_at and ends_at) → LIST fallback. Account type and quantity are not inputs (D-02). offer_price has no currency column#59; effectivePrice.currency is the offer's native_currency_code. Display fields follow the shared contract: echo native when the currencies match (fxRate null, fxStale false), convert when they differ (fxAsOf = as_of, fxStale = now() - as_of > FX_STALE_AFTER_HOURS), displayAmount null only when the pair has no fx_rate row. lineTotal and group displaySubtotal carry the same fxAsOf/fxStale as their constituent effectivePrice rows.
+    Note over S,P: Effective price resolved live — never cached from add-to-cart time. Resolution is by price type + current time only: SALE (NOW() between starts_at and ends_at) → LIST fallback. Account type and quantity are not inputs. offer_price has no currency column#59; effectivePrice.currency is the offer's native_currency_code. Display fields follow the shared contract: echo native when the currencies match (fxRate null, fxStale false), convert when they differ (fxAsOf = as_of, fxStale = now() - as_of > FX_STALE_AFTER_HOURS), displayAmount null only when the pair has no fx_rate row. lineTotal and group displaySubtotal carry the same fxAsOf/fxStale as their constituent effectivePrice rows.
     P-->>S: items with live effectivePrice, availableQty (COALESCE 0), offerStatus
     Note over S: Compute lineTotal per item, subtotal per seller/currency group, then itemSubtotal and grandTotal in the display currency — all in decimal.js on the server. No client-side money arithmetic (FR-P-04a). Rounding uses the target currency's minor_unit_scale.
     Note over S: shippingTotal and taxTotal are read from platform configuration and are "0.00" in V1 — no shipping rate table and no tax engine exists to compute them from (BRD §3.2). grandTotal = itemSubtotal + shippingTotal + taxTotal.

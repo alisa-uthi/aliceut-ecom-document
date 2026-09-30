@@ -3,7 +3,7 @@
 **Status:** Complete  
 **Base URL:** `/api/v1`  
 **Auth scheme:** JWT Bearer (`Authorization: Bearer <access_token>`)  
-**Source of truth:** [BRD v1.3](../requirements/BRD.md), [ERD](data-model-erd.md)
+**Source of truth:** [BRD v1.4](../requirements/BRD.md), [ERD](data-model-erd.md)
 
 ---
 
@@ -55,7 +55,7 @@ Maps Phase 1 endpoint groups to NestJS guard classes. `—` = guard not applied.
 | `POST /seller/orders/:fulfillmentId/refund`, `POST /seller/orders/:fulfillmentId/cancel` | YES | SELLER | — | YES | YES |
 | `GET /seller/dashboard/summary` | YES | SELLER | — | YES | YES |
 | `GET`/`POST`/`PATCH`/`DELETE /admin/*` | YES | ADMIN | — | — | — |
-| `GET /notifications`, `PATCH /notifications/*` | YES | — | — | — | — |
+| `GET /notifications`, `GET /notifications/unread-count`, `PATCH /notifications/*` | YES | — | — | — | — |
 
 **Seller registration is public.** `POST /seller/register` takes no token: a prospective seller may hold no account at all, and one who already holds a buyer account authenticates with their password inside the request body rather than with a buyer JWT (US-S-01, [diagram 06](../diagrams/06-auth-portals.md)). `POST /seller/kyc` requires a SELLER token but neither KYC approval — which it is the means of obtaining — nor a verified email.
 
@@ -72,7 +72,7 @@ Maps Phase 1 endpoint groups to NestJS guard classes. `—` = guard not applied.
 <a id="module-index"></a>
 ## 2. Module Index
 
-| Module | File | Endpoints | Primary DB(s) |
+| Module | File | Contents | Primary DB(s) |
 |--------|------|-----------|---------------|
 | Identity & Auth | [api-design/auth.md](api-design/auth.md) | Registration, portal-scoped login, OAuth code exchange, token rotation, password flows | Postgres + Redis |
 | Profile | [api-design/profile.md](api-design/profile.md) | Profile read/update, address book CRUD | Postgres |

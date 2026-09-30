@@ -4,7 +4,7 @@
 **Status:** Complete  
 **Stack:** Angular 22+ + Angular Material  
 **Contract owner:** [conventions/design-system.md § 8](../../conventions/design-system.md#8-shared-component-library-libsui) and [§ 15](../../conventions/design-system.md#15-custom-pipes)  
-**Scope:** Which shared components the Phase 1 screens use, and what each one is fed on those screens. buyer-app (4200), seller-app (4201), admin-app (4202).
+**Scope:** Which shared components the Phase 1 screens use and what each one is fed on those screens ([§ 3](#3-component-registry)–[§ 6](#6-pipes)), the rules every screen follows ([§ 7](#7-rules-every-screen-follows)), and the two screen patterns each portal repeats — the auth card ([§ 8](#8-auth-screen-pattern)) and the notifications page ([§ 9](#9-notifications-page-pattern)). buyer-app (4200), seller-app (4201), admin-app (4202).
 
 ---
 
@@ -17,6 +17,8 @@
 5. [Status vocabulary by `statusType`](#5-status-vocabulary)
 6. [Pipes](#6-pipes)
 7. [Rules every screen follows](#7-rules-every-screen-follows)
+8. [Auth screen pattern](#8-auth-screen-pattern)
+9. [Notifications page pattern](#9-notifications-page-pattern)
 
 ---
 
@@ -193,7 +195,7 @@ Phase-1 call sites:
 
 | Screen | `accept` | `maxSizeMb` | `multiple` / `maxFiles` | Destination |
 |---|---|---|---|---|
-| Seller KYC documents | `application/pdf,image/jpeg,image/png` | 10 | yes / 5 | Sent as `documents[]` in the `POST /seller/kyc` (or `/seller/kyc/resubmit`) multipart body |
+| Seller KYC documents — **three** instances, one per required document (business licence, government ID, bank statement / proof of address) | `application/pdf,image/jpeg,image/png` | 10 | no / 1 each | The three picked files are concatenated into `documents[]` in the `POST /seller/kyc` (or `/seller/kyc/resubmit`) multipart body. Three single-file pickers rather than one multi-file picker, because each slot names which document it wants and can show its own required-field error ([seller-portal.md § Screen 3](seller-portal.md#screen-3-kyc-application)) |
 | Seller product images | `image/jpeg,image/png,image/webp` | 5 | yes / 10 | Uploaded ahead of `POST /seller/products`, which references the resulting storage keys |
 | Seller inventory CSV | `.csv` | 5 | no / 1 | Sent as `file` in the `POST /seller/inventory/bulk` multipart body |
 | Buyer business logo | `image/jpeg,image/png` | 5 | no / 1 | The profile logo endpoint in `api-design/profile.md` |
@@ -276,4 +278,161 @@ Rendered with `@switch` on `viewState.status` — never an `*ngIf="data && !load
 
 ---
 
-*Last updated: 2026-09-14 (design alignment)*
+<a id="8-auth-screen-pattern"></a>
+## 8. Auth screen pattern
+
+Nine screens across the three portals are the same card — buyer login, register, forgot-password and reset-password; seller login, register, forgot-password and reset-password; admin login. The shell, the two fields, the error surface and the submit button are specified once here; each portal's screen states only its route, its copy and its own outcomes.
+
+### 8.1 Card shell
+
+```
+div.auth-page [display: flex; justify-content: center; align-items: flex-start; padding: 48px 16px]
+  mat-card [width: 100%; max-width: 440px; padding: 32px]
+    mat-card-header [text-align: center; margin-bottom: 24px]
+      [portal mark — buyer: img aliceut-logo.svg alt="AliceUT" height=48; seller: mat-icon storefront;
+       admin: mat-icon admin_panel_settings — both at font-size 48px, color primary]
+      mat-card-title — [screen title]
+      mat-card-subtitle — [optional one-line subtitle]
+    mat-card-content
+      [form]
+    mat-card-footer [text-align: center; padding: 16px]
+      [cross-link to the sibling screen]
+```
+
+Width deltas, and they are the only ones: buyer register and both reset screens use the same 440px; seller register uses **480px** because its form is longer; admin login uses **400px** and `padding: 40px` on a `background: grey-50` full-height page.
+
+### 8.2 Email and password fields
+
+Both fields are `mat-form-field [appearance=outline; fullWidth; subscriptSizing=dynamic]` with a `mat-label` — never a placeholder-only label ([§ 7](#7-rules-every-screen-follows)).
+
+```
+mat-form-field
+  mat-label — Email address
+  input matInput type="email" formControlName="email" autocomplete="email"
+  mat-error *ngIf="email.touched && email.hasError('required')" — Email is required
+  mat-error *ngIf="email.touched && email.hasError('email')" — Enter a valid email
+
+mat-form-field
+  mat-label — Password
+  input matInput [type]="showPassword ? 'text' : 'password'" formControlName="password"
+        [autocomplete]="current-password on a login, new-password everywhere else"
+  button mat-icon-button matSuffix type="button" (click)="showPassword = !showPassword"
+    [attr.aria-label]="showPassword ? 'Hide password' : 'Show password'"
+    mat-icon — {{ showPassword ? 'visibility_off' : 'visibility' }}
+```
+
+The flag is named **`showPassword`** on every screen; a screen with a second password field names the second flag `showConfirmPassword`. The toggle button is always `type="button"` so it cannot submit the form, and it always carries an `aria-label`, since it has no visible text.
+
+A confirm-password field is a plain second field of the same shape, with the mismatch reported at form level: `mat-error *ngIf="form.hasError('passwordMismatch')" — Passwords do not match`.
+
+### 8.3 Error surface and submit
+
+```
+mat-card.error-banner *ngIf="error" [margin-bottom: 16px]
+  mat-icon — error_outline
+  span — {{ error }}
+
+button mat-flat-button color="primary" [fullWidth] type="submit" [disabled]="form.invalid || isLoading"
+  mat-spinner *ngIf="isLoading" [diameter]="20"
+  span *ngIf="!isLoading" — [submit label]
+```
+
+The spinner **replaces** the label rather than sitting beside it, and every field is disabled while a submission is in flight. A field-level failure (`emailTaken`, a wrong current password) renders as `mat-error` on the offending field instead of in the banner.
+
+### 8.4 Password policy
+
+One rule, enforced identically on registration, change-password and reset-password on every portal, and re-enforced server-side ([backend-coding-standards.md](../../conventions/backend-coding-standards.md) holds the validator definition):
+
+```
+Pattern: /^(?=.*[a-zA-Z])(?=.*\d).{8,128}$/
+- Minimum 8 characters, maximum 128
+- At least one letter (either case) and at least one digit
+- Validator messages:
+  - Too short:               "Password must be at least 8 characters."
+  - Too long:                "Password must not exceed 128 characters."
+  - Missing letter or digit: "Password must contain at least one letter and one digit."
+```
+
+Every password field's hint is the same sentence: **"At least 8 characters, 1 letter, 1 number"**.
+
+### 8.5 Rules the auth endpoints impose on all three portals
+
+- **`portal` is a required field** on `POST /auth/login`, `POST /auth/forgot-password` and `POST /auth/reset-password` — `"BUYER" | "SELLER" | "ADMIN"` on login, `"BUYER" | "SELLER"` on the two password-reset calls, which have no admin form. Portal separation is enforced server-side, not by hiding a button ([auth.md § Portal scoping](../technical-design/api-design/auth.md#portal-scoping)).
+- **Login outcomes** are the same everywhere: `401` is the generic "Incorrect email or password." with no field-level enumeration; a correct password at the wrong portal is `403` "This account cannot sign in from this portal." rather than `401`, because retrying the password cannot help; a suspended account is `403`; `429` names the `Retry-After` interval. There is no account lockout in V1.
+- **Forgot-password answers `202` byte-identically** whether the address is unregistered, registered without the portal's role, or registered with it — the three cases must not be distinguishable, so the success banner is shown after every submission and the form is never re-armed with a different message. Rate limit 3 per hour per email. The submitted state is terminal for the page.
+- **Reset-password renders its form optimistically.** There is no token pre-validation endpoint, so validity is decided by the `POST /auth/reset-password` response. A `400` covers expired, already used and wrong-portal tokens under **one** message — telling them apart would confirm that an account exists at another portal. Rate limit 5 attempts per token per hour. On success every session for the account is revoked and the page navigates to that portal's login with `?passwordReset=true`, where a success banner is shown.
+- **Reset links are portal-scoped.** A seller link opens the seller form only and is rejected at the buyer one, and the rejection is the same generic `400`.
+- **Tokens in a URL.** The only token that ever appears in a URL is the one-time link token on `/verify-email?token=` and `/reset-password?token=`, plus the 60-second OAuth authorization code on the buyer portal's `/auth/callback`. An access or refresh token never does ([§ 7 Auth](#7-rules-every-screen-follows)).
+- **Admin has no register, forgot-password or reset screen.** Admin accounts are seeded (`admin@aliceut.dev`) and a password change is a direct database update in V1, so a reset link would lead nowhere.
+
+---
+
+<a id="9-notifications-page-pattern"></a>
+## 9. Notifications page pattern
+
+Each portal has one notifications page — `/notifications`, `/seller/notifications`, `/admin/notifications` — and all three are this layout over the same endpoints. Each portal's screen states only its route, its guard, its paging control and its own type table.
+
+### 9.1 Layout
+
+```
+div.notifications-header [display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px]
+  h1 — Notifications
+  [optional filter control]
+  button mat-stroked-button [disabled]="unreadCount === 0 || markingAll" (click)="markAllRead()" — Mark all as read
+
+div.notifications-list [max-width: 800px]
+  mat-card.notification-card *ngFor="let n of notifications; trackBy: trackByNotificationId"
+    [class.unread]="!n.readAt"
+    [display: flex; align-items: flex-start; gap: 16px; padding: 16px]
+    mat-icon [color]="typeIconColor(n.type)" [font-size: 24px] — {{ typeIcon(n.type) }}
+    div [flex: 1]
+      p mat-body-1 [font-weight]="!n.readAt ? '600' : '400'" — {{ titleFor(n) }}
+      p mat-body-2 color="secondary" — {{ bodyFor(n) }}
+      p mat-caption color="secondary" — {{ n.createdAt | timeAgo }}
+    div.unread-dot *ngIf="!n.readAt" [width: 8px; height: 8px; border-radius: 50%; background: var(--mat-primary); flex-shrink: 0; margin-top: 6px]
+      span.cdk-visually-hidden — Unread
+
+  [paging control — see 9.3]
+
+<aliceut-empty-state *ngIf="!loading && notifications.length === 0"
+  icon="notifications_none" title="[portal copy]" message="[portal copy]">
+```
+
+A whole card is the click target, so it carries `role="button"`, `tabindex="0"` and a `keydown.enter` handler alongside the click. The unread dot is paired with visually-hidden text, because colour alone never carries state ([§ 7](#7-rules-every-screen-follows)).
+
+### 9.2 A row has no title and no body
+
+`GET /notifications` returns `{ id, type, payload, readAt, createdAt }` and **no `title`, `body` or `link`** ([§ 4.1](#41-notificationbell)). `payload` is an opaque JSON object whose keys follow the source event's payload, so:
+
+- `titleFor(n)` and `bodyFor(n)` compose both lines **client-side** from `type` plus substitutions taken from `payload`, using the portal's own type table. `typeIcon(n.type)` comes from the same table.
+- A `type` the client does not recognise renders a generic title and no body rather than an empty card, so a newly added notification type degrades instead of disappearing.
+- The navigation target is derived the same way — from `type` plus the ids in `payload`. A type with no destination marks the row read and navigates nowhere.
+- Any monetary value substituted into a message is a **string** from `payload`, rendered with the `currencyDisplay` pipe against its own currency code. No amount is parsed to a number or arithmetically combined.
+
+### 9.3 Paging and API calls
+
+Cursor pagination, never pages ([§ 7](#7-rules-every-screen-follows)). Either control is acceptable and each portal names the one it uses: a **"Load more"** button that appends the next page, or a **Previous / Next** pair driven by the component's cursor stack. Both end with the `End of list` caption once `meta.hasMore` is false. Toggling a filter discards the stack and refetches from the first page.
+
+| Action | Call |
+|---|---|
+| Initial load | `GET /notifications?limit=20` |
+| Next page | `GET /notifications?limit=20&cursor={meta.nextCursor}` — no `page` parameter and no total |
+| Unread filter | `GET /notifications?unreadOnly=true&limit=20` |
+| Badge count | `GET /notifications/unread-count` → `{ data: { unreadCount } }` |
+| Mark one read | `PATCH /notifications/:notificationId/read` → `{ data: { id, readAt } }`; the echoed `id` is the key the rendered row is matched against. A repeat call is a no-op returning the original `readAt` |
+| Mark all read | `PATCH /notifications/read-all` → `{ data: { markedCount } }` |
+
+A `404` on mark-read means the notification does not exist **or** belongs to another user; the two are indistinguishable by design, and the client removes the row and refreshes the page.
+
+### 9.4 States
+
+- **Loading:** three skeleton cards.
+- **Empty:** `EmptyState` as above; with a filter applied, the portal's filtered-empty copy plus a clear-filter action.
+- **End of list:** the paging control is replaced by the "End of list" caption.
+- **Error:** error banner with a Retry action; already-loaded pages stay visible.
+- **All read:** "Mark all as read" is disabled when `unreadCount` is `0`.
+- **Mobile:** full-width cards; the header's controls wrap below the heading.
+
+---
+
+*Last updated: 2026-09-24 (UI-design consolidation)*

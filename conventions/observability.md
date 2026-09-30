@@ -1,7 +1,7 @@
 # Observability Conventions
 
 **Status:** Complete  
-**Source of truth:** [BRD v1.3](../phase-1/requirements/BRD.md)
+**Source of truth:** [BRD v1.4](../phase-1/requirements/BRD.md)
 
 ---
 
@@ -91,7 +91,7 @@ LOG_MAX_BODY_BYTES=4096
 
 `DEFAULT_SENSITIVE_KEYS` is the project-wide masking list, not a logging-only concern. Two other paths cite it:
 
-- The **audit consumer** masks before insert: any Kafka payload key matching this list is written to MongoDB `audit_logs` as `"***"`. This is mandatory — `user.email_verification_requested` and `user.password_reset_requested` carry a raw single-use token so the notification consumer can build the email link, and the audit copy must not retain it.
+- The **audit consumer** masks before insert: any Kafka payload key matching this list is written to MongoDB `audit_logs` as `"***"`. This is mandatory — `auth.email_verification_requested` and `auth.password_reset_requested` carry a raw single-use token so the notification consumer can build the email link, and the audit copy must not retain it.
 - **`tax_id`** is on the list because seller KYC payloads carry it and MongoDB audit retention is measured in years.
 
 Any override via `LOG_SENSITIVE_KEYS` must keep at minimum `password`, `token`, `authorization`, `cookie`, `taxid`, `secret` and `refreshtoken` — removing one of those is a security regression, not a configuration choice.
@@ -101,7 +101,7 @@ Any override via `LOG_SENSITIVE_KEYS` must keep at minimum `password`, `token`, 
 ```bash
 # 1. Edit .env — append the new key to LOG_SENSITIVE_KEYS
 # 2. Restart only the affected service
-docker compose up -d --no-build order-service
+docker compose up -d --no-build api
 ```
 
 > **Hot-reload alternative (no restart):** mount a JSON file into the container and watch it with `chokidar`. On file change, rebuild the sanitizer and swap it in the interceptor. More complex — use only if restart downtime is unacceptable (V1 docker-compose: restart is fine).
@@ -236,7 +236,6 @@ export function buildSanitizer(
 - **Recursive:** JSON replacer visits every node at every depth — no nested object escapes.
 - **Size guard:** bodies over `maxBodyLogBytes` replaced with `{ _truncated: true, _bytes: N }` — protects against logging multipart uploads or large payloads.
 - **Root key guard:** `key !== ''` skips the root `''` key emitted by `JSON.parse` for the top-level value.
-- **Body logging policy**: request and response bodies are always included in HTTP logs after sanitization/truncation.
 
 **Response body — `LoggingInterceptor`:**
 
@@ -286,31 +285,14 @@ app.useGlobalInterceptors(app.get(LoggingInterceptor));
 
 ### Body logging rules
 
-Request and response bodies are always logged.
+The global HTTP path — `pino-http` inbound, `LoggingInterceptor` outbound — already logs and sanitizes every request and response body, so a handler never re-logs one. Direct domain logging carries IDs and the structured fields that matter, not the whole object:
 
 ```typescript
-// CORRECT — body is logged and sanitized automatically.
-this.logger.log('Payload received', {
-  direction: 'incoming',
-  body: this.sanitize(dto),
-});
-
-// CORRECT — response body is captured by LoggingInterceptor.
-this.logger.log('Response', {
-  direction: 'outgoing',
-  body: this.sanitize(response),
-});
-```
-
-Direct domain logging should still prefer IDs and relevant structured fields when the full object is not useful:
-```typescript
-// PREFERRED for domain events — avoid unnecessary duplication.
+// PREFERRED for domain events — avoid duplicating what the HTTP path already logged.
 this.logger.log('User loaded', {
   userId: user.id,
 });
 ```
-
-The global HTTP logging path is responsible for ensuring request and response bodies are present in the corresponding HTTP logs.
 
 
 ### Outgoing HTTP — Axios interceptor
@@ -397,12 +379,8 @@ export class HttpLoggingModule implements OnModuleInit {
 
 **Rules:**
 - Always forward `X-Correlation-ID` on outbound calls — propagation is the primary goal, logging is secondary.
-- Always log outgoing request and response bodies.
-- Apply buildSanitizer() to both outgoing request and response bodies.
-- direction: `outgoing` distinguishes outbound HTTP entries from inbound HTTP entries in Loki queries.
-- Body size is controlled by `LOG_MAX_BODY_BYTES`.
-- Sensitive fields are controlled by `LOG_SENSITIVE_KEYS`.
-- PII and large payloads are permitted by the logging policy; configured sanitization and truncation still apply.
+- Log the outgoing request and response body, both through `buildSanitizer()` — the same `LOG_SENSITIVE_KEYS` masking and `LOG_MAX_BODY_BYTES` truncation as inbound bodies get.
+- `direction: outgoing` distinguishes outbound HTTP entries from inbound ones in Loki queries.
 - Import `HttpLoggingModule` instead of `HttpModule` in any feature module that makes outbound HTTP calls.
 
 ---
@@ -416,7 +394,7 @@ Every log line emitted to stdout must be valid JSON containing these fields. `ne
 {
   "timestamp": "2026-09-02T12:34:56.789Z",
   "level": "info",
-  "service": "order-service",
+  "service": "aliceut-api",
   "module": "OrdersService",
   "correlationId": "019268ab-0000-7000-8000-000000000001",
   "requestId": "019268ab-0000-7000-8000-000000000001",
@@ -446,8 +424,7 @@ Every log line emitted to stdout must be valid JSON containing these fields. `ne
 | `context` | No | Domain-specific structured data |
 | `body` | HTTP logs | Sanitized/truncated request or response body |
 
-**Monetary values in logs:** same rule as API — strings, never numbers.  
-**HTTP bodies**: request and response bodies are always logged after applying the configured sensitive-field masking and body-size limit.
+**Monetary values in logs:** same rule as API — strings, never numbers.
 
 ---
 
@@ -759,13 +736,13 @@ After a failing test, query Loki directly to retrieve the full server-side trace
 
 ```bash
 # LogCLI — fetch all logs for a test's correlationId
-logcli query '{service="order-service"} | json | correlationId="<uuid>"' \
+logcli query '{service="aliceut-api"} | json | correlationId="<uuid>"' \
   --from="2026-09-02T10:00:00Z" --to="2026-09-02T10:01:00Z"
 ```
 
 Or in Grafana Explore:
 ```logql
-{service="order-service"} | json | correlationId = "<uuid>"
+{service="aliceut-api"} | json | correlationId = "<uuid>"
 ```
 
 ### CI/CD environment notes

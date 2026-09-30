@@ -15,7 +15,7 @@ Priority: Must — trace: FR-P-01, FR-P-06a
 - An offer supports multiple price rows, one per price type, each with an optional active time window. No two active prices for the same offer and price type may overlap in time.
 - All active prices for an offer are returned by the API, each carrying the offer's currency code beside its amount. Each amount is also returned already converted into the buyer's display currency, as a string; the frontend renders the strings it is given and never performs currency arithmetic of its own.
 - At most one active LIST price per offer may exist at any time. Attempting to create a second active LIST price for the same offer is rejected (see US-S-04b).
-- **Price type resolution** — price type and current time are the only inputs. Account type and quantity are **not** inputs (`B2B_TIER` dropped from V1, BRD § Amendments D-02):
+- **Price type resolution** — price type and current time are the only inputs. Account type and quantity are **not** inputs (`B2B_TIER` dropped from V1, BRD § Amendments):
   1. `SALE` — if current time is within `starts_at`/`ends_at`.
   2. `LIST` — default fallback.
   Only the highest-priority applicable type is used. B2B and B2C accounts resolve to the same amount; B2B differentiation is branding only (FR-P-06d).
@@ -84,14 +84,15 @@ Priority: Must — trace: FR-P-06, NFR-03
 **Acceptance criteria**
 - Seed: 100 products across ≥ 6 top-level categories (electronics, books, home, apparel, kitchen, sports).
 - Each product has ≥ 1 offer from a seeded seller with ≥ 1 price (mix of USD, THB, JPY, SGD).
-- Random subset: 10% of offers carry a `SALE` price alongside their `LIST` price. No `B2B_TIER` prices — not a V1 price type (BRD § Amendments D-02).
+- Random subset: 10% of offers carry a `SALE` price alongside their `LIST` price. No `B2B_TIER` prices — not a V1 price type (BRD § Amendments).
 - Seed command is idempotent (rerun does not duplicate).
 - Seeded sellers: at minimum 3 seeded seller accounts are created. Each seeded seller has `seller.seller_profile.kyc_status = 'APPROVED'` and `seller.seller_profile.suspension_status = 'ACTIVE'` as set directly by the seed script (bypassing the KYC application queue — seeded sellers are pre-approved for demo purposes). These are two independent columns: the seller is approved and unsuspended, and neither value is derived from the other. One seeded seller corresponds to the "seller" demo account in BRD §11 (`seller@aliceut.dev`). The KYC onboarding flow (US-S-01) applies only to non-seeded sellers who register post-seed.
 - Demo accounts (all seeded on first startup):
-  - Consumer buyer:   `consumer@aliceut.dev` / `Consumer1234!`   (account_type: BUYER)
-  - Business buyer:   `business@aliceut.dev` / `Business1234!`   (account_type: B2B_BUYER)
-  - Seller:           `seller@aliceut.dev`   / `Seller1234!`     (account_type: SELLER, KYC status: APPROVED)
-  - Admin:            `admin@aliceut.dev`    / `Admin1234!`       (role: ADMIN)
+  - Consumer buyer:   `consumer@aliceut.dev` / `Consumer1234!`   (roles `['BUYER']`, account_type `B2C`)
+  - Business buyer:   `business@aliceut.dev` / `Business1234!`   (roles `['BUYER']`, account_type `B2B`, `business_name` set)
+  - Seller:           `seller@aliceut.dev`   / `Seller1234!`     (roles `['SELLER']`, account_type `B2C`, `seller_profile.kyc_status = 'APPROVED'`)
+  - Admin:            `admin@aliceut.dev`    / `Admin1234!`      (roles `['ADMIN']`, account_type `B2C`)
+  - `roles` and `account_type` are orthogonal columns ([data-model-erd § identity.user](../../technical-design/data-model-erd.md#table-identity-user)): `roles TEXT[]` ∈ {`BUYER`, `SELLER`, `ADMIN`} is what the account may do, `account_type` ∈ {`B2C`, `B2B`} is buyer-facing branding only (BRD §12 #2). Neither column has a `BUSINESS_BUYER` or `B2B_BUYER` value, and the seller account stays `B2C` because it carries no invoice branding of its own.
   - All passwords meet the password policy (8–128 chars, ≥ 1 letter, ≥ 1 digit).
 
 ---

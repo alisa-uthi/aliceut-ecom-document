@@ -1,12 +1,12 @@
 # Admin API — Administration
 
+**Status:** Complete  
 **Module:** `Admin`  
 **Parent:** [API Design Index](../api-design.md)  
-**Source of truth:** [BRD v1.3](../../requirements/BRD.md), [ERD](../data-model-erd.md)
+**Source of truth:** [BRD v1.4](../../requirements/BRD.md), [ERD](../data-model-erd.md)  
+**Conventions:** [api-conventions.md](../../../conventions/api-conventions.md) — `operationId` naming (`<Module>_<verb><Resource>`), response envelope, cursor pagination, error shape, money-as-string. Correlation-ID propagation, the error envelope and rate-limit headers apply to every endpoint in this document and are stated once in [api-design.md § 1 Conventions](../api-design.md#conventions). Every list endpoint below uses the cursor envelope of [api-conventions.md § Pagination](../../../conventions/api-conventions.md#pagination) — `cursor` + `limit` (default 20, max 100), `meta: { nextCursor, hasMore }`, and **no `total`**.
 
 > **Auth note:** Routes under `/admin/*` return `HTTP 403` for both unauthenticated requests (no/invalid token) and unauthorized requests (valid token but not ADMIN role), to avoid leaking the existence of admin-only routes.
-
-> **Conventions:** every endpoint accepts an `X-Correlation-ID` request header, generates a UUIDv7 when it is absent, echoes it on the response, and carries the same value into every log line and into the `correlation_id` of every `platform.outbox_event` row and Kafka envelope it writes — see [observability.md § Correlation ID Propagation](../../../conventions/observability.md#correlation-id). Error bodies use the envelope and code table in [api-conventions.md § Standard Error Shape](../../../conventions/api-conventions.md#standard-error-shape). Every list endpoint uses the cursor envelope of [api-conventions.md § Pagination](../../../conventions/api-conventions.md#pagination) — `cursor` + `limit` (default 20, max 100), `meta: { nextCursor, hasMore }`, and **no `total`**.
 
 > **Audit records are written by consumers, never by a handler.** No endpoint in this document writes to MongoDB. Every auditable action writes a `platform.outbox_event` row inside the same Postgres transaction as the domain change; the `platform.audit` consumer group reads the event and writes the `audit_logs` document (FR-P-11, [data-model-mongodb.md](../data-model-mongodb.md)). A handler that wrote MongoDB directly would put a second store on the request's success path and would bypass the outbox, so a rolled-back transaction could still leave an audit record claiming the action happened. The consumer masks every payload key matching `DEFAULT_SENSITIVE_KEYS` — `tax_id` among them — before insert. That masking rule governs the `audit_logs` write, whose payloads can carry a sensitive key; the `pii.accessed` payloads behind `pii_access_logs` carry no tax ID and no document content in the first place, so on that topic there is nothing to mask rather than something masked. A reader who expects a masked field in a `pii_access_logs` document will not find one.
 
@@ -121,7 +121,7 @@ Pagination: cursor
 | Field | Derivation |
 |-------|-----------|
 | `daysPending` | `NOW() - submitted_at`, whole days, computed for `PENDING` and `UNDER_REVIEW` rows; `null` once decided |
-| `slaBreached` | `NOW() > submitted_at + INTERVAL '72 hours'` — the red SLA badge (US-A-01). 72 hours in UTC, not business days |
+| `slaBreached` | `NOW() > review_due_at` — the red SLA badge (US-A-01). The deadline is the persisted column, not an interval derived here (BRD §12 #14 — 3 business days) |
 | `isResubmission` | An earlier `kyc_application` row exists for the same `seller_profile_id` |
 | `priorRejectionReason`, `priorRejectedAt` | `decision_reason` and `decided_at` of the most recent prior `REJECTED` application for that seller, so the admin sees what was already refused without opening a second record (US-A-01) |
 
@@ -139,7 +139,6 @@ sequenceDiagram
 
     C->>API: GET /admin/kyc?status=&country=&limit=&cursor=
     API->>G: verify token + ADMIN role
-    Note over G: 403 if no valid ADMIN token (missing, invalid, or non-ADMIN role)
     G-->>API: pass
     API->>S: listKycApplications(filters, cursor, limit)
     S->>PG: SELECT kyc_application JOIN seller_profile WHERE status=? AND submitted_data->>'country'=? AND (submitted_at, id) > (:cursorSubmittedAt, :cursorId) ORDER BY submitted_at ASC, id ASC LIMIT limit+1
@@ -202,7 +201,6 @@ sequenceDiagram
 
     C->>API: GET /admin/kyc/:applicationId
     API->>G: verify token + ADMIN role
-    Note over G: 403 if no valid ADMIN token (missing, invalid, or non-ADMIN role)
     G-->>API: pass
     API->>S: getKycDetail(applicationId, adminUserId)
     S->>PG: SELECT kyc_application JOIN seller_profile JOIN identity.user WHERE kyc_application.id = ?
@@ -259,7 +257,6 @@ sequenceDiagram
 
     C->>API: POST /admin/kyc/:applicationId/decide { decision, reason? }
     API->>G: verify token + ADMIN role
-    Note over G: 403 if no valid ADMIN token (missing, invalid, or non-ADMIN role)
     G-->>API: pass
     API->>S: decideKyc(applicationId, decision, reason, adminUserId)
     S->>S: validate reason (required when REJECTED, max 500 chars)
@@ -337,7 +334,6 @@ sequenceDiagram
 
     C->>API: GET /admin/sellers?kycStatus=&suspensionStatus=&q=&limit=&cursor=
     API->>G: verify token + ADMIN role
-    Note over G: 403 if no valid ADMIN token (missing, invalid, or non-ADMIN role)
     G-->>API: pass
     API->>S: listSellers(filters, cursor, limit)
     S->>PG: SELECT seller_profile JOIN identity.user, COUNT(offer) FILTER (status='ACTIVE'), COUNT(offer) FILTER (status='REMOVED') WHERE filters AND (created_at, id) < (:cursorCreatedAt, :cursorId) ORDER BY created_at DESC, id DESC LIMIT limit+1
@@ -410,7 +406,6 @@ sequenceDiagram
 
     C->>API: GET /admin/sellers/:sellerProfileId
     API->>G: verify token + ADMIN role
-    Note over G: 403 if no valid ADMIN token (missing, invalid, or non-ADMIN role)
     G-->>API: pass
     API->>S: getSellerDetail(sellerProfileId, adminUserId)
     S->>PG: SELECT seller_profile JOIN identity.user, COUNT(offer) by status WHERE seller_profile.id = ?
@@ -455,7 +450,7 @@ Auth: ADMIN
 Side effects: `seller.suspended` event via the outbox; every `ACTIVE` offer set `INACTIVE` with `status_changed_reason = 'SUSPENSION'`; `auth:revoke_before:{userId}` written.  
 **Errors:** 400 reason missing or over 500 chars, 404 seller not found, 409 seller is already suspended, 422 invalid `durationDays`
 
-**Re-suspension rules** (US-A-05:111-116, [Wave 0 D-11](../../audits/2026-09-22-wave0-decisions.md)):
+**Re-suspension rules** (US-A-05:111-116):
 
 | Current state | Outcome |
 |---|---|
@@ -483,7 +478,6 @@ sequenceDiagram
 
     C->>API: POST /admin/sellers/:sellerProfileId/suspend { reason, durationDays }
     API->>G: verify token + ADMIN role
-    Note over G: 403 if no valid ADMIN token (missing, invalid, or non-ADMIN role)
     G-->>API: pass
     API->>S: suspendSeller(sellerProfileId, reason, durationDays, adminUserId)
     S->>S: validate reason (required, max 500 chars), durationDays in {7, 30, 90, null}
@@ -502,7 +496,7 @@ sequenceDiagram
         S->>PG: UPDATE seller_profile SET suspension_status=SUSPENDED, suspended_until=:date, suspension_reason=:reason
         S->>PG: UPDATE catalog.offer SET status=INACTIVE, status_changed_reason='SUSPENSION' WHERE seller_profile_id=:sellerProfileId AND status='ACTIVE' RETURNING id
         S->>PG: INSERT outbox_event (topic='seller.suspended', aggregate_type='seller.seller_profile', aggregate_id=sellerProfileId, key=sellerProfileId, payload={seller_id:sellerProfileId, seller_user_id:userId, reason, admin_user_id:adminUserId, suspended_at:NOW(), offer_ids, is_permanent:(date IS NULL), suspended_until:date, duration_label, seller_name, seller_email, business_name})
-        Note over S,PG: The payload is the schema's full field set (kafka-events § 2.3). ET-10 renders the seller's name, the business name, the duration label and the expiry, and the in-app row is addressed by seller_user_id — none of which the notification consumer may read from seller.seller_profile or identity.user. There is no is_extension field: under D-11 this event fires once per suspension and has nothing to discriminate
+        Note over S,PG: The payload is the schema's full field set (kafka-events § 2.3). ET-10 renders the seller's name, the business name, the duration label and the expiry, and the in-app row is addressed by seller_user_id — none of which the notification consumer may read from seller.seller_profile or identity.user. There is no is_extension field: this event fires once per suspension and has nothing to discriminate — an amendment is a distinct operation on seller.suspension_amended
         S->>PG: COMMIT TX
         S->>R: SET auth:revoke_before:{userId} = NOW() EX 960
         Note over S,R: blocks every listing route on the seller's next request instead of 15 minutes later
@@ -529,7 +523,7 @@ Tag: Admin
 Auth: ADMIN
 ```
 
-The suspension is a sub-resource of the seller, and this is the only way to change one that is already in force ([Wave 0 D-11](../../audits/2026-09-22-wave0-decisions.md)). It exists because `POST .../suspend` now `409`s on a suspended seller: without it, correcting a wrong end date or a wrong reason would mean reinstating the seller and suspending them again, which sends ET-12 and ET-10 to a seller whose standing never actually changed and puts two false transitions in the audit trail.
+The suspension is a sub-resource of the seller, and this is the only way to change one that is already in force. It exists because `POST .../suspend` now `409`s on a suspended seller: without it, correcting a wrong end date or a wrong reason would mean reinstating the seller and suspending them again, which sends ET-12 and ET-10 to a seller whose standing never actually changed and puts two false transitions in the audit trail.
 
 **Request body** — both fields optional, at least one required
 ```json
@@ -576,7 +570,6 @@ sequenceDiagram
 
     C->>API: PATCH /admin/sellers/:sellerProfileId/suspension { suspendedUntil?, reason? }
     API->>G: verify token + ADMIN role
-    Note over G: 403 if no valid ADMIN token (missing, invalid, or non-ADMIN role)
     G-->>API: pass
     API->>S: amendSuspension(sellerProfileId, patch, adminUserId)
     S->>S: validate at least one field present, reason max 500 chars, suspendedUntil a future timestamp or explicit null
@@ -645,7 +638,6 @@ sequenceDiagram
 
     C->>API: POST /admin/sellers/:sellerProfileId/reinstate { reason }
     API->>G: verify token + ADMIN role
-    Note over G: 403 if no valid ADMIN token (missing, invalid, or non-ADMIN role)
     G-->>API: pass
     API->>S: reinstateSeller(sellerProfileId, reason, adminUserId)
     S->>S: validate reason (required, max 500 chars)
@@ -729,7 +721,6 @@ sequenceDiagram
 
     C->>API: GET /admin/moderation?status=&source=&limit=&cursor=
     API->>G: verify token + ADMIN role
-    Note over G: 403 if no valid ADMIN token (missing, invalid, or non-ADMIN role)
     G-->>API: pass
     API->>S: listModerationCases(filters, cursor, limit)
     S->>PG: SELECT moderation_case JOIN catalog.offer JOIN catalog.product JOIN seller.seller_profile WHERE status=? AND source=? AND (created_at, id) < (:cursorCreatedAt, :cursorId) ORDER BY created_at DESC, id DESC LIMIT limit+1
@@ -782,7 +773,6 @@ sequenceDiagram
 
     C->>API: GET /admin/moderation/:caseId
     API->>G: verify token + ADMIN role
-    Note over G: 403 if no valid ADMIN token (missing, invalid, or non-ADMIN role)
     G-->>API: pass
     API->>S: getModerationCase(caseId)
     S->>PG: SELECT moderation_case JOIN catalog.offer JOIN catalog.product JOIN seller.seller_profile WHERE moderation_case.id = ?
@@ -836,7 +826,7 @@ Auth: ADMIN
 
 **Product cascade on REMOVE.** After the offer is set `REMOVED`, the transaction checks whether any non-`REMOVED` offer remains on the product; if none does, `catalog.product.status` is set to `REMOVED` too, and `productRemoved` is `true` in the response (US-A-04:80). A product still sold by another seller is left alone — one seller's violation is not the other's.
 
-**The admin module publishes no `offer.changed` row.** The two paths here that need one — the DISMISS above and the manual flag at [`POST /admin/moderation`](#create-moderation-case-manual-flag) — reach it through `CatalogApplicationService.republishOffer(offerId, tx)`, which composes the payload from `catalog.offer` and writes the outbox row inside the caller's transaction. The topic has one producer, the module that owns the table ([kafka-events § 2.11](../kafka-events.md#211-offerchanged), [backend-module-architecture § Ownership boundaries](../backend-module-architecture.md#ownership-boundaries)): the payload carries `seller_name`, `seller_active` and `display_prices`, which come from `SellerApplicationService` and `PricingApplicationService`, and an admin handler composing them itself would be reading three schemas it does not own. Suspension and reinstatement publish no `offer.changed` at all: the bulk status move travels on `seller.suspended` / `seller.reinstated` carrying `offer_ids`, and the search consumer flips `seller_active` on those entries rather than re-reading each offer — which is why those two paths need no producer change. The `UPDATE catalog.offer SET status = …` statements beside all of these are still written from `AdminService` in this document; routing those through `CatalogApplicationService.setOfferStatus` is the remainder of the same D-03 migration and is not done here.
+**The admin module publishes no `offer.changed` row.** The two paths here that need one — the DISMISS above and the manual flag at [`POST /admin/moderation`](#create-moderation-case-manual-flag) — reach it through `CatalogApplicationService.republishOffer(offerId, tx)`, which composes the payload from `catalog.offer` and writes the outbox row inside the caller's transaction. The topic has one producer, the module that owns the table ([kafka-events § 2.11](../kafka-events.md#211-offerchanged), [backend-module-architecture § Ownership boundaries](../backend-module-architecture.md#ownership-boundaries)): the payload carries `seller_name`, `seller_active` and `display_prices`, which come from `SellerApplicationService` and `PricingApplicationService`, and an admin handler composing them itself would be reading three schemas it does not own. Suspension and reinstatement publish no `offer.changed` at all: the bulk status move travels on `seller.suspended` / `seller.reinstated` carrying `offer_ids`, and the search consumer flips `seller_active` on those entries rather than re-reading each offer — which is why those two paths need no producer change. The `UPDATE catalog.offer SET status = …` statements beside all of these are still written from `AdminService` in this document; routing those through `CatalogApplicationService.setOfferStatus` is the remainder of the same sole-writer migration and is not done here.
 
 **The cascade emits `product.changed`, and it is the only thing that empties the search index.** The check, the status write and the outbox row are one call — `CatalogApplicationService.removeProductIfNoOffersRemain(productId, tx)`, which returns whether it fired and supplies the response's `productRemoved`. Catalog owns `catalog.product` and is the only module that can assemble the payload's `category_path`, `title`, `variants[]` and `images[]` without reading another schema, so the cascade belongs behind its application service rather than in this handler.
 
@@ -869,7 +859,6 @@ sequenceDiagram
 
     C->>API: POST /admin/moderation/:caseId/decide { decision, reason? }
     API->>G: verify token + ADMIN role
-    Note over G: 403 if no valid ADMIN token (missing, invalid, or non-ADMIN role)
     G-->>API: pass
     API->>S: decideModerationCase(caseId, decision, reason, adminUserId)
     S->>S: validate reason (required for REMOVE, max 500 chars either way) and removalCategory (required for REMOVE, rejected on DISMISS)
@@ -986,7 +975,6 @@ sequenceDiagram
 
     C->>API: POST /admin/moderation/bulk-remove { cases[], sharedReason? }
     API->>G: verify token + ADMIN role
-    Note over G: 403 if no valid ADMIN token (missing, invalid, or non-ADMIN role)
     G-->>API: pass
     API->>S: bulkRemove(cases, sharedReason, adminUserId)
     S->>S: validate 1..100 cases, each resolving a reason (own or shared) of max 500 chars and a removalCategory (own or shared)
@@ -1074,7 +1062,6 @@ sequenceDiagram
 
     C->>API: POST /admin/moderation { offerId, reason }
     API->>G: verify token + ADMIN role
-    Note over G: 403 if no valid ADMIN token (missing, invalid, or non-ADMIN role)
     G-->>API: pass
     API->>S: createModerationCase(offerId, reason, adminUserId)
     S->>S: validate reason (required, max 500 chars)
@@ -1221,7 +1208,6 @@ sequenceDiagram
 
     C->>API: POST | PATCH | DELETE /admin/keyword-blocklist[/:termId]
     API->>G: verify token + ADMIN role
-    Note over G: 403 if no valid ADMIN token (missing, invalid, or non-ADMIN role)
     G-->>API: pass
     API->>S: mutateBlocklist(dto, adminUserId)
     S->>S: validate term length, matchType and category enums&#59; compile REGEX terms
@@ -1274,7 +1260,7 @@ The four counts US-A-00 requires, plus the open-case count the moderation queue 
   }
 }
 ```
-**`slaBreach`:** count of KYC applications with `status = PENDING` and `submitted_at < NOW() - INTERVAL '72 hours'` — i.e., breached the 72-hour review SLA (US-A-01:41).
+**`slaBreach`:** count of KYC applications with `status = PENDING` and `review_due_at < NOW()` — i.e., past the persisted review SLA deadline (US-A-01:41, BRD §12 #14).
 
 #### Sequence
 
@@ -1288,13 +1274,12 @@ sequenceDiagram
 
     C->>API: GET /admin/dashboard/stats
     API->>G: verify token + ADMIN role
-    Note over G: 403 if no valid ADMIN token (missing, invalid, or non-ADMIN role)
     G-->>API: pass
     API->>S: getDashboardStats()
     par aggregate queries
         S->>PG: COUNT kyc_application WHERE status = PENDING
     and
-        S->>PG: COUNT kyc_application WHERE status = PENDING AND submitted_at < NOW() - INTERVAL '72 hours'
+        S->>PG: COUNT kyc_application WHERE status = PENDING AND review_due_at < NOW()
     and
         S->>PG: COUNT moderation_case WHERE status = OPEN
     and

@@ -3,7 +3,7 @@
 **Status:** Active  
 **Source:** [VoltAgent/awesome-claude-code-subagents](https://github.com/VoltAgent/awesome-claude-code-subagents)
 
-All developers on this project use the same set of Claude Code subagents. This ensures consistent code quality, architectural alignment, and review depth across every contribution — regardless of who writes it.
+This project routes work to a fixed set of Claude Code subagents so every contribution gets the same review depth and the same architectural checks.
 
 ---
 
@@ -25,9 +25,9 @@ All developers on this project use the same set of Claude Code subagents. This e
 
 Subagents are specialized Claude Code agents with a narrow, well-defined role: they have a scoped system prompt, a specific tool set, and a fixed output contract. Using the right agent for a task produces better output than asking a general-purpose Claude session to do everything.
 
-**Why we enforce this:**
+**Why:**
 
-- Consistency — every developer's backend code is reviewed by the same agent with the same checklist.
+- Consistency — backend code is always reviewed by the same agent against the same checklist.
 - Depth — a dedicated `backend-developer` agent knows NestJS, TypeORM, Kafka outbox, and module tier rules better than a general-purpose session.
 - Auditability — the subagent used is visible in the Claude Code session log, so any reviewer can see what checks ran.
 
@@ -165,9 +165,9 @@ These agents are available but situational. Invoke them when the specific concer
 | TypeScript type system | `ecc:typescript-reviewer` | Advanced generic patterns, DTO type widening/narrowing, TypeORM transformer types |
 | Accessibility | `ecc:a11y-architect` | WCAG compliance checks on Angular components, especially buyer portal flows |
 
-### Suggested improvement over a plain routing list
+### Pre-push reminder hook
 
-A routing list alone does not prevent agents being skipped. Consider adding a pre-push Git hook that reminds (but does not block) the developer to run the review pair. Add to `aliceut-ecom-backend/.husky/pre-push` and `aliceut-ecom-frontend/.husky/pre-push`:
+A routing list alone does not stop an agent being skipped. A pre-push hook that reminds without blocking keeps the habit visible. Add to `aliceut-ecom-backend/.husky/pre-push` and `aliceut-ecom-frontend/.husky/pre-push`:
 
 ```bash
 #!/usr/bin/env sh

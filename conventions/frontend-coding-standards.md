@@ -1,7 +1,7 @@
 # Frontend Coding Standards
 
 **Status:** Complete  
-**Source of truth:** [BRD v1.3](../phase-1/requirements/BRD.md), [design-system](design-system.md)
+**Source of truth:** [BRD v1.4](../phase-1/requirements/BRD.md), [design-system](design-system.md)
 
 ---
 
@@ -50,11 +50,11 @@ aliceut-ecom-frontend/
 | `ProductCardComponent`, `StatusBadgeComponent`, all shared UI | `libs/ui/` |
 | `CurrencyDisplayPipe`, `TimeAgoPipe`, `TruncatePipe` | `libs/ui/src/lib/pipes/` |
 | `formatMoney()`, `parseCurrencyScale()` pure utils | `libs/shared-util/` |
-| `CartService`, `AuthService`, `NotificationService` | App-level (`apps/<portal>/src/app/core/`) — not shared-ui |
+| `CartService`, `AuthService`, `NotificationService` | App-level (`apps/<portal>/src/app/core/`) — not `libs/ui` |
 | Feature modules (product listing, checkout, KYC flow) | `apps/<portal>/src/app/features/<name>/` |
 | Portal shell, routing, guards | `apps/<portal>/src/app/` |
 
-**Import boundary:** `shared-ui` and `shared-util` must not import from any app or from each other circularly. Apps import from libs; libs never import from apps.
+**Import boundary:** `libs/ui` and `libs/shared-util` must not import from any app or from each other circularly. Apps import from libs; libs never import from apps.
 
 Path aliases in `tsconfig.base.json`:
 
@@ -93,9 +93,9 @@ export class ProductCardComponent { ... }
 | Type | Responsibilities | Rule |
 |------|-----------------|------|
 | **Smart (container)** | Injects services, fetches data, handles routing, dispatches actions | One per feature route; named `<Feature>PageComponent` |
-| **Dumb (presentational)** | Renders inputs, emits output events, no service injection | All shared-ui components; no `inject()` for domain services |
+| **Dumb (presentational)** | Renders inputs, emits output events, no service injection | All `libs/ui` components; no `inject()` for domain services |
 
-Pass data down via `@Input()`. Communicate up via `@Output()` events. Never inject `CartService` or `AuthService` inside a component in `shared-ui/`.
+Pass data down via `@Input()`. Communicate up via `@Output()` events. Never inject `CartService` or `AuthService` inside a component in `libs/ui/`.
 
 ### Change detection
 
@@ -246,7 +246,7 @@ Smart components call `apiErrorHandler.handle(err)` in their `catchError`. Never
 <a id="5-money-display-patterns"></a>
 ## 5. Money display patterns
 
-All monetary values arrive from the API as **strings** (e.g. `"99.9900"`). See [api-conventions.md § Money](api-conventions.md).
+All monetary values arrive from the API as **strings** (e.g. `"99.99"`). See [api-conventions.md § Money](api-conventions.md#money).
 
 ### Rule
 
@@ -444,7 +444,7 @@ Before writing a custom component, check whether an Angular Material component f
 
 ### Table pagination — Previous/Next only
 
-All list endpoints are cursor-paginated and return no total ([api-conventions.md § Pagination](api-conventions.md#pagination)). `MatPaginator` needs a `length` to render page numbers, a page count, or "N of M", and there is none — so it is not used. `DataTableComponent` renders a Previous / Next footer with the current page's row count, and the smart component owns the cursor stack: push `meta.nextCursor` on Next, pop on Previous.
+All list endpoints are cursor-paginated and return no total ([api-conventions.md § Pagination](api-conventions.md#pagination)), so `MatPaginator` is not used — it needs a `length` to render page numbers, a page count, or "N of M", and there is none. Use `DataTableComponent`; its Previous/Next footer contract and the smart component's duty to own the cursor stack are specified in [design-system.md § 8.6](design-system.md#86-datatable).
 
 Because the user cannot infer position from a page count, every table states its boundaries explicitly: an empty result renders `EmptyState`, and the last page disables Next with an "End of list" caption. Never fake a total by counting loaded rows.
 
@@ -480,7 +480,7 @@ this.snackBar.open(errorMessage, 'Dismiss', {
 });
 ```
 
-Define `snack-success` and `snack-error` panel classes in the global stylesheet using semantic color tokens from [design-system.md § 2](design-system.md).
+Define `snack-success` and `snack-error` panel classes in the global stylesheet using semantic color tokens from [design-system.md § 2](design-system.md#2-color-palette).
 
 ---
 
@@ -590,7 +590,7 @@ Every `mat-form-field` must contain a `mat-label`. Never rely on `placeholder` a
 
 ### Color is never the only state indicator
 
-All status badges combine color and text (or color and icon). Never use color alone. See [design-system.md § 8.2](design-system.md) for `StatusBadgeComponent`.
+All status badges combine color and text (or color and icon). Never use color alone. See [design-system.md § 8.2](design-system.md#8-shared-component-library-libsui) for `StatusBadgeComponent`.
 
 ### Images
 

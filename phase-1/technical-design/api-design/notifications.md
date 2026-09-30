@@ -3,9 +3,8 @@
 **Status:** Complete  
 **Module:** `Notifications`  
 **Parent:** [API Design Index](../api-design.md)  
-**Source of truth:** [BRD v1.3](../../requirements/BRD.md), [ERD](../data-model-erd.md)  
-**Conventions:** [api-conventions.md](../../../conventions/api-conventions.md) — `operationId` naming (`<Module>_<verb><Resource>`), response envelope, cursor pagination, error shape  
-**Correlation:** every endpoint accepts an `X-Correlation-ID` request header, generates a UUIDv7 when it is absent, echoes it on the response, and carries the same value into every log line; a consumer carries the `correlation_id` of the event it is processing into the log lines it writes — see [observability.md § Correlation ID](../../../conventions/observability.md#correlation-id).
+**Source of truth:** [BRD v1.4](../../requirements/BRD.md), [ERD](../data-model-erd.md)  
+**Conventions:** [api-conventions.md](../../../conventions/api-conventions.md) — `operationId` naming (`<Module>_<verb><Resource>`), response envelope, cursor pagination, error shape, money-as-string. Correlation-ID propagation, the error envelope and rate-limit headers apply to every endpoint in this document and are stated once in [api-design.md § 1 Conventions](../api-design.md#conventions). A consumer carries the `correlation_id` of the event it is processing into the log lines it writes.
 
 ---
 
@@ -49,6 +48,11 @@ See [Notification Creation (Async)](#notification-creation-async) for the Kafka 
 <a id="endpoints"></a>
 ## Endpoints
 
+> **`API->>JG: verify JWT` in every sequence below** stands for the same check: a
+> missing, invalid or expired access token is `401 Unauthorized` and the handler is
+> never reached. No route here is role-scoped — every authenticated user reads their
+> own notifications ([auth-jwt-design § 4](../../../conventions/auth-jwt-design.md#auth-guards)).
+
 ### List in-app notifications
 
 ```
@@ -85,16 +89,12 @@ sequenceDiagram
 
     C->>API: GET /notifications?unreadOnly=true&limit=20&cursor=...
     API->>JG: verify JWT
-    alt invalid or missing token
-        JG-->>C: 401 Unauthorized
-    else valid JWT
-        JG-->>API: userId
-        API->>S: listNotifications(userId, filters, cursor)
-        S->>PG: SELECT in_app_notification<br/>WHERE recipient_user_id = ?<br/>  [AND read_at IS NULL]<br/>  [AND (created_at, id) < (:cursorCreatedAt, :cursorId)]<br/>ORDER BY created_at DESC, id DESC<br/>LIMIT :limit + 1
-        Note over S,PG: Keyset predicate on the unique (created_at, id) tuple. No COUNT(*) — the envelope carries no total
-        PG-->>S: rows
-        S-->>C: 200 { data[], meta: { nextCursor, hasMore } }
-    end
+    JG-->>API: userId
+    API->>S: listNotifications(userId, filters, cursor)
+    S->>PG: SELECT in_app_notification<br/>WHERE recipient_user_id = ?<br/>  [AND read_at IS NULL]<br/>  [AND (created_at, id) < (:cursorCreatedAt, :cursorId)]<br/>ORDER BY created_at DESC, id DESC<br/>LIMIT :limit + 1
+    Note over S,PG: Keyset predicate on the unique (created_at, id) tuple. No COUNT(*) — the envelope carries no total
+    PG-->>S: rows
+    S-->>C: 200 { data[], meta: { nextCursor, hasMore } }
 ```
 
 ---
@@ -127,16 +127,12 @@ sequenceDiagram
 
     C->>API: GET /notifications/unread-count
     API->>JG: verify JWT
-    alt invalid or missing token
-        JG-->>C: 401 Unauthorized
-    else valid JWT
-        JG-->>API: userId
-        API->>S: getUnreadCount(userId)
-        S->>PG: SELECT COUNT(*) FROM in_app_notification<br/>WHERE recipient_user_id = ? AND read_at IS NULL
-        Note over S,PG: Scoped to the caller's own rows, computed per call.<br/>No counter column and no cache — the count is derived state, never stored
-        PG-->>S: count
-        S-->>C: 200 { data: { unreadCount } }
-    end
+    JG-->>API: userId
+    API->>S: getUnreadCount(userId)
+    S->>PG: SELECT COUNT(*) FROM in_app_notification<br/>WHERE recipient_user_id = ? AND read_at IS NULL
+    Note over S,PG: Scoped to the caller's own rows, computed per call.<br/>No counter column and no cache — the count is derived state, never stored
+    PG-->>S: count
+    S-->>C: 200 { data: { unreadCount } }
 ```
 
 ---
@@ -166,20 +162,16 @@ sequenceDiagram
 
     C->>API: PATCH /notifications/:notificationId/read
     API->>JG: verify JWT
-    alt invalid or missing token
-        JG-->>C: 401 Unauthorized
-    else valid JWT
-        JG-->>API: userId
-        API->>S: markRead(notificationId, userId)
-        S->>PG: UPDATE in_app_notification<br/>SET read_at = COALESCE(read_at, NOW())<br/>WHERE id = ? AND recipient_user_id = ?<br/>RETURNING id, read_at
-        Note over S,PG: Ownership is in the WHERE clause, so another user's row simply does not match.<br/>COALESCE makes a repeat call a no-op that returns the original read_at rather than moving it
-        alt no row returned
-            PG-->>S: 0 rows (absent, or owned by someone else)
-            S-->>C: 404 Not Found
-        else row returned
-            PG-->>S: { id, read_at }
-            S-->>C: 200 { data: { id, readAt } }
-        end
+    JG-->>API: userId
+    API->>S: markRead(notificationId, userId)
+    S->>PG: UPDATE in_app_notification<br/>SET read_at = COALESCE(read_at, NOW())<br/>WHERE id = ? AND recipient_user_id = ?<br/>RETURNING id, read_at
+    Note over S,PG: Ownership is in the WHERE clause, so another user's row simply does not match.<br/>COALESCE makes a repeat call a no-op that returns the original read_at rather than moving it
+    alt no row returned
+        PG-->>S: 0 rows (absent, or owned by someone else)
+        S-->>C: 404 Not Found
+    else row returned
+        PG-->>S: { id, read_at }
+        S-->>C: 200 { data: { id, readAt } }
     end
 ```
 
@@ -206,15 +198,11 @@ sequenceDiagram
 
     C->>API: PATCH /notifications/read-all
     API->>JG: verify JWT
-    alt invalid or missing token
-        JG-->>C: 401 Unauthorized
-    else valid JWT
-        JG-->>API: userId
-        API->>S: markAllRead(userId)
-        S->>PG: UPDATE in_app_notification SET read_at=NOW() WHERE recipient_user_id=? AND read_at IS NULL
-        PG-->>S: affected row count
-        S-->>C: 200 { data: { markedCount } }
-    end
+    JG-->>API: userId
+    API->>S: markAllRead(userId)
+    S->>PG: UPDATE in_app_notification SET read_at=NOW() WHERE recipient_user_id=? AND read_at IS NULL
+    PG-->>S: affected row count
+    S-->>C: 200 { data: { markedCount } }
 ```
 
 ---

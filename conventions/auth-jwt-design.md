@@ -1,7 +1,7 @@
 # Auth & JWT Design
 
 **Status:** Complete  
-**Source of truth:** [BRD v1.3](../phase-1/requirements/BRD.md), [api-design](../phase-1/technical-design/api-design.md)
+**Source of truth:** [BRD v1.4](../phase-1/requirements/BRD.md), [api-design](../phase-1/technical-design/api-design.md)
 
 ---
 
@@ -64,6 +64,10 @@ The refresh token is an **opaque** random string (32 bytes, `crypto.randomBytes(
 | Row retention | Rows are **never deleted** on rotation, logout, or revocation — retention is what makes reuse detection possible (§1.4) |
 | Expired row cleanup | Scheduled job in the `workers` service — see [cleanup-refresh-sessions](../phase-1/technical-design/cleanup-jobs.md#cleanup-refresh-sessions). It deletes only rows whose `revoked_at` is older than the refresh TTL plus `REFRESH_SESSION_CLEANUP_BUFFER_DAYS` (default 7) |
 
+### 1.3 Token storage (client side)
+- `accessToken`: in-memory (JavaScript variable, not localStorage). Reduces XSS token theft surface.
+- `refreshToken`: `HttpOnly; Secure; SameSite=Strict` cookie OR `localStorage` with content-security-policy mitigation — **[DESIGN DECISION]** using `HttpOnly` cookie for refresh token. Cookie path `/api/v1/auth` to minimize CSRF surface — the auth routes and nothing else. The path carries the global prefix and the version segment because there is no unversioned alias: a cookie scoped to `/auth` would never be sent to `POST /api/v1/auth/refresh`, and rotation would fail on the first attempt in every environment.
+
 ### 1.4 Reuse detection
 
 Because revoked sessions are retained, a stolen refresh token is detectable. `POST /auth/refresh` looks the presented token's hash up in `identity.refresh_session`:
@@ -82,10 +86,6 @@ On reuse the server:
 
 Reuse of an *expired* revoked session is handled the same way — expiry does not make a replayed token benign.
 
-### 1.3 Token storage (client side)
-- `accessToken`: in-memory (JavaScript variable, not localStorage). Reduces XSS token theft surface.
-- `refreshToken`: `HttpOnly; Secure; SameSite=Strict` cookie OR `localStorage` with content-security-policy mitigation — **[DESIGN DECISION]** using `HttpOnly` cookie for refresh token. Cookie path `/api/v1/auth` to minimize CSRF surface — the auth routes and nothing else. The path carries the global prefix and the version segment because there is no unversioned alias: a cookie scoped to `/auth` would never be sent to `POST /api/v1/auth/refresh`, and rotation would fail on the first attempt in every environment.
-
 ---
 
 <a id="seller-portal-auth-constraints"></a>
@@ -103,7 +103,7 @@ The seller portal uses **email/password only**. No OAuth. Reasons:
 - Email/password only. No registration endpoint.
 - Admin accounts are **seeded in the database** (`npm run seed:dev`); no self-service sign-up.
 - Admin session TTL: same 15-min access / 7-day refresh, but `roles: ["ADMIN"]` is never mixed with BUYER or SELLER.
-- No password reset UI in V1; password changes require direct DB update.
+- No **admin** password reset UI in V1; an admin password change is a direct DB update. Buyer and seller self-service reset is unaffected — it exists (US-B-13, US-S-12) and its token design is [§9](#password-reset-token-design).
 
 ---
 
@@ -120,7 +120,7 @@ The seller portal uses **email/password only**. No OAuth. Reasons:
 | `SellerApprovedGuard` | Custom guard | Checks `decodedToken.seller_kyc_status === 'APPROVED'` |
 | `SellerNotSuspendedGuard` | Custom guard | Checks `decodedToken.seller_suspension_status !== 'SUSPENDED'` |
 
-**Note on `SellerApprovedGuard` (`KycApprovedGuard`):** `SellerApprovedGuard` reads `seller_kyc_status` from the decoded JWT access token claim (field: `seller_kyc_status`, already present in access token per §1.1 JWT claims). It does NOT make an API round-trip to fetch the seller profile. The guard is a pure synchronous check on the decoded JWT payload.
+Every guard above except `JwtAuthGuard` is a pure synchronous check on the decoded JWT payload — the claims it reads are already in the access token (§1.1), so no guard queries Postgres or fetches a profile. `JwtAuthGuard` is the one exception, and its extra read is a single Redis `GET` (§10).
 
 Guards are applied via decorators:
 ```typescript
@@ -130,7 +130,7 @@ Guards are applied via decorators:
 
 ### 4.2 Guard evaluation matrix
 
-Maintained alongside each Phase API spec since it references phase-specific endpoints.
+Maintained alongside each phase's API spec, since it references phase-specific endpoints. For Phase 1: [api-design.md § 1.1](../phase-1/technical-design/api-design.md#11-guard-application-matrix).
 
 ---
 

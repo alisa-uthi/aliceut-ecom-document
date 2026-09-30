@@ -28,7 +28,10 @@ Daily log of work on this project. Newest entry on top. One entry per active day
 ```
 ---
 
+> **Note on `phase-1/audits/` paths below.** That directory is gone: its two files — `2026-09-22-wave0-decisions.md` (decision records D-01…D-14) and `2026-09-22-alignment-audit-fix-plan.md` — were committed on 2026-09-22 and deleted again on 2026-09-24 by commit `c5767b8`. A `phase-1/audits/README.md` was never committed at any point, so entries below that describe creating one describe work that did not land. Every `phase-1/audits/…` path in the dated entries records what was worked from at the time; none of them resolve today. The decisions themselves are recorded inline in the documents they bind — `BRD.md` §12 and its amendment list, and `CLAUDE.md` Core Rules — and in the git history of commits `4f24166`, `61bbda4`, `f0db299` and `c5767b8`.
+
 **Index**
+- [2026-09-30](#2026-09-30) — Dead `D-NN` pointer scrub finished; the five open audit contradictions resolved (BRD v1.4); `conventions/` pass closed.
 - [2026-09-24](#2026-09-24) — Alignment-audit Waves 2/3/4/5/6 fixes; all ten Wave 7 hygiene items.
 - [2026-09-22](#2026-09-22) — Alignment-audit Wave 0 decision gate (BRD v1.3) and Wave 1 event-contract fixes.
 - [2026-09-19](#2026-09-19) — Cross-document alignment audit; static backlog deleted in favour of GitHub Issues.
@@ -43,6 +46,33 @@ Daily log of work on this project. Newest entry on top. One entry per active day
 - [2026-08-29](#2026-08-29) — Requirements deep-dive: order lifecycle, buyer stories, auth portals, BA revalidation.
 - [2026-08-22](#2026-08-22) — Phase 1 technical-design kickoff; architecture overview + ERD.
 - [2026-08-19](#2026-08-19) — Requirements freeze (BRD v1.2 signed off) + repo scaffolding.
+
+<a id="2026-09-30"></a>
+## 2026-09-30
+**Focus:** finish the 2026-09-24 cleanup pass — scrub the dead decision pointers, then rule on the five contradictions it surfaced.
+
+**Done:**
+- Scrubbed all 59 dead `D-NN` decision citations left behind when `phase-1/audits/` was deleted (commit `c5767b8`), across 20 files. Each one had its decision's substance inlined at the citation site before the pointer came out, so nothing now points at an unopenable record. `docker-compose-topology.md` § `btree_gist` was rewritten rather than tag-stripped: it cited a decision record that turned out to be about the sole-writer rule and said nothing about `pg_cron`, so the bundled-contrib-versus-third-party argument is now stated in place.
+- Applied the five contradictions the alignment audit raised and deliberately left for a ruling. BRD to v1.4; version citation bumped in the 33 documents that name it.
+- Confirmed the `@aliceut/shared-ui` versus `libs/ui/` split in `frontend-coding-standards.md` is **not** a defect — one is the tsconfig path alias for the other's barrel file, and every site uses the right one.
+- Closed the `conventions/` pass the killed agent team left mid-run. Audited all 10 documents (4,671 lines) for dead links, cross-file duplication and stale scope claims: **0** dead links or anchors, and the only lines repeated across files are `**Source of truth:**` header boilerplate, which is supposed to repeat. No `72 hours`, `BUSINESS_BUYER` or `B2B_TIER` survives in `conventions/`. Delegation between overlapping documents is already one-directional — `api-conventions.md § Money` defers to `backend-coding-standards.md § 3`, `§ Correlation ID` to `observability.md`, and `conventions/kafka-events.md` (envelope, registry, idempotency, DLQ) to `phase-1/technical-design/kafka-events.md` (topic catalogue) — so nothing needed merging or deleting.
+- Header shape is now uniform: every one of the 10 carries `**Status:**` and `**Source of truth:**`. `data-lifecycle.md` had neither and `design-system.md` had no source line — it now names the Figma file as authority for visual design and the BRD for stack. `data-lifecycle.md` deliberately keeps no `## Summary` block: it is 19 lines with no sections to index.
+- Scoped `auth-jwt-design.md § 3`'s password-reset line to admins. It read "No password reset UI in V1" under a heading that limits it to the admin portal, which is correct in place but wrong when quoted — buyer and seller self-service reset exists (US-B-13, US-S-12) and is specified in § 9 of the same document.
+- Fixed a residue of the roles ruling that the first sweep missed: `user-stories/admin.md` still seeded the admin with a singular `role: ADMIN`. Now `roles = ['ADMIN']`, matching the `TEXT[]` column.
+
+**Decisions:**
+- FR-S-03 no longer lists price as a product attribute (BRD § Amendments 2026-09-30). Price lives on `Offer`; `POST /seller/products` and `POST /seller/offers` are separate writes.
+- FX rates are `NUMERIC(19,8)`, now stated at FR-P-04. The 4-digit rule binds monetary amounts; a rate is not one, and an inverse rate against a zero-decimal currency loses material precision at 4 digits.
+- Roles and `account_type` are orthogonal, ERD wins: `roles TEXT[]` ∈ {BUYER, SELLER, ADMIN}, `account_type` ∈ {B2C, B2B}. `BUSINESS_BUYER` and `B2B_BUYER` are gone from the stories, including the seed demo-account list. A seller who also buys adds the `BUYER` role to the same account — not a second account.
+- ET-08 has three trigger sources, not two. A `FLAG`-tier match at offer create **does** create the listing as `FLAGGED` and fires ET-08; only a prohibited node or a `BLOCK`-tier term is the 422-with-no-event path (FR-P-06c).
+- KYC review SLA is **3 business days** (BRD §12 #14), persisted once at submit as `seller.kyc_application.review_due_at`. Mon–Fri `Asia/Bangkok`, 17:00 cutoff, holiday set configurable and empty in V1. The four independent `submitted_at + INTERVAL '72 hours'` recomputations were the actual defect; every badge, count and email now reads the column.
+
+**Next:**
+- `phase-1/ui-design/` has no audit report — that partition stays unverified. (`conventions/` is now done.)
+- Smaller items still open: `README.md` Story Sequencing holds task state that belongs in GitHub Issues, near-duplicate password-reset stories US-B-13 / US-S-12, six NFRs defined and referenced nowhere (NFR-01, 04, 08, 12, 16, 17), and whether `api-design/seller.md` (2117 lines) should be split.
+- Backlog decomposition straight into GitHub Issues remains the pre-implementation gate.
+
+---
 
 <a id="2026-09-24"></a>
 ## 2026-09-24
@@ -67,14 +97,13 @@ Daily log of work on this project. Newest entry on top. One entry per active day
 **Decisions (Wave 7):**
 - `registeredJobs: 14`, derived rather than asserted: `@nestjs/schedule` counts decorated *methods*, and `cleanup.scheduler.ts` holds eight of them, so six single-job schedulers + 8 = 14, cross-checked against cleanup-jobs' ten rows + the four non-retention jobs (digest, FX refresh, delivery mock, auto-refund). The derivation is written into all three documents so the number stays auditable
 - `CHANGELOG.md` belongs to `aliceut-ecom-backend` and `aliceut-ecom-frontend`, neither of which exists yet. This documentation repo is never tagged and keeps no changelog — its running record is this file
-- `phase-1/audits/README.md` indexes the nine inline audits by commit with dates and diffstats rather than reconstructing their finding lists, which would be a guess and not a record. `architecture-overview.md` §14's row narrowed to match
+- ~~`phase-1/audits/README.md` indexes the nine inline audits by commit with dates and diffstats rather than reconstructing their finding lists, which would be a guess and not a record. `architecture-overview.md` §14's row narrowed to match~~ — **corrected 2026-09-24:** no such index was ever committed. The audit trail is the git history and this log; `architecture-overview.md` §14 no longer carries a row for it
 
 **Also:**
 - Hardcoded cross-document counts removed: no document now asserts “thirty-nine consumer groups”, “twenty-nine topics”, “forty DLQ topics” or `registeredJobs: 14`. Each statement now names the list that owns the items — the module summary table for consumer groups, `kafka-events.md § 1` for topics, the scheduled-task table for jobs — and keeps the counting *rule* (a DLQ is per consumer group, not per topic; the scheduler registry counts decorated methods, not files) without the tally. Touched `kafka-events.md`, `backend-module-architecture.md`, `consumer-field-matrix.md`, `docker-compose-topology.md`, `api-design/health.md`, `cleanup-jobs.md`. `consumer-field-matrix.md § 7` keeps its figures but is now labelled a dated audit record that nothing else should cite
 - Lock framing dropped across the living documents: no document now claims a BRD decision is locked, signed off, non-negotiable or not revisable. §12 is described as the decisions currently in force, changed by amending the BRD. Renames: `CLAUDE.md` “Locked Stack” → “Current Stack” and “Non-Negotiable Rules” → “Core Rules”; `development-flow.md` §10 “Cross-cutting non-negotiables” → “Cross-cutting rules” (anchor renamed with it, single inbound link updated); both `guidelines/templates/*-CLAUDE.md` “Locked stack” / “Non-negotiables” retitled. BRD status line, §12 heading and closing line reworded to “agreed” / “current baseline”. Dated entries in this log and in `phase-1/audits/` left as-is — they record what was decided at the time
 
 **Next:**
-- Whole 8-wave plan is applied; everything is still uncommitted, pending one review-and-commit pass
 - Redo backlog decomposition **directly into GitHub Issues** (no checked-in backlog file), then Sprint 1 implementation kickoff
 
 <a id="2026-09-22"></a>

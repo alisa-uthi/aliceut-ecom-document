@@ -1,10 +1,10 @@
 # Seller API
 
+**Status:** Complete  
 **Module:** `Seller`  
 **Parent:** [API Design Index](../api-design.md)  
-**Source of truth:** [BRD v1.3](../../requirements/BRD.md), [ERD](../data-model-erd.md)
-
-> **Conventions:** every endpoint accepts an `X-Correlation-ID` request header, generates a UUIDv7 when it is absent, echoes it on the response, and carries the same value into every log line and into the `correlation_id` of every `platform.outbox_event` row and Kafka envelope it writes — see [observability.md § Correlation ID Propagation](../../../conventions/observability.md#correlation-id). Error bodies use the envelope and code table in [api-conventions.md § Standard Error Shape](../../../conventions/api-conventions.md#standard-error-shape). Every list endpoint uses the cursor envelope of [api-conventions.md § Pagination](../../../conventions/api-conventions.md#pagination) — `cursor` + `limit` (default 20, max 100), `meta: { nextCursor, hasMore }`, and **no `total`**.
+**Source of truth:** [BRD v1.4](../../requirements/BRD.md), [ERD](../data-model-erd.md)  
+**Conventions:** [api-conventions.md](../../../conventions/api-conventions.md) — `operationId` naming (`<Module>_<verb><Resource>`), response envelope, cursor pagination, error shape, money-as-string. Correlation-ID propagation, the error envelope and rate-limit headers apply to every endpoint in this document and are stated once in [api-design.md § 1 Conventions](../api-design.md#conventions). Every list endpoint below uses the cursor envelope of [api-conventions.md § Pagination](../../../conventions/api-conventions.md#pagination) — `cursor` + `limit` (default 20, max 100), `meta: { nextCursor, hasMore }`, and **no `total`**.
 
 ---
 
@@ -84,9 +84,9 @@ Guard names are the ones defined in [api-conventions.md § Auth Guard Legend](..
 | `DELETE /seller/products/:productId` | Postgres | `CatalogApplicationService` (deactivate the caller's `catalog.offer` rows + `listing.soft_deleted` per offer; `catalog.product` → `REMOVED` + `product.changed` **only when no other seller holds a non-`REMOVED` offer**), `PricingApplicationService` (`pricing.offer_price` → `inactive_at`) |
 | `GET /seller/dashboard/summary` | Postgres | `orders.fulfillment`, `CatalogApplicationService`, `InventoryApplicationService` (counts only) |
 
-**No row above writes a table outside the `seller` schema.** Every write into `catalog`, `pricing`, `inventory` or `admin` is reached through that module's application service, which writes its own rows *and its own outbox row* inside the caller's transaction — so `catalog.offer` and `offer.changed` move together and the producer of every topic stays its schema owner (Wave 0 decision D-03). The service list and the method signatures are in [backend-module-architecture.md § Ownership boundaries](../backend-module-architecture.md#ownership-boundaries).
+**No row above writes a table outside the `seller` schema.** Every write into `catalog`, `pricing`, `inventory` or `admin` is reached through that module's application service, which writes its own rows *and its own outbox row* inside the caller's transaction — so `catalog.offer` and `offer.changed` move together and the producer of every topic stays its schema owner. This is the sole-writer rule: each Postgres schema has exactly one module that writes it, which is what keeps the Phase 2 extraction of a module possible at all (BRD §12 microservice-readiness). The service list and the method signatures are in [backend-module-architecture.md § Ownership boundaries](../backend-module-architecture.md#ownership-boundaries).
 
-**The claim is scoped to `catalog`, `pricing`, `inventory` and `admin`, and two groups of rows sit outside it.** The five `/seller/orders/*` rows name `orders.fulfillment`, `orders.fulfillment_item` and `orders.order` directly, and `POST /seller/register` names `identity.user`. D-03's change list ([2026-09-22-wave0-decisions.md](../../audits/2026-09-22-wave0-decisions.md#d-03--sole-writer-rule-enforce)) names the four schemas above and not these two, so routing them was not part of this document's pass — the rows are written as they were. They are **not** an exemption from the rule: `orders` and `identity` each have exactly one owning module, and the ship, refund and cancel routes writing `orders.fulfillment` and its outbox rows from a seller handler is the same shape as the writes that were routed. Whoever closes them gets `OrdersApplicationService` and `IdentityApplicationService` methods for the five order routes and for registration, on the pattern above. Until then, the rows here state what the document specifies rather than what the rule requires, and an implementer should not read the absence of a service call as permission.
+**The claim is scoped to `catalog`, `pricing`, `inventory` and `admin`, and two groups of rows sit outside it.** The five `/seller/orders/*` rows name `orders.fulfillment`, `orders.fulfillment_item` and `orders.order` directly, and `POST /seller/register` names `identity.user`. The sole-writer pass applied here covered only the `catalog`, `pricing`, `inventory` and `admin` access named above — the `catalog.offer`, `catalog.product`, `catalog.product_variant`, `catalog.product_image`, `pricing.offer_price` and `inventory.stock` writes and the `admin.moderation_case` read — and not these two, so routing them was not part of it — the rows are written as they were. They are **not** an exemption from the rule: `orders` and `identity` each have exactly one owning module, and the ship, refund and cancel routes writing `orders.fulfillment` and its outbox rows from a seller handler is the same shape as the writes that were routed. Whoever closes them gets `OrdersApplicationService` and `IdentityApplicationService` methods for the five order routes and for registration, on the pattern above. Until then, the rows here state what the document specifies rather than what the rule requires, and an implementer should not read the absence of a service call as permission.
 
 ---
 
@@ -94,6 +94,17 @@ Guard names are the ones defined in [api-conventions.md § Auth Guard Legend](..
 ## Sequence Diagram Conventions
 
 > **Guards read claims, not tables.** Every `Guards` participant below performs a signature-and-expiry check, one Redis `GET auth:revoke_before:{sub}` for revocation, and then pure comparisons against the decoded JWT claims `roles`, `seller_kyc_status` and `seller_suspension_status` ([auth-jwt-design § 4](../../../conventions/auth-jwt-design.md#auth-guards)). No guard queries Postgres: the claims exist precisely so authorization costs no round trip, and a status change reaches the token within one request via the Redis revocation key rather than by re-reading a row every time. The `sellerProfileId` a handler needs is resolved **once, in the service layer**, from `jwt.sub`; the guard never resolves it.
+>
+> **The guard chain is identical on every endpoint and is drawn as one step.** Each diagram shows `A->>G: run the guard chain named above`, where "above" is that diagram's `Guard:` note naming the guard set. The chain it stands for is the same everywhere, evaluated in this order, first failure wins:
+>
+> | Condition | Response |
+> |---|---|
+> | JWT missing, invalid, expired, or revoked (`iat < revoke_before`) | `401 Unauthorized` |
+> | `jwt.roles` does not include `SELLER` | `403 Forbidden — SELLER role required` |
+> | `jwt.seller_kyc_status != APPROVED`, where the guard set includes `SELLER_APPROVED` | `403 Forbidden — KYC not approved` |
+> | `jwt.seller_suspension_status = SUSPENDED`, where the guard set includes `SELLER_ACTIVE` or "not suspended" | `403 Forbidden — seller suspended` |
+>
+> An endpoint whose `Guard:` note omits a row does not evaluate it — `POST /seller/kyc` runs neither status check, and the three suspended-seller routes below run no suspension check. The per-endpoint guard set is also in the [Endpoint Index](#endpoint-index) and in [api-design.md § 1.1](../api-design.md#11-guard-application-matrix).
 >
 > **Foreign schemas are reached through application services, never by SQL.** A diagram step drawn as `CatalogApplicationService`, `PricingApplicationService`, `InventoryApplicationService` or `ModerationApplicationService` is a call into the module that owns those tables, taking the caller's transaction handle; the `seller` module writes `seller.seller_profile` and `seller.kyc_application` and nothing else. The service that owns a table also writes that table's outbox row, which is why `offer.changed` appears in a Catalog step and `inventory.changed` in an Inventory one rather than both in a `SellerService` step. Where a sequence writes three schemas — listing creation — the transaction boundary belongs to the seller module and each write inside it belongs to its owner. Signatures: [backend-module-architecture.md § Ownership boundaries](../backend-module-architecture.md#ownership-boundaries).
 >
@@ -275,7 +286,7 @@ Side effect: `seller.kyc.submitted` event via the outbox — the notification co
 
 A file failing the extension or MIME check is `415`; one over the size limit is `413`. Neither is stored, and a rejected file fails the whole request rather than being silently dropped — a seller who believes they uploaded a licence that never arrived waits out the review SLA for nothing.
 
-**No malware scanning in V1 — accepted risk (D-48).** An antivirus sidecar is infrastructure V1 does not carry, so an uploaded document is stored unscanned. The mitigations that reduce the blast radius are the three above plus:
+**No malware scanning in V1 — accepted risk.** An antivirus sidecar is infrastructure V1 does not carry, so an uploaded document is stored unscanned. The mitigations that reduce the blast radius are the three above plus:
 
 - The `kyc-documents` bucket is private. There is no public URL and no anonymous presigned read; the only read path is [`GET /admin/kyc/:applicationId`](./admin.md#get-kyc-application-detail), which is ADMIN-only and issues a 5-minute presigned GET.
 - The admin portal **downloads** documents rather than rendering them inline, so no uploaded bytes are executed or parsed by a viewer in a session holding an admin token.
@@ -289,7 +300,6 @@ sequenceDiagram
     participant C as Client
     participant A as API (NestJS)
     participant G as Guards
-    participant R as Redis
     participant SS as SellerService
     participant P as Postgres
     participant ObjS as ObjectStorage
@@ -298,13 +308,7 @@ sequenceDiagram
 
     C->>A: POST /seller/kyc (multipart/form-data)
     Note over A,G: Guard: JWT + SELLER. No SellerApproved (circular) and no EmailVerified.
-    A->>G: verify JWT signature + expiry
-    G->>R: GET auth:revoke_before:{jwt.sub}
-    alt JWT missing, invalid, expired, or revoked (iat < revoke_before)
-        G-->>C: 401 Unauthorized
-    else jwt.roles does not include SELLER
-        G-->>C: 403 Forbidden — SELLER role required
-    end
+    A->>G: run the guard chain named above
     G-->>A: authorized (claims only — no DB read)
 
     A->>SS: submitKyc(dto, jwt.sub)
@@ -371,18 +375,11 @@ sequenceDiagram
     participant C as Client
     participant A as API (NestJS)
     participant G as Guards
-    participant R as Redis
     participant P as Postgres
 
     C->>A: GET /seller/profile
     Note over A,G: Guard: JWT + SELLER. Suspension is NOT checked — a suspended seller must be able to read their own suspension reason (US-S-02:42).
-    A->>G: verify JWT signature + expiry
-    G->>R: GET auth:revoke_before:{jwt.sub}
-    alt JWT missing, invalid, expired, or revoked (iat < revoke_before)
-        G-->>C: 401 Unauthorized
-    else jwt.roles does not include SELLER
-        G-->>C: 403 Forbidden — SELLER role required
-    end
+    A->>G: run the guard chain named above
     G-->>A: authorized (claims only — no DB read)
 
     A->>P: SELECT seller.seller_profile WHERE id = :sellerProfileId
@@ -427,18 +424,11 @@ sequenceDiagram
     participant C as Client
     participant A as API (NestJS)
     participant G as Guards
-    participant R as Redis
     participant P as Postgres
 
     C->>A: GET /seller/kyc
     Note over A,G: Guard: JWT + SELLER. Suspension is NOT checked — same exemption as GET /seller/profile.
-    A->>G: verify JWT signature + expiry
-    G->>R: GET auth:revoke_before:{jwt.sub}
-    alt JWT missing, invalid, expired, or revoked (iat < revoke_before)
-        G-->>C: 401 Unauthorized
-    else jwt.roles does not include SELLER
-        G-->>C: 403 Forbidden — SELLER role required
-    end
+    A->>G: run the guard chain named above
     G-->>A: authorized (claims only — no DB read)
 
     A->>P: SELECT seller.kyc_application WHERE seller_profile_id = :sellerProfileId ORDER BY submitted_at DESC LIMIT 2
@@ -481,23 +471,14 @@ sequenceDiagram
     participant C as Client
     participant A as API (NestJS)
     participant G as Guards
-    participant R as Redis
     participant P as Postgres
     participant KO as Kafka Outbox
     participant KR as Kafka Relay
 
     C->>A: PATCH /seller/profile { businessName?, submittedData? }
     Note over A,G: Guard: JWT + SELLER + not suspended (writes are blocked while suspended&#59; the matching read is not)
-    A->>G: verify JWT signature + expiry
-    G->>R: GET auth:revoke_before:{jwt.sub}
-    alt JWT missing, invalid, expired, or revoked (iat < revoke_before)
-        G-->>C: 401 Unauthorized
-    else jwt.roles does not include SELLER
-        G-->>C: 403 Forbidden — SELLER role required
-    else jwt.seller_suspension_status = SUSPENDED
-        G-->>C: 403 Forbidden — seller suspended
-    end
-    G-->>A: authorized
+    A->>G: run the guard chain named above
+    G-->>A: authorized (claims only — no DB read)
 
     A->>A: validate request body
     alt validation fails
@@ -559,7 +540,6 @@ sequenceDiagram
     participant C as Client
     participant A as API (NestJS)
     participant G as Guards
-    participant R as Redis
     participant SS as SellerService
     participant P as Postgres
     participant ObjS as ObjectStorage
@@ -568,16 +548,8 @@ sequenceDiagram
 
     C->>A: POST /seller/kyc/resubmit (multipart/form-data)
     Note over A,G: Guard: JWT + SELLER + not suspended (resubmission is a write)
-    A->>G: verify JWT signature + expiry
-    G->>R: GET auth:revoke_before:{jwt.sub}
-    alt JWT missing, invalid, expired, or revoked (iat < revoke_before)
-        G-->>C: 401 Unauthorized
-    else jwt.roles does not include SELLER
-        G-->>C: 403 Forbidden — SELLER role required
-    else jwt.seller_suspension_status = SUSPENDED
-        G-->>C: 403 Forbidden — seller suspended
-    end
-    G-->>A: authorized
+    A->>G: run the guard chain named above
+    G-->>A: authorized (claims only — no DB read)
 
     A->>SS: resubmitKyc(dto, sellerProfileId)
     SS->>P: SELECT seller.kyc_application WHERE seller_profile_id = :sellerProfileId ORDER BY submitted_at DESC LIMIT 1
@@ -667,7 +639,7 @@ Side effects: `offer.changed` event, `inventory.changed` event via outbox; on a 
 **Errors:** 400 validation or no LIST price, 404 product not found, 409 offer already exists for this product+variant, 422 prohibited category, 422 currency not in the seller-priceable set, 422 hard-blocklist (`BLOCK`) hit
 
 <a id="offer-create-screening"></a>
-**This is where the two tiers of D-05 produce a listing.** The offer is the listing: it is what a buyer sees, what search indexes, and what `admin.moderation_case.offer_id` points at. The content being screened is the product's stored `title` and `description` — the seller authored it at [`POST /seller/products`](#two-tier-moderation-guard), or another seller did on a shared product — so the screen runs again here rather than trusting the earlier pass, because the blocklist may have gained a term since.
+**This is where the two prohibited-content tiers produce a listing.** The offer is the listing: it is what a buyer sees, what search indexes, and what `admin.moderation_case.offer_id` points at. The content being screened is the product's stored `title` and `description` — the seller authored it at [`POST /seller/products`](#two-tier-moderation-guard), or another seller did on a shared product — so the screen runs again here rather than trusting the earlier pass, because the blocklist may have gained a term since.
 
 | Screening outcome | Result |
 |---|---|
@@ -688,7 +660,6 @@ sequenceDiagram
     participant C as Client
     participant A as API (NestJS)
     participant G as Guards
-    participant R as Redis
     participant OS as SellerService (offers)
     participant CAS as CatalogApplicationService
     participant PAS as PricingApplicationService
@@ -700,17 +671,7 @@ sequenceDiagram
 
     C->>A: POST /seller/offers { productId, variantId?, nativeCurrencyCode, prices[], initialStock, lowStockThreshold? }
     Note over A,G: Guard: JWT + SELLER_ACTIVE (SELLER_APPROVED + not suspended)
-    A->>G: verify JWT signature + expiry
-    G->>R: GET auth:revoke_before:{jwt.sub}
-    alt JWT missing, invalid, expired, or revoked (iat < revoke_before)
-        G-->>C: 401 Unauthorized
-    else jwt.roles does not include SELLER
-        G-->>C: 403 Forbidden — SELLER role required
-    else jwt.seller_kyc_status != APPROVED
-        G-->>C: 403 Forbidden — KYC not approved
-    else jwt.seller_suspension_status = SUSPENDED
-        G-->>C: 403 Forbidden — seller suspended
-    end
+    A->>G: run the guard chain named above
     G-->>A: authorized (claims only — no DB read)
 
     A->>OS: createOffer(dto, sellerProfileId)
@@ -829,22 +790,11 @@ sequenceDiagram
     participant C as Client
     participant A as API (NestJS)
     participant G as Guards
-    participant R as Redis
     participant P as Postgres
 
     C->>A: GET /seller/offers?status=&caseStatus=&limit=&cursor=
     Note over A,G: Guard: JWT + SELLER_ACTIVE (SELLER_APPROVED + not suspended)
-    A->>G: verify JWT signature + expiry
-    G->>R: GET auth:revoke_before:{jwt.sub}
-    alt JWT missing, invalid, expired, or revoked (iat < revoke_before)
-        G-->>C: 401 Unauthorized
-    else jwt.roles does not include SELLER
-        G-->>C: 403 Forbidden — SELLER role required
-    else jwt.seller_kyc_status != APPROVED
-        G-->>C: 403 Forbidden — KYC not approved
-    else jwt.seller_suspension_status = SUSPENDED
-        G-->>C: 403 Forbidden — seller suspended
-    end
+    A->>G: run the guard chain named above
     G-->>A: authorized (claims only — no DB read)
 
     A->>P: SELECT catalog.offer JOIN catalog.product LEFT JOIN pricing.offer_price ON offer_price.offer_id = offer.id AND offer_price.inactive_at IS NULL LEFT JOIN inventory.stock ON stock.offer_id = offer.id LEFT JOIN LATERAL (most recent admin.moderation_case for offer.id) mc ON true WHERE offer.seller_profile_id = :sellerProfileId AND offer.status = COALESCE(:status, offer.status) AND (offer.created_at, offer.id) < (:cursorCreatedAt, :cursorId) ORDER BY offer.created_at DESC, offer.id DESC LIMIT limit+1
@@ -876,22 +826,11 @@ sequenceDiagram
     participant C as Client
     participant A as API (NestJS)
     participant G as Guards
-    participant R as Redis
     participant P as Postgres
 
     C->>A: GET /seller/offers/:offerId
     Note over A,G: Guard: JWT + SELLER_ACTIVE (SELLER_APPROVED + not suspended)
-    A->>G: verify JWT signature + expiry
-    G->>R: GET auth:revoke_before:{jwt.sub}
-    alt JWT missing, invalid, expired, or revoked (iat < revoke_before)
-        G-->>C: 401 Unauthorized
-    else jwt.roles does not include SELLER
-        G-->>C: 403 Forbidden — SELLER role required
-    else jwt.seller_kyc_status != APPROVED
-        G-->>C: 403 Forbidden — KYC not approved
-    else jwt.seller_suspension_status = SUSPENDED
-        G-->>C: 403 Forbidden — seller suspended
-    end
+    A->>G: run the guard chain named above
     G-->>A: authorized (claims only — no DB read)
 
     A->>P: SELECT catalog.offer JOIN catalog.product WHERE offer.id = :offerId AND offer.seller_profile_id = :sellerProfileId
@@ -935,7 +874,6 @@ sequenceDiagram
     participant C as Client
     participant A as API (NestJS)
     participant G as Guards
-    participant R as Redis
     participant OS as SellerService (offers)
     participant CAS as CatalogApplicationService
     participant P as Postgres
@@ -944,18 +882,8 @@ sequenceDiagram
 
     C->>A: PATCH /seller/offers/:offerId { status }
     Note over A,G: Guard: JWT + SELLER_ACTIVE (SELLER_APPROVED + not suspended)
-    A->>G: verify JWT signature + expiry
-    G->>R: GET auth:revoke_before:{jwt.sub}
-    alt JWT missing, invalid, expired, or revoked (iat < revoke_before)
-        G-->>C: 401 Unauthorized
-    else jwt.roles does not include SELLER
-        G-->>C: 403 Forbidden — SELLER role required
-    else jwt.seller_kyc_status != APPROVED
-        G-->>C: 403 Forbidden — KYC not approved
-    else jwt.seller_suspension_status = SUSPENDED
-        G-->>C: 403 Forbidden — seller suspended
-    end
-    G-->>A: authorized
+    A->>G: run the guard chain named above
+    G-->>A: authorized (claims only — no DB read)
 
     OS->>CAS: getOfferForSeller(:offerId, sellerProfileId)
     CAS->>P: SELECT catalog.offer WHERE id = :offerId AND seller_profile_id = :sellerProfileId
@@ -1016,7 +944,7 @@ Auth: SELLER_ACTIVE
 A `PUT` therefore **updates the addressed row in place** and creates one only where none exists — it does not upsert over a uniqueness key that ignores the time bounds, which is what made a second `SALE` row impossible and let a duplicate `LIST` overwrite the live price without a word.
 
 **Response 200** — the written price row (`data`-wrapped), with `currencyCode` echoed from the offer  
-**Errors:** 404 offer not found or not owned by the caller, 409 duplicate active `LIST`, 409 overlapping `SALE` window, 422 `SALE` without valid time bounds, 422 unknown `priceType` (`LIST` and `SALE` are the V1 price types — Wave 0 decision D-02)
+**Errors:** 404 offer not found or not owned by the caller, 409 duplicate active `LIST`, 409 overlapping `SALE` window, 422 `SALE` without valid time bounds, 422 unknown `priceType` (`LIST` and `SALE` are the V1 price types)
 
 Price changes take effect immediately and do **not** affect in-flight orders: a `PENDING` fulfillment carries the unit price snapshotted at checkout (FR-P-03). The seller portal shows that warning on save (US-S-04b:93).
 
@@ -1027,7 +955,6 @@ sequenceDiagram
     participant C as Client
     participant A as API (NestJS)
     participant G as Guards
-    participant R as Redis
     participant OS as SellerService (pricing)
     participant CAS as CatalogApplicationService
     participant PAS as PricingApplicationService
@@ -1037,18 +964,8 @@ sequenceDiagram
 
     C->>A: PUT /seller/offers/:offerId/prices/:priceType { amount: "89.99", minQty, startsAt?, endsAt? }
     Note over A,G: Guard: JWT + SELLER_ACTIVE (SELLER_APPROVED + not suspended)
-    A->>G: verify JWT signature + expiry
-    G->>R: GET auth:revoke_before:{jwt.sub}
-    alt JWT missing, invalid, expired, or revoked (iat < revoke_before)
-        G-->>C: 401 Unauthorized
-    else jwt.roles does not include SELLER
-        G-->>C: 403 Forbidden — SELLER role required
-    else jwt.seller_kyc_status != APPROVED
-        G-->>C: 403 Forbidden — KYC not approved
-    else jwt.seller_suspension_status = SUSPENDED
-        G-->>C: 403 Forbidden — seller suspended
-    end
-    G-->>A: authorized
+    A->>G: run the guard chain named above
+    G-->>A: authorized (claims only — no DB read)
 
     OS->>CAS: getOfferForSeller(:offerId, sellerProfileId)
     CAS->>P: SELECT catalog.offer WHERE id = :offerId AND seller_profile_id = :sellerProfileId
@@ -1093,7 +1010,7 @@ DELETE /seller/offers/:offerId/prices/:priceId
 Tag: Seller
 Auth: SELLER_ACTIVE
 ```
-US-S-04b:90 lets a seller remove a `SALE` row without touching the product or the LIST price. `SALE` is the only non-`LIST` price type in V1 (Wave 0 decision D-02).
+US-S-04b:90 lets a seller remove a `SALE` row without touching the product or the LIST price. `SALE` is the only non-`LIST` price type in V1; there is no `B2B_TIER`.
 
 **Withdrawal, not deletion.** The handler sets `inactive_at = now()`; the row stays. A withdrawn row never participates in effective-price resolution and is excluded from both uniqueness constraints, so the slot it occupied is immediately reusable — while any historical reference to it remains readable. `:priceId` is the row's own `pricing.offer_price.id`, since price type and `min_qty` alone do not identify one row once sequential SALE windows exist.
 
@@ -1110,7 +1027,6 @@ sequenceDiagram
     participant C as Client
     participant A as API (NestJS)
     participant G as Guards
-    participant R as Redis
     participant OS as SellerService (pricing)
     participant CAS as CatalogApplicationService
     participant PAS as PricingApplicationService
@@ -1120,17 +1036,7 @@ sequenceDiagram
 
     C->>A: DELETE /seller/offers/:offerId/prices/:priceId
     Note over A,G: Guard: JWT + SELLER_ACTIVE (SELLER_APPROVED + not suspended)
-    A->>G: verify JWT signature + expiry
-    G->>R: GET auth:revoke_before:{jwt.sub}
-    alt JWT missing, invalid, expired, or revoked (iat < revoke_before)
-        G-->>C: 401 Unauthorized
-    else jwt.roles does not include SELLER
-        G-->>C: 403 Forbidden — SELLER role required
-    else jwt.seller_kyc_status != APPROVED
-        G-->>C: 403 Forbidden — KYC not approved
-    else jwt.seller_suspension_status = SUSPENDED
-        G-->>C: 403 Forbidden — seller suspended
-    end
+    A->>G: run the guard chain named above
     G-->>A: authorized (claims only — no DB read)
 
     OS->>CAS: getOfferForSeller(:offerId, sellerProfileId)
@@ -1197,7 +1103,6 @@ sequenceDiagram
     participant C as Client
     participant A as API (NestJS)
     participant G as Guards
-    participant R as Redis
     participant IS as SellerService (inventory)
     participant CAS as CatalogApplicationService
     participant IAS as InventoryApplicationService
@@ -1207,18 +1112,8 @@ sequenceDiagram
 
     C->>A: PATCH /seller/inventory/:offerId { onHandQty: 75 }
     Note over A,G: Guard: JWT + SELLER_ACTIVE (SELLER_APPROVED + not suspended)
-    A->>G: verify JWT signature + expiry
-    G->>R: GET auth:revoke_before:{jwt.sub}
-    alt JWT missing, invalid, expired, or revoked (iat < revoke_before)
-        G-->>C: 401 Unauthorized
-    else jwt.roles does not include SELLER
-        G-->>C: 403 Forbidden — SELLER role required
-    else jwt.seller_kyc_status != APPROVED
-        G-->>C: 403 Forbidden — KYC not approved
-    else jwt.seller_suspension_status = SUSPENDED
-        G-->>C: 403 Forbidden — seller suspended
-    end
-    G-->>A: authorized
+    A->>G: run the guard chain named above
+    G-->>A: authorized (claims only — no DB read)
 
     IS->>CAS: getOfferForSeller(:offerId, sellerProfileId)
     CAS->>P: SELECT catalog.offer WHERE id = :offerId AND seller_profile_id = :sellerProfileId
@@ -1298,7 +1193,6 @@ sequenceDiagram
     participant C as Client
     participant A as API (NestJS)
     participant G as Guards
-    participant R as Redis
     participant IS as SellerService (inventory)
     participant CAS as CatalogApplicationService
     participant IAS as InventoryApplicationService
@@ -1308,18 +1202,8 @@ sequenceDiagram
 
     C->>A: POST /seller/inventory/bulk (multipart/form-data: file=inventory.csv)
     Note over A,G: Guard: JWT + SELLER_ACTIVE (SELLER_APPROVED + not suspended)
-    A->>G: verify JWT signature + expiry
-    G->>R: GET auth:revoke_before:{jwt.sub}
-    alt JWT missing, invalid, expired, or revoked (iat < revoke_before)
-        G-->>C: 401 Unauthorized
-    else jwt.roles does not include SELLER
-        G-->>C: 403 Forbidden — SELLER role required
-    else jwt.seller_kyc_status != APPROVED
-        G-->>C: 403 Forbidden — KYC not approved
-    else jwt.seller_suspension_status = SUSPENDED
-        G-->>C: 403 Forbidden — seller suspended
-    end
-    G-->>A: authorized
+    A->>G: run the guard chain named above
+    G-->>A: authorized (claims only — no DB read)
 
     A->>IS: processBulkInventory(file, sellerProfileId)
     IS->>IS: parse CSV (validate: max 5 MB, max 10k rows, columns: sku, on_hand, low_stock_threshold?)
@@ -1421,20 +1305,13 @@ sequenceDiagram
     participant C as Client
     participant A as API (NestJS)
     participant G as Guards
-    participant R as Redis
     participant P as Postgres
 
     C->>A: GET /seller/orders?status=&placedFrom=&placedTo=&q=&limit=&cursor=
     Note over A,G: Guard: JWT + SELLER (suspended sellers explicitly permitted)
-    A->>G: verify JWT signature + expiry
-    G->>R: GET auth:revoke_before:{jwt.sub}
-    alt JWT missing, invalid, expired, or revoked (iat < revoke_before)
-        G-->>C: 401 Unauthorized
-    else jwt.roles does not include SELLER
-        G-->>C: 403 Forbidden — SELLER role required
-    end
-    Note over G: suspension_status check skipped — suspended sellers may access order list
+    A->>G: run the guard chain named above
     G-->>A: authorized (claims only — no DB read)
+    Note over G: suspension_status check skipped — suspended sellers may access order list
 
     A->>P: SELECT orders.fulfillment f JOIN orders.order o ON o.id = f.order_id JOIN identity.user b ON b.id = o.buyer_id WHERE f.seller_profile_id = :sellerProfileId AND f.status = COALESCE(:status, f.status) AND f.placed_at >= COALESCE(:placedFrom, f.placed_at) AND f.placed_at <= COALESCE(:placedTo, f.placed_at) AND (:q IS NULL OR f.display_id ILIKE :q OR o.display_id ILIKE :q) AND (f.placed_at, f.id) < (:cursorPlacedAt, :cursorId) ORDER BY f.placed_at DESC, f.id DESC LIMIT limit+1
     A->>P: SELECT COUNT(*), BOOL_OR(offer.status IN ('REMOVED','FLAGGED')) FROM orders.fulfillment_item JOIN catalog.offer USING (offer_id) GROUP BY fulfillment_id
@@ -1525,22 +1402,15 @@ sequenceDiagram
     participant C as Client
     participant A as API (NestJS)
     participant G as Guards
-    participant R as Redis
     participant P as Postgres
     participant KO as Kafka Outbox
     participant AC as audit consumer
 
     C->>A: GET /seller/orders/:fulfillmentId
     Note over A,G: Guard: JWT + SELLER (suspended sellers explicitly permitted)
-    A->>G: verify JWT signature + expiry
-    G->>R: GET auth:revoke_before:{jwt.sub}
-    alt JWT missing, invalid, expired, or revoked (iat < revoke_before)
-        G-->>C: 401 Unauthorized
-    else jwt.roles does not include SELLER
-        G-->>C: 403 Forbidden — SELLER role required
-    end
+    A->>G: run the guard chain named above
+    G-->>A: authorized (claims only — no DB read)
     Note over G: suspension_status check skipped — suspended sellers may access order detail
-    G-->>A: authorized
 
     A->>P: SELECT orders.fulfillment f JOIN orders.order o ON o.id = f.order_id WHERE f.id = :fulfillmentId AND f.seller_profile_id = :sellerProfileId
     alt no row (unknown id, or another seller's fulfillment)
@@ -1605,7 +1475,6 @@ sequenceDiagram
     participant C as Client
     participant A as API (NestJS)
     participant G as Guards
-    participant R as Redis
     participant OrdS as OrderService
     participant P as Postgres
     participant KO as Kafka Outbox
@@ -1613,15 +1482,9 @@ sequenceDiagram
 
     C->>A: POST /seller/orders/:fulfillmentId/ship
     Note over A,G: Guard: JWT + SELLER (suspended sellers explicitly permitted)
-    A->>G: verify JWT signature + expiry
-    G->>R: GET auth:revoke_before:{jwt.sub}
-    alt JWT missing, invalid, expired, or revoked (iat < revoke_before)
-        G-->>C: 401 Unauthorized
-    else jwt.roles does not include SELLER
-        G-->>C: 403 Forbidden — SELLER role required
-    end
+    A->>G: run the guard chain named above
+    G-->>A: authorized (claims only — no DB read)
     Note over G: suspension_status check skipped — suspended sellers may ship pending orders
-    G-->>A: authorized
 
     OrdS->>P: SELECT orders.fulfillment WHERE id = :fulfillmentId AND seller_profile_id = :sellerProfileId FOR UPDATE
     alt no row (unknown id, or another seller's fulfillment)
@@ -1705,7 +1568,6 @@ sequenceDiagram
     participant C as Client
     participant A as API (NestJS)
     participant G as Guards
-    participant R as Redis
     participant OrdS as OrderService
     participant P as Postgres
     participant KO as Kafka Outbox
@@ -1713,18 +1575,8 @@ sequenceDiagram
 
     C->>A: POST /seller/orders/:fulfillmentId/refund { reason }
     Note over A,G: Guard: JWT + SELLER_ACTIVE (SELLER_APPROVED + not suspended)
-    A->>G: verify JWT signature + expiry
-    G->>R: GET auth:revoke_before:{jwt.sub}
-    alt JWT missing, invalid, expired, or revoked (iat < revoke_before)
-        G-->>C: 401 Unauthorized
-    else jwt.roles does not include SELLER
-        G-->>C: 403 Forbidden — SELLER role required
-    else jwt.seller_kyc_status != APPROVED
-        G-->>C: 403 Forbidden — KYC not approved
-    else jwt.seller_suspension_status = SUSPENDED
-        G-->>C: 403 Forbidden — seller suspended
-    end
-    G-->>A: authorized
+    A->>G: run the guard chain named above
+    G-->>A: authorized (claims only — no DB read)
 
     A->>A: validate body (reason required, max 500 chars)
     alt validation fails
@@ -1744,7 +1596,7 @@ sequenceDiagram
 
     Note over P,KO: BEGIN TRANSACTION
     OrdS->>P: UPDATE orders.fulfillment SET status='REFUNDED', refunded_at=NOW(), updated_at=NOW() WHERE id=:fulfillmentId AND seller_profile_id = :sellerProfileId
-    Note over OrdS,P: no inventory write here — stock restoration belongs to the inventory consumer, keyed on fulfillment_id (D-16). Writing it in this transaction as well restored the stock twice.
+    Note over OrdS,P: no inventory write here — stock restoration belongs to the inventory consumer, keyed on fulfillment_id. Writing it in this transaction as well restored the stock twice.
     OrdS->>KO: INSERT platform.outbox_event (topic='fulfillment.refunded', aggregate_type='orders.fulfillment', aggregate_id=:fulfillmentId, key=order_id, payload={fulfillment_id, display_id, order_id, buyer_id, buyer_email, buyer_name, seller_id:sellerProfileId, seller_name, prior_status, stock_restored:(prior_status='PENDING'), refunded_at, refund_amount, currency_code, buyer_currency_total, buyer_display_currency, items[]})
     Note over OrdS,KO: Field names are the schema's (kafka-events § 2.7): buyer_currency_total, not buyer_currency_refund_amount — the refunded total is the captured fulfillment total and the payload calls it what orders.fulfillment calls it. buyer_email and buyer_name address and greet ET-04
     Note over OrdS,KO: stock_restored is false when prior_status = SHIPPED — the goods have left the warehouse (US-S-07:148)
@@ -1804,7 +1656,7 @@ Auth: SELLER_ACTIVE
 `warnings[]` is present only on a soft-tier screening hit — see below — and absent otherwise.
 
 <a id="two-tier-moderation-guard"></a>
-**A moderation guard hit on create has two outcomes, not one.** The tiers are D-05's and are defined on [`admin.keyword_blocklist.enforcement`](../data-model-erd.md#table-admin-keyword-blocklist); `ModerationApplicationService.screenListingContent()` returns the strictest one that matched ([backend-module-architecture § Ownership boundaries](../backend-module-architecture.md#ownership-boundaries)).
+**A moderation guard hit on create has two outcomes, not one.** The tiers are defined on [`admin.keyword_blocklist.enforcement`](../data-model-erd.md#table-admin-keyword-blocklist); `ModerationApplicationService.screenListingContent()` returns the strictest one that matched ([backend-module-architecture § Ownership boundaries](../backend-module-architecture.md#ownership-boundaries)).
 
 | Screening outcome | Result |
 |---|---|
@@ -1823,7 +1675,6 @@ sequenceDiagram
     participant C as Client
     participant A as API (NestJS)
     participant G as Guards
-    participant R as Redis
     participant PS as SellerService (products)
     participant CAS as CatalogApplicationService
     participant MAS as ModerationApplicationService
@@ -1833,18 +1684,8 @@ sequenceDiagram
 
     C->>A: POST /seller/products { title, description, categoryId, images[], variants[] }
     Note over A,G: Guard: JWT + SELLER_ACTIVE (SELLER_APPROVED + not suspended)
-    A->>G: verify JWT signature + expiry
-    G->>R: GET auth:revoke_before:{jwt.sub}
-    alt JWT missing, invalid, expired, or revoked (iat < revoke_before)
-        G-->>C: 401 Unauthorized
-    else jwt.roles does not include SELLER
-        G-->>C: 403 Forbidden — SELLER role required
-    else jwt.seller_kyc_status != APPROVED
-        G-->>C: 403 Forbidden — KYC not approved
-    else jwt.seller_suspension_status = SUSPENDED
-        G-->>C: 403 Forbidden — seller suspended
-    end
-    G-->>A: authorized
+    A->>G: run the guard chain named above
+    G-->>A: authorized (claims only — no DB read)
 
     A->>PS: createProduct(dto, sellerProfileId)
     PS->>PS: validate title 10-200, description <= 5000, images 1-10, variants >= 1 with unique sku
@@ -1860,7 +1701,7 @@ sequenceDiagram
     PS->>MAS: screenListingContent({ title, description, categoryId })
     MAS->>MAS: scan title + description against the in-process keyword-blocklist cache (admin.keyword_blocklist active terms, TTL KEYWORD_BLOCKLIST_CACHE_TTL) — admin owns the blocklist, so admin owns the scan
     MAS-->>PS: { outcome: CLEAN | FLAG | BLOCK, matchedTerms[], prohibitedCategory }
-    Note over PS,MAS: outcome is the strictest enforcement among the matched terms — one BLOCK term outranks any number of FLAG ones (D-05)
+    Note over PS,MAS: outcome is the strictest enforcement among the matched terms — one BLOCK term outranks any number of FLAG ones
     alt outcome = BLOCK
         PS-->>C: 422 Unprocessable — content violates prohibited keyword policy
         Note right of C: hard tier — no product row, no moderation case, no event
@@ -1943,7 +1784,7 @@ The consumers then de-index the offer from Elasticsearch (`search.listing-flagge
 <a id="dismissed-term-suppression"></a>
 **A dismissed term never flags that offer again** (US-A-04b:95). The scan skips any `(offer_id, term)` pair for which a `DISMISSED` `admin.moderation_case` already records that term in `matched_terms`, and raises a case only for terms not previously dismissed on that offer. Without the skip, an admin clearing a false positive would see the same case reopen on the seller's next edit, forever. Suppression is per term, not per offer: a term the admin has never dismissed still flags normally, so a seller cannot use one cleared word as cover for adding another. A `REMOVE` decision suppresses nothing — the offer is terminal.
 
-**An edit flags on both tiers; only create distinguishes them.** D-05's hard tier is "no listing is created", and on an edit the listing already exists, so the `422` has nothing to prevent — refusing the save would leave live content unchanged and unreviewed, which is strictly worse than persisting it flagged and de-indexed. A `BLOCK` match and a `FLAG` match therefore produce the same outcome here: `200`, the edit saved, the offer `FLAGGED`, a case open. The distinction is recorded rather than discarded — the case's `matched_terms` holds the terms, and the moderation queue can see that a hard-tier term was among them. Create is where the tiers diverge, at [`POST /seller/products`](#two-tier-moderation-guard) and [`POST /seller/offers`](#offer-create-screening).
+**An edit flags on both tiers; only create distinguishes them.** The hard tier's rule is "no listing is created", and on an edit the listing already exists, so the `422` has nothing to prevent — refusing the save would leave live content unchanged and unreviewed, which is strictly worse than persisting it flagged and de-indexed. A `BLOCK` match and a `FLAG` match therefore produce the same outcome here: `200`, the edit saved, the offer `FLAGGED`, a case open. The distinction is recorded rather than discarded — the case's `matched_terms` holds the terms, and the moderation queue can see that a hard-tier term was among them. Create is where the tiers diverge, at [`POST /seller/products`](#two-tier-moderation-guard) and [`POST /seller/offers`](#offer-create-screening).
 
 **Errors:** 400 validation, 403 the caller did not create this product, 404 product not found or already removed, 422 prohibited category on create-equivalent content — see the note above for why an edit does not `422`
 
@@ -1954,7 +1795,6 @@ sequenceDiagram
     participant C as Client
     participant A as API (NestJS)
     participant G as Guards
-    participant R as Redis
     participant PS as SellerService (products)
     participant CAS as CatalogApplicationService
     participant MAS as ModerationApplicationService
@@ -1964,18 +1804,8 @@ sequenceDiagram
 
     C->>A: PATCH /seller/products/:productId { title?, description?, categoryId?, images[]?, variants[]? }
     Note over A,G: Guard: JWT + SELLER_ACTIVE (SELLER_APPROVED + not suspended)
-    A->>G: verify JWT signature + expiry
-    G->>R: GET auth:revoke_before:{jwt.sub}
-    alt JWT missing, invalid, expired, or revoked (iat < revoke_before)
-        G-->>C: 401 Unauthorized
-    else jwt.roles does not include SELLER
-        G-->>C: 403 Forbidden — SELLER role required
-    else jwt.seller_kyc_status != APPROVED
-        G-->>C: 403 Forbidden — KYC not approved
-    else jwt.seller_suspension_status = SUSPENDED
-        G-->>C: 403 Forbidden — seller suspended
-    end
-    G-->>A: authorized
+    A->>G: run the guard chain named above
+    G-->>A: authorized (claims only — no DB read)
 
     A->>PS: updateProduct(productId, dto, sellerProfileId)
     CAS->>P: SELECT catalog.product p WHERE p.id = :productId AND p.status = 'ACTIVE'
@@ -2068,7 +1898,6 @@ sequenceDiagram
     participant C as Client
     participant A as API (NestJS)
     participant G as Guards
-    participant R as Redis
     participant PS as SellerService (products)
     participant CAS as CatalogApplicationService
     participant MAS as ModerationApplicationService
@@ -2080,18 +1909,8 @@ sequenceDiagram
 
     C->>A: DELETE /seller/products/:productId
     Note over A,G: Guard: JWT + SELLER_ACTIVE (SELLER_APPROVED + not suspended)
-    A->>G: verify JWT signature + expiry
-    G->>R: GET auth:revoke_before:{jwt.sub}
-    alt JWT missing, invalid, expired, or revoked (iat < revoke_before)
-        G-->>C: 401 Unauthorized
-    else jwt.roles does not include SELLER
-        G-->>C: 403 Forbidden — SELLER role required
-    else jwt.seller_kyc_status != APPROVED
-        G-->>C: 403 Forbidden — KYC not approved
-    else jwt.seller_suspension_status = SUSPENDED
-        G-->>C: 403 Forbidden — seller suspended
-    end
-    G-->>A: authorized
+    A->>G: run the guard chain named above
+    G-->>A: authorized (claims only — no DB read)
 
     CAS->>P: SELECT catalog.product p WHERE p.id = :productId AND p.status = 'ACTIVE'
     alt no row (unknown id, or already removed)
@@ -2190,7 +2009,6 @@ sequenceDiagram
     participant C as Client
     participant A as API (NestJS)
     participant G as Guards
-    participant R as Redis
     participant OrdS as OrderService
     participant P as Postgres
     participant KO as Kafka Outbox
@@ -2198,18 +2016,8 @@ sequenceDiagram
 
     C->>A: POST /seller/orders/:fulfillmentId/cancel { reason }
     Note over A,G: Guard: JWT + SELLER_ACTIVE (SELLER_APPROVED + not suspended)
-    A->>G: verify JWT signature + expiry
-    G->>R: GET auth:revoke_before:{jwt.sub}
-    alt JWT missing, invalid, expired, or revoked (iat < revoke_before)
-        G-->>C: 401 Unauthorized
-    else jwt.roles does not include SELLER
-        G-->>C: 403 Forbidden — SELLER role required
-    else jwt.seller_kyc_status != APPROVED
-        G-->>C: 403 Forbidden — KYC not approved
-    else jwt.seller_suspension_status = SUSPENDED
-        G-->>C: 403 Forbidden — seller suspended
-    end
-    G-->>A: authorized
+    A->>G: run the guard chain named above
+    G-->>A: authorized (claims only — no DB read)
 
     A->>A: validate body (reason required, max 500 chars)
     alt validation fails
@@ -2228,7 +2036,7 @@ sequenceDiagram
 
     Note over P,KO: BEGIN TRANSACTION
     OrdS->>P: UPDATE orders.fulfillment SET status='CANCELLED', cancelled_at=NOW(), updated_at=NOW() WHERE id=:fulfillmentId AND seller_profile_id = :sellerProfileId AND status='PENDING'
-    Note over OrdS,P: no inventory write here — the inventory consumer is the sole writer of stock restoration (D-16). Releasing reservations in this transaction as well released them twice, and the old release was scoped WHERE order_id, which freed every other seller's reserved stock in the same checkout.
+    Note over OrdS,P: no inventory write here — the inventory consumer is the sole writer of stock restoration. Releasing reservations in this transaction as well released them twice, and the old release was scoped WHERE order_id, which freed every other seller's reserved stock in the same checkout.
     OrdS->>KO: INSERT platform.outbox_event (topic='fulfillment.cancelled', aggregate_type='orders.fulfillment', aggregate_id=:fulfillmentId, key=order_id, payload={fulfillment_id, display_id, order_id, seller_id:sellerProfileId, seller_name, buyer_id, buyer_email, buyer_name, reason, cancelled_at, total_amount, currency_code, buyer_currency_total, buyer_display_currency, items[]})
     Note over OrdS,KO: Field names are the schema's (kafka-events § 2.16): the cancelled figure is the captured total_amount with its buyer_currency_total, not a refund_amount — there is no separate refund capture, and no stock_restored field, because a cancel always restores. buyer_email and buyer_name address and greet ET-16
     Note over P,KO: COMMIT
@@ -2286,22 +2094,11 @@ sequenceDiagram
     participant C as Client
     participant A as API (NestJS)
     participant G as Guards
-    participant R as Redis
     participant P as Postgres
 
     C->>A: GET /seller/dashboard/summary
     Note over A,G: Guard: JWT + SELLER_ACTIVE (SELLER_APPROVED + not suspended)
-    A->>G: verify JWT signature + expiry
-    G->>R: GET auth:revoke_before:{jwt.sub}
-    alt JWT missing, invalid, expired, or revoked (iat < revoke_before)
-        G-->>C: 401 Unauthorized
-    else jwt.roles does not include SELLER
-        G-->>C: 403 Forbidden — SELLER role required
-    else jwt.seller_kyc_status != APPROVED
-        G-->>C: 403 Forbidden — KYC not approved
-    else jwt.seller_suspension_status = SUSPENDED
-        G-->>C: 403 Forbidden — seller suspended
-    end
+    A->>G: run the guard chain named above
     G-->>A: authorized (claims only — no DB read)
 
     par four counts, seller-scoped

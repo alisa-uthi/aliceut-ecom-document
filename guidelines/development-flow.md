@@ -1,9 +1,9 @@
-﻿# Development Flow
+# Development Flow
 
 **Status:** Draft  
-**Source of truth:** [BRD v1.3](../phase-1/requirements/BRD.md), [architecture-overview](../architecture-overview.md)
+**Source of truth:** [BRD v1.4](../phase-1/requirements/BRD.md), [architecture-overview](../architecture-overview.md)
 
-This document is the developer's starting point for AliceUT. Read it once when onboarding; return to it when you need to understand how the pieces connect. It does not duplicate the detailed conventions ─ it maps the full workflow and points to the right document for each concern.
+This document is the developer's starting point for AliceUT. Read it once when onboarding; return to it when you need to understand how the pieces connect. It does not duplicate the detailed conventions — it maps the full workflow and points to the right document for each concern.
 
 ---
 
@@ -13,7 +13,7 @@ This document is the developer's starting point for AliceUT. Read it once when o
 |---|---------|-------------|
 | 1 | [Repository overview](#1-repository-overview) | Repo layout: docs, backend, frontend, infra, utility pipeline |
 | 2 | [Local development setup](#2-local-development-setup) | Prerequisites, `.env`, frontend build, docker compose, seed data |
-| 3 | [Daily development workflow](#3-daily-development-workflow) | Branch , code , test , PR , merge cycle |
+| 3 | [Daily development workflow](#3-daily-development-workflow) | Branch → code → test → PR → merge cycle |
 | 4 | [Conventions map](#4-conventions-map) | Which convention to read for which concern |
 | 5 | [Technology decisions reference](#5-technology-decisions-reference) | Stack summary and resolved decisions |
 | 6 | [API client generation](#6-api-client-generation) | When and how to regenerate the Angular client |
@@ -33,8 +33,8 @@ AliceUT is a multi-repo system:
 | Repo | Contents |
 |------|----------|
 | `aliceut-ecom-document` | Design docs, architecture, conventions, guidelines, phase requirements |
-| `aliceut-ecom-backend` | NestJS backend ─ Nx monorepo: API server, Kafka workers, domain libs |
-| `aliceut-ecom-frontend` | Angular frontend ─ Nx monorepo: buyer/seller/admin portals, shared libs |
+| `aliceut-ecom-backend` | NestJS backend — Nx monorepo: API server, Kafka workers, domain libs |
+| `aliceut-ecom-frontend` | Angular frontend — Nx monorepo: buyer/seller/admin portals, shared libs |
 | `aliceut-ecom-infra` | `docker-compose.yml` and the config it mounts (nginx, alloy, prometheus, grafana) |
 | `aliceut-ecom-utility-pipeline` | CI utility workflows (non-migration); seed data scripts, infra automation |
 
@@ -44,7 +44,7 @@ Clone all repos as siblings under a single parent folder. The compose file lives
 
 ```
 aliceut-ecom/
-├── aliceut-ecom-document/          # this repo ─ design docs and conventions
+├── aliceut-ecom-document/          # this repo — design docs and conventions
 ├── aliceut-ecom-backend/           # NestJS backend
 ├── aliceut-ecom-frontend/          # Angular frontend
 ├── aliceut-ecom-infra/             # docker-compose.yml + mounted config
@@ -100,7 +100,7 @@ See [frontend-coding-standards.md](../conventions/frontend-coding-standards.md) 
 
 No migration CLI to install: migrations run through TypeORM, which is already a backend dependency ([database-migrations.md § 2](../conventions/database-migrations.md#execution-engine)).
 
-### Step 1 ─ Clone and install
+### Step 1 — Clone and install
 
 ```bash
 mkdir aliceut-ecom && cd aliceut-ecom
@@ -120,7 +120,7 @@ cp aliceut-ecom-document/guidelines/templates/backend-CLAUDE.md  aliceut-ecom-ba
 cp aliceut-ecom-document/guidelines/templates/frontend-CLAUDE.md aliceut-ecom-frontend/CLAUDE.md
 ```
 
-### Step 2 ─ Environment files
+### Step 2 — Environment files
 
 Copy the example env files and fill in development values. Never commit `.env` files.
 
@@ -132,7 +132,7 @@ cp apps/workers/.env.example apps/workers/.env
 
 Required variables per service are documented in [backend-coding-standards.md §6.2](../conventions/backend-coding-standards.md#6-environment-config). Commit `.env.example` files alongside source code with placeholder values (no secrets).
 
-### Step 3 ─ Build the frontend apps
+### Step 3 — Build the frontend apps
 
 **Do this before `docker compose up`.** The three nginx services do not build the Angular apps — they bind-mount `../aliceut-ecom-frontend/dist/<app>` from the host. If the `dist/` directories do not exist yet, nginx starts successfully and serves an empty directory: every portal returns 403/404 and nothing in the compose output says why.
 
@@ -143,7 +143,7 @@ npm run build:buyer && npm run build:seller && npm run build:admin
 
 Re-run the relevant build after any frontend change you want to see through nginx. During feature work, prefer `ng serve` (Step 7) and skip the nginx containers entirely. The bind-mount rationale and the same command string are in [docker-compose-topology.md § 10](../phase-1/technical-design/docker-compose-topology.md).
 
-### Step 4 ─ Start infrastructure
+### Step 4 — Start infrastructure
 
 The compose file lives in `aliceut-ecom-infra/` — run compose from that directory so its relative bind mounts resolve.
 
@@ -185,7 +185,7 @@ Every service above is V1 — the observability four are not a later addition, a
 
 Full service definitions, health checks, and startup order: [docker-compose-topology.md](../phase-1/technical-design/docker-compose-topology.md).
 
-### Step 5 ─ Run migrations
+### Step 5 — Run migrations
 
 Migrations live in `aliceut-ecom-backend/migrations/phase-1/`. Run from inside the backend repo:
 
@@ -201,16 +201,16 @@ Nothing applies migrations for you — not `docker compose up`, not the API cont
 
 See [database-migrations.md](../conventions/database-migrations.md) for full migration conventions.
 
-### Step 6 ─ Seed development data
+### Step 6 — Seed development data
 
 ```bash
-# Load the 100-product Kaggle seed (local dev only ─ never in test fixtures)
+# Load the 100-product Kaggle seed (local dev only — never in test fixtures)
 npm run seed:dev
 ```
 
 The seed script is defined in `apps/api/package.json` inside `aliceut-ecom-backend/`. It calls `POST /internal/dev/seed` on a running API. Start the API first.
 
-### Step 7 ─ Start the applications
+### Step 7 — Start the applications
 
 For day-to-day feature work, run the apps from source with hot reload instead of through the nginx containers.
 
@@ -221,17 +221,17 @@ npm run dev -w @aliceut/api
 # Workers (Kafka consumers + outbox relay)
 npm run dev -w @aliceut/workers
 
-# Frontend ─ buyer app
+# Frontend — buyer app
 npm run serve -w @aliceut/buyer-app
 
-# Frontend ─ seller app
+# Frontend — seller app
 npm run serve -w @aliceut/seller-app
 
-# Frontend ─ admin app
+# Frontend — admin app
 npm run serve -w @aliceut/admin-app
 ```
 
-Buyer app runs at `http://localhost:4200`, seller at `4201`, admin at `4202`. API at `http://localhost:3000`. Workers health check at `http://localhost:3001/health`.
+Buyer app runs at `http://localhost:4200`, seller at `4201`, admin at `4202`. API at `http://localhost:3000`. Workers health check at `http://localhost:3001/api/v1/health`.
 
 These are the same host ports the nginx containers use, so stop the corresponding container before running `ng serve` against that port.
 
@@ -293,7 +293,7 @@ One logical change per commit. Compile and pass tests at each commit. No `WIP` c
 <a id="5-technology-decisions-reference"></a>
 ## 5. Technology decisions reference
 
-All decisions below come from BRD §12 ─ follow them by default; change one by amending the BRD.
+All decisions below come from BRD §12 — follow them by default; change one by amending the BRD.
 
 | Layer | Technology                               | Notes |
 |-------|------------------------------------------|-------|
@@ -310,7 +310,7 @@ All decisions below come from BRD §12 ─ follow them by default; change one by
 | Money arithmetic | `decimal.js`                             | Never JS `number` for monetary math |
 | Deploy V1 | docker-compose                           | No Kubernetes until V2 |
 
-**Out of scope in V1:** real payment gateway, real shipping integration, reviews/ratings, wishlist, recommendations, seller analytics, dispute mediation, i18n, native mobile, Kubernetes.
+**Out of scope in V1:** [BRD §3.2](../phase-1/requirements/BRD.md#32-out-of-scope-v1--deferred) holds the list. It is not restated here — the copy that used to live here had already dropped two entries.
 
 ---
 
@@ -358,7 +358,7 @@ See [database-migrations.md](../conventions/database-migrations.md) for SQL rule
 
 ### Deploying migrations
 
-Migrations are applied via the `db-migrate.yml` GitHub Actions `workflow_dispatch` in the backend repo ─ never automatically on code deploy, and never from a container entrypoint. Production requires a manual reviewer approval step.
+Migrations are applied via the `db-migrate.yml` GitHub Actions `workflow_dispatch` in the backend repo — never automatically on code deploy, and never from a container entrypoint. Production requires a manual reviewer approval step.
 
 ---
 
@@ -374,7 +374,7 @@ MongoDB (`MONGODB_URI`) is for **append-only, high-write data with no relational
 | Admin audit log (KYC decisions, moderation actions) | Financial records (prices, transactions) |
 | Notification read/unread state | Cart, inventory, outbox |
 
-**Access pattern:** inject `MongoClient` or a Mongoose model in the relevant NestJS service. MongoDB collections are **not** managed by TypeORM ─ they have their own migration-free schema evolution. Document the collection schema in the relevant module's `README.md` when the collection is first created.
+**Access pattern:** inject `MongoClient` or a Mongoose model in the relevant NestJS service. MongoDB collections are **not** managed by TypeORM — they have their own migration-free schema evolution. Document the collection schema in the relevant module's `README.md` when the collection is first created.
 
 **No transactions across Postgres and MongoDB.** If a domain change must write to both, write to Postgres first (with outbox), then let a Kafka consumer write the denormalized copy to MongoDB. Never attempt a two-phase commit across both stores.
 
@@ -399,7 +399,7 @@ MinIO (`MINIO_ENDPOINT`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`) stores binary o
   - KYC documents — 15 minutes (short, private, one-time download). 
   - User assets — 1 hour.
 - **Virus scan on upload:** all KYC documents must pass a ClamAV scan before being made accessible. Block the upload API response until the scan completes (synchronous in V1).
-- **Filename policy:** generate a UUIDv7 filename server-side. Never trust the client-supplied filename ─ it is stored only in a metadata column alongside the object key.
+- **Filename policy:** generate a UUIDv7 filename server-side. Never trust the client-supplied filename — it is stored only in a metadata column alongside the object key.
 
 ---
 
@@ -420,7 +420,7 @@ See [backend-coding-standards.md §3](../conventions/backend-coding-standards.md
 
 ### Event-driven writes
 
-Every domain state change that must propagate externally (product, offer, inventory, order, KYC, moderation) publishes via transactional outbox ─ the `outbox_event` row is written in the **same Postgres transaction** as the domain change. No direct Kafka publish from application code.
+Every domain state change that must propagate externally (product, offer, inventory, order, KYC, moderation) publishes via transactional outbox — the `platform.outbox_event` row is written in the **same Postgres transaction** as the domain change. No direct Kafka publish from application code.
 
 See [kafka-events.md](../conventions/kafka-events.md) and [backend-module-architecture.md §6](../conventions/backend-module-architecture.md#6-outbox-integration-pattern).
 
@@ -434,7 +434,7 @@ Access token lives in memory only (frontend); refresh token in httpOnly cookie o
 
 ### Prohibited categories
 
-No weapons, drugs, or adult content. Moderation flags on taxonomy + keyword blocklist at listing time. The admin portal enforces this ─ no bypass in any API endpoint.
+No weapons, drugs, or adult content. Moderation flags on taxonomy + keyword blocklist at listing time. The admin portal enforces this — no bypass in any API endpoint.
 
 ### V1 seller currencies
 
@@ -462,7 +462,7 @@ See [git-workflow.md §7.3](git-workflow.md#73-ci-pipeline) for the `claude-desi
 
 **Domain layer:**
 - [ ] No NestJS / TypeORM / class-validator imports inside `domain/` layer
-- [ ] Repository interface defines contracts only ─ no TypeORM types leak through
+- [ ] Repository interface defines contracts only — no TypeORM types leak through
 
 **Money correctness:**
 - [ ] No JS `number` type on monetary field
@@ -477,7 +477,7 @@ See [git-workflow.md §7.3](git-workflow.md#73-ci-pipeline) for the `claude-desi
 
 **Cross-module boundaries:**
 - [ ] No direct cross-module DB join (each module queries only its own tables)
-- [ ] No direct cross-module service injection except via `index.ts` public API or checkout,inventory approved exception
+- [ ] No direct cross-module service injection except via `index.ts` public API, or the approved checkout → inventory exception
 
 **Security:**
 - [ ] No hardcoded secret, key, or password
@@ -491,7 +491,7 @@ See [git-workflow.md §7.3](git-workflow.md#73-ci-pipeline) for the `claude-desi
 - [ ] No test reads `process.env` directly (use stubbed `ConfigService`)
 
 **Frontend:**
-- [ ] No raw `HttpClient` call for API endpoints ─ always use generated client
+- [ ] No raw `HttpClient` call for API endpoints — always use generated client
 - [ ] Access token never written to localStorage / sessionStorage
 - [ ] Every data-fetching component handles loading / empty / error states
 - [ ] All feature routes are lazily loaded

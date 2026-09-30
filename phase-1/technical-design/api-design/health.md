@@ -1,18 +1,18 @@
 # Health API
 
+**Status:** Complete  
 **Module:** `Platform`  
 **Parent:** [API Design Index](../api-design.md)  
-**Source of truth:** [BRD v1.3](../../requirements/BRD.md), [docker-compose-topology](../docker-compose-topology.md)
-
-> **Conventions:** `X-Correlation-ID` is accepted, generated when absent, echoed on the response, and written to every log line the probe emits — see [observability.md § Correlation ID Propagation](../../../conventions/observability.md#correlation-id). Error bodies follow [api-conventions.md § Standard Error Shape](../../../conventions/api-conventions.md#standard-error-shape).
+**Source of truth:** [BRD v1.4](../../requirements/BRD.md), [docker-compose-topology](../docker-compose-topology.md)  
+**Conventions:** [api-conventions.md](../../../conventions/api-conventions.md) — response envelope and error shape. Correlation-ID propagation, the error envelope and rate-limit headers apply to every endpoint in this document and are stated once in [api-design.md § 1 Conventions](../api-design.md#conventions). Neither probe is paginated and neither returns a monetary amount.
 
 ---
 
 ## Summary
 
 - [Endpoint Index](#endpoint-index)
-- [DB Mapping](#db-mapping)
-- [Endpoints](#endpoints)
+- [DB Mapping](#db-mapping) — [`api`](#api), [`workers`](#workers)
+- [Endpoints](#endpoints) — [`api` health check](#health-check), [`workers` health check](#workers-health-check)
 
 <a id="endpoint-index"></a>
 ## Endpoint Index
@@ -35,6 +35,8 @@
 
 <a id="db-mapping"></a>
 ## DB Mapping
+
+### `api`
 
 | Endpoint | Dependency | Probe | Fatal |
 |----------|-----------|-------|-------|
@@ -65,7 +67,7 @@ Seven dependencies are probed. The list is maintained against the service list i
 
 The fatal set differs from `api` deliberately. `api` can serve catalog reads with Kafka down; `workers` exists only to run consumers and scheduled jobs, so the same dependency is fatal there.
 
-**Relay lock is reported, not fatal.** The relay is single-instance by advisory lock (D-31). The check reports whether **this** process holds the lock, so at the V1 replica count of 1 a `false` means the relay is not draining. It is non-fatal because the remedy is not to stop answering — a container marked unhealthy is not restarted under `restart: unless-stopped`, and the lock is session-scoped, so the useful signal is the alert and the lag gauge below, not a failed probe. `status` is `degraded` in that state, which is visible in `docker compose ps` and scrapeable.
+**Relay lock is reported, not fatal.** The relay is single-instance by advisory lock. The check reports whether **this** process holds the lock, so at the V1 replica count of 1 a `false` means the relay is not draining. It is non-fatal because the remedy is not to stop answering — a container marked unhealthy is not restarted under `restart: unless-stopped`, and the lock is session-scoped, so the useful signal is the alert and the lag gauge below, not a failed probe. `status` is `degraded` in that state, which is visible in `docker compose ps` and scrapeable.
 
 ---
 
