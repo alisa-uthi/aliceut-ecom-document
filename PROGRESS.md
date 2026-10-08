@@ -31,6 +31,7 @@ Daily log of work on this project. Newest entry on top. One entry per active day
 > **Note on `phase-1/audits/` paths below.** That directory is gone: its two files — `2026-09-22-wave0-decisions.md` (decision records D-01…D-14) and `2026-09-22-alignment-audit-fix-plan.md` — were committed on 2026-09-22 and deleted again on 2026-09-24 by commit `c5767b8`. A `phase-1/audits/README.md` was never committed at any point, so entries below that describe creating one describe work that did not land. Every `phase-1/audits/…` path in the dated entries records what was worked from at the time; none of them resolve today. The decisions themselves are recorded inline in the documents they bind — `BRD.md` §12 and its amendment list, and `CLAUDE.md` Core Rules — and in the git history of commits `4f24166`, `61bbda4`, `f0db299` and `c5767b8`.
 
 **Index**
+- [2026-10-09](#2026-10-09) — Seller and Admin API surface brought to the design: every 2xx response modelled, cursor pagination, and the defects that read exposed.
 - [2026-09-30 (later)](#2026-09-30b) — Phase 1 decomposed into 136 tasks, imported to GitHub Issues + Project 3; per-phase seed CSV, validator and task template.
 - [2026-09-30](#2026-09-30) — Dead `D-NN` pointer scrub finished; the five open audit contradictions resolved (BRD v1.4); `conventions/` pass closed.
 - [2026-09-24](#2026-09-24) — Alignment-audit Waves 2/3/4/5/6 fixes; all ten Wave 7 hygiene items.
@@ -47,6 +48,24 @@ Daily log of work on this project. Newest entry on top. One entry per active day
 - [2026-08-29](#2026-08-29) — Requirements deep-dive: order lifecycle, buyer stories, auth portals, BA revalidation.
 - [2026-08-22](#2026-08-22) — Phase 1 technical-design kickoff; architecture overview + ERD.
 - [2026-08-19](#2026-08-19) — Requirements freeze (BRD v1.2 signed off) + repo scaffolding.
+
+<a id="2026-10-09"></a>
+## 2026-10-09
+**Focus:** close `spec-compliance.md` item 1 — the 30 Seller and Admin operations that declared no response body — and fix what reading them against the design exposed.
+
+**Done:**
+- **Every 2xx response on all 69 paths now declares a typed body** (169 schemas, none empty). Six PRs: backend#26 offers, #27 inventory and dashboard, #28 fulfillments, #29 admin, #30 update-product; frontend#18 the client and the seller portal.
+- `GET /seller/offers` is the listings table *and* the inventory table, cursor-paginated on `(created_at, id)` with the stock join and the latest moderation case per row. The undesigned `GET /seller/products` and `GET /seller/inventory` are gone — the design rules the second out explicitly. `PATCH /seller/offers/:offerId`, `PUT …/prices/:priceType` and the CSV bulk-inventory upload are built; admin request bodies are validated for the first time.
+- The read exposed defects worth recording separately from the modelling: the seller orders queries named three columns that exist in no migration, so both reads 500ed; refund and cancel added the line quantity back to `on_hand_qty`, inflating stock on every cancelled order, because checkout only ever incremented `reserved_qty`; the refund's `payment_attempt` insert named columns the table does not have; the low-stock edge trigger compared the prior quantity to the old threshold and the new one to the new, so it fired on edits that crossed nothing and missed crossings that happened; a price edit emitted no event, so the search index kept the old price; and a moderation match on a product edit threw `422` and wrote nothing, where the design has the edit save and the listing flag on both tiers.
+- Five more events were going to topics `kafka-init.sh` does not create, with broker auto-creation off: the seller handlers' three `fulfillment.*` and `inventory.low_stock` are fixed, and the four remaining are registered.
+- Checkout now copies `recipient_name` into `order.shipping_address_snapshot`; the ERD has required it since it was written, and without it a seller's parcel label has no name on it.
+
+**Decisions:**
+- Stock restoration stays inline in refund and cancel until the `inventory.*` consumer exists — registered in `spec-compliance.md` § 6, because when the consumer lands the inline release has to go in the same change or the movement gains two writers.
+- Monetary amounts stay at storage scale for now (`"99.9900"`); the designed `CurrencyScaleCache` does not exist and the fix belongs in one pass over every money-returning endpoint rather than endpoint by endpoint. Registered as § 4.
+
+**Next:**
+- `spec-compliance.md` § 1 missing endpoints (seller profile, KYC resubmit, catalog and FX reads), and § 3, the shared-product soft delete that currently withdraws a co-seller's live listing.
 
 <a id="2026-09-30b"></a>
 ## 2026-09-30 (later)
@@ -65,7 +84,8 @@ Daily log of work on this project. Newest entry on top. One entry per active day
 - No embedded commas and no quoted fields in the CSV, enforced by a preflight check that names the offending line. Lists use `;`. Keeps the bash parser honest instead of half-implementing RFC 4180.
 
 - **Imported all 136** into GitHub Issues and onto Project 3 `aliceut-ecom`: 6 milestones, 23 labels, every board item carrying `Status` / `Layer` / `Module` / `Priority`. The confirming re-run reported `created: 0 updated: 136` with zero warnings, which is the idempotency proof. The board was the stock GitHub template, so `Layer` and `Module` were created and `must` / `should` added beside its `P0`-`P2`; nothing was removed.
-- Two importer bugs found by running it for real. `--limit` was ignored in the board pass, so a one-issue run still processed every board item. And every board field write failed with `The single select option Id does not belong to the field`, which is a lie: Windows builds of `gh` and `jq` emit CRLF, so each captured id carried a trailing ``. Ids are now filtered to `[A-Za-z0-9_-]` — and the `-` matters, since the first version omitted it and broke the two item ids that contained one. Both are written up in the tooling README's Troubleshooting section.
+- Two importer bugs found by running it for real. `--limit` was ignored in the board pass, so a one-issue run still processed every board item. And every board field write failed with `The single select option Id does not belong to the field`, which is a lie: Windows builds of `gh` and `jq` emit CRLF, so each captured id carried a trailing `
+`. Ids are now filtered to `[A-Za-z0-9_-]` — and the `-` matters, since the first version omitted it and broke the two item ids that contained one. Both are written up in the tooling README's Troubleshooting section.
 - Made the tooling phase-agnostic so the next phase is mechanical: the seed moved to **`phase-N/tasks.csv`**, `import-issues.sh` takes `--phase N` and a `--milestone-prefix` (phase 2 needs one or its sprints collide), and every issue now carries a `phase:N` label. Added `validate-tasks.sh` (field count, duplicate ids, unknown layers, dependency resolution, and every `spec_refs` file **and anchor**) plus `TEMPLATE.md` — the row contract, the per-layer Definition of Done and the step-by-step procedure for decomposing a phase — and `tasks.template.csv` to copy.
 
 **Next:**
