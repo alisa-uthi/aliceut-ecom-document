@@ -1,9 +1,9 @@
 # ADR-NNNN: <short title in the imperative or as a statement>
 
-**Status:** Proposed | Accepted | Superseded by ADR-NNNN
-**Date:** YYYY-MM-DD
-**Affects:** <spec files this changes, e.g. `phase-1/technical-design/api-design/auth.md`>
-**Implemented by:** <PR links, one per repo>
+**Status:** Proposed | Accepted | Superseded by ADR-NNNN  
+**Date:** YYYY-MM-DD  
+**Affects:** <spec files this changes, e.g. `phase-1/technical-design/api-design/auth.md`>  
+**Implemented by:** <PR links, one per repo>  
 
 ## Context
 
