@@ -44,6 +44,13 @@ Storage (`NUMERIC(19,4)` + ISO 4217 code) and arithmetic (`decimal.js`, never JS
 
 All successful responses wrap payload in a `data` field. `meta` is optional on single-resource responses.
 
+> **One exception, and only one.** `POST /auth/register`, `/auth/login`,
+> `/auth/refresh` and `/auth/oauth/exchange` return `{accessToken, user}` at the
+> top level, unwrapped — see
+> [ADR-0001](../decisions/0001-auth-session-responses-are-not-data-wrapped.md).
+> Every other route in the API, `PATCH /auth/change-password` included, wraps.
+> Adding a second exception requires its own ADR.
+
 **Single resource** (GET one, POST create, PATCH, PUT):
 ```json
 {

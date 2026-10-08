@@ -20,6 +20,7 @@ Do not scaffold code unless user explicitly asks.
 architecture-overview.md     project-level architecture and evolution path
 README.md                    repo guide and document index
 PROGRESS.md                  daily progress log
+decisions/                   architecture decision records (ADRs) + the spec-change process
 conventions/                 cross-phase technical conventions (API, auth/JWT, module structure,
 │                            data lifecycle, DB migrations, Kafka event envelope, observability,
 │                            Angular Material design system,
@@ -49,6 +50,29 @@ Solo developer, learning/portfolio project, no deadline — quality over speed.
 ## Authoritative Reference
 
 `architecture-overview.md` is the project-level architecture and evolution reference. `phase-1/requirements/BRD.md` is the single source of truth for Phase 1 scope, stack, and resolved decisions. Always read both before proposing Phase 1 architecture, entities, or scope changes. §12 records the decisions currently in force: follow them by default rather than reopening them ad hoc, and when one genuinely needs to change, amend the BRD in the same pass so every document that cites it stays aligned.
+
+## The Spec Is Canonical
+
+`phase-1/technical-design/` and `conventions/` describe what the system is
+supposed to do. **Code follows them.** When the code and a spec disagree, treat
+it as a defect in the code — not as the spec being out of date — and fix the
+code, citing the spec section in the commit message.
+
+A spec only changes by decision, never by observation:
+
+1. **Code diverges, spec is right** -> fix the code. No ADR.
+2. **Spec should change** -> write an ADR in [`decisions/`](decisions/), update
+   the spec, and change the code in the same pass. All three land together.
+3. **Cannot decide yet** -> record it in
+   [`phase-1/technical-design/spec-compliance.md`](phase-1/technical-design/spec-compliance.md).
+   Never leave a silent mismatch.
+
+Never edit a spec to describe whatever the code happens to do. That is how the
+contract drift of 2026-10-03 happened: the specs stopped being trustworthy, so
+nobody read them, so the implementation drifted further. Purely editorial spec
+edits — typos, clearer wording, no behaviour change — need no ADR.
+
+`decisions/README.md` holds the process and the ADR index.
 
 ## Design Reference
 
