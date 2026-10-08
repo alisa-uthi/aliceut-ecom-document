@@ -36,7 +36,8 @@ Guard names are the ones defined in [api-conventions.md § Auth Guard Legend](..
 | Pricing | `DELETE` | [`/seller/offers/:offerId/prices/:priceId`](#delete-offer-price) | SELLER_ACTIVE | Withdraw a non-LIST price row |
 | Inventory | `PATCH` | [`/seller/inventory/:offerId`](#update-inventory) | SELLER_ACTIVE | Update on-hand quantity and threshold |
 | Inventory | `POST` | [`/seller/inventory/bulk`](#bulk-inventory-update-csv) | SELLER_ACTIVE | Bulk stock update via CSV |
-| Products | `POST` | [`/seller/products`](#create-product) | SELLER_ACTIVE | Create new product |
+| Products | `POST` | [`/seller/products/images`](#upload-product-image) | SELLER_ACTIVE | Upload one product image, returns its storage key |
+| `POST` | [`/seller/products`](#create-product) | SELLER_ACTIVE | Create new product |
 | Products | `PATCH` | [`/seller/products/:productId`](#update-product) | SELLER_ACTIVE + creator | Update a product this seller created |
 | Products | `DELETE` | [`/seller/products/:productId`](#delete-product-soft) | SELLER_ACTIVE + creator | Withdraw the caller's offers; remove the product only if no other seller lists it |
 | Fulfillments | `GET` | [`/seller/orders`](#list-seller-orders) | SELLER (suspended OK) | List seller fulfillments |
@@ -1614,6 +1615,35 @@ sequenceDiagram
 
 ---
 
+<a id="upload-product-image"></a>
+### Upload product image
+
+```
+POST /seller/products/images
+Tag: Seller
+Auth: SELLER_ACTIVE
+Content-Type: multipart/form-data
+```
+
+**Request:** one `file` part. JPEG, PNG or WebP, at most 5 MB — both validated here, which is why [`POST /seller/products`](#create-product) validates only the shape of the key it is given.
+
+**One file per request, not a batch.** The "partial success" state US-S-03:59-64 specifies is then an ordinary per-request failure the client retries for that one file, with no partial-batch response shape to define, and no way for a half-failed upload to leave the client unsure which images landed.
+
+**Response 201**
+```json
+{ "data": { "storageKey": "products/<sellerProfileId>/<uuidv7>.jpg" } }
+```
+
+Pass the keys to `POST /seller/products` in `images[]`, in the order they should display — `images[0]` is the primary image. The key, not a URL, is what the API returns and what `catalog.product_image.storage_key` stores; the `product-images` bucket is anonymous-readable, so the client resolves a key against the media base URL.
+
+The seller profile id in the prefix keeps one seller's uploads together and is **not** an authorization check — create-product accepts a key because it is well-formed, not because of where it sits.
+
+**Errors:** 400 no file, unsupported format, or larger than 5 MB
+
+See [ADR-0003](../../../decisions/0003-product-image-upload-endpoint.md) for why this endpoint exists, and for the two gaps it leaves: orphaned objects from uploads never referenced, and create-product not verifying that a key exists.
+
+---
+
 ### Create product
 
 ```
@@ -1638,6 +1668,7 @@ Auth: SELLER_ACTIVE
 | `description` | Markdown, ≤ 5000 characters | US-S-03:51 |
 | `images` | 1–10 storage keys, ordered — `images[0]` is the primary image shown in search results and as the PDP hero | US-S-03:51-52 |
 | `variants` | At least one; `sku` unique within the product | ERD `catalog.product_variant` |
+| `variants[].variantLabel` | Optional, max 200 chars. Persisted as `attributes.variantLabel` — the table has no column of its own ([ADR-0002](../../../decisions/0002-variant-label-lives-in-attributes.md)) | ERD `catalog.product_variant` |
 
 **No `attributes` on the product.** `catalog.product.attributes` is populated once at seed-import time and has no mutation path in V1 — accepting it here would have given a seller a writable channel into a field the catalog treats as read-only seed data.
 
@@ -1645,6 +1676,8 @@ Auth: SELLER_ACTIVE
 **The creating seller is recorded, and only they may edit the product.** The insert stamps `catalog.product.created_by_seller_id` with the caller's profile id ([`data-model-erd.md`](../data-model-erd.md#table-catalog-product)). [`PATCH`](#update-product) and [`DELETE`](#delete-product-soft) require an ADMIN caller or a `created_by_seller_id` equal to the calling seller's profile; any other seller gets `403`. The 100 seeded products carry `created_by_seller_id = NULL`, meaning platform-owned, and are therefore ADMIN-only to edit. Creating an **offer** against a product someone else created stays open to every approved seller — the column is an authorization predicate, not ownership of the catalogue entry, and the shared catalogue is unchanged.
 
 **Images are uploaded before this call** and referenced by storage key. Each file is JPEG, PNG or WebP and at most 5 MB, validated at upload time (US-S-03:51). The per-image error states US-S-03:59-64 specifies — retryable upload failure, unsupported format, partial success, and "at least 1 image is required" — belong to that upload step, not to this endpoint.
+
+That upload step is [`POST /seller/products/images`](#upload-product-image), one file per request ([ADR-0003](../../../decisions/0003-product-image-upload-endpoint.md)).
 
 **Response 201**
 ```json
