@@ -65,6 +65,12 @@ Rules, applied to `POST /auth/login`, `POST /auth/forgot-password` and `POST /au
 
 The per-endpoint limits and their throttle keys are defined once in [auth-jwt-design § 5](../../../conventions/auth-jwt-design.md#rate-limiting), and each throttled endpoint restates its own on its `Rate limit:` line below. Unthrottled `/auth` routes fall to the 100-request-per-minute-per-IP default. Throttled endpoints return `X-RateLimit-Limit`, `X-RateLimit-Remaining` and, on `429`, `Retry-After`.
 
+### The four session routes are not data-wrapped
+
+`POST /auth/register`, `POST /auth/login`, `POST /auth/refresh` and `POST /auth/oauth/exchange` return `{accessToken, user}` at the **top level**, not inside the `data` envelope that [api-conventions.md](../../../conventions/api-conventions.md) applies everywhere else. This is a deliberate, recorded exception: it is the shape the API has always served and the shape every client reads, and it is what the OpenAPI spec declares as `AuthSessionDto`. Nothing else in this document is exempt — `PATCH /auth/change-password` is data-wrapped like any other route.
+
+Registration also returns no `message` field. "Verification email sent" is implied by the 201 and is not carried in the body.
+
 ---
 
 <a id="db-mapping"></a>
@@ -118,17 +124,14 @@ Rate limit: 5 attempts per IP per 15 min
 **Response 201**
 ```json
 {
-  "data": {
-    "accessToken": "string (JWT, 15 min)",
-    "user": {
-      "id": "uuid",
-      "email": "string",
-      "fullName": "string",
-      "roles": ["BUYER"],
-      "emailVerified": false,
-      "accountType": "B2C | B2B"
-    },
-    "message": "Verification email sent"
+  "accessToken": "string (JWT, 15 min)",
+  "user": {
+    "id": "uuid",
+    "email": "string",
+    "fullName": "string",
+    "roles": ["BUYER"],
+    "emailVerified": false,
+    "accountType": "B2C | B2B"
   }
 }
 ```
@@ -183,7 +186,7 @@ sequenceDiagram
     IS->>PG: COMMIT
 
     IS-->>A: {accessToken, refreshToken, user}
-    A-->>C: 201 { data: { accessToken, user, message: "Verification email sent" } } + Set-Cookie: refreshToken (HttpOnly&#59; Secure&#59; SameSite=Strict&#59; Path=/api/v1/auth)
+    A-->>C: 201 { accessToken, user } + Set-Cookie: refreshToken (HttpOnly&#59; Secure&#59; SameSite=Strict&#59; Path=/api/v1/auth)
 
     Note over KO,KR: async — runs after TX commit, outside request cycle
     KR->>PG: Poll platform.outbox_event WHERE publication_status='PENDING'
@@ -212,16 +215,14 @@ Rate limiting is the only throttle. There is **no account lockout** in V1 ([auth
 **Response 200**
 ```json
 {
-  "data": {
-    "accessToken": "string (JWT, 15 min)",
-    "user": {
-      "id": "uuid",
-      "email": "string",
-      "fullName": "string",
-      "roles": ["BUYER"],
-      "emailVerified": true,
-      "accountType": "B2C | B2B"
-    }
+  "accessToken": "string (JWT, 15 min)",
+  "user": {
+    "id": "uuid",
+    "email": "string",
+    "fullName": "string",
+    "roles": ["BUYER"],
+    "emailVerified": true,
+    "accountType": "B2C | B2B"
   }
 }
 ```
@@ -285,7 +286,7 @@ sequenceDiagram
     IS->>PG: INSERT identity.refresh_session (user_id, token_hash, expires_at=NOW()+7d, device_metadata)
 
     IS-->>A: {accessToken, refreshToken, user}
-    A-->>C: 200 { data: { accessToken, user } } + Set-Cookie: refreshToken (HttpOnly&#59; Secure&#59; SameSite=Strict&#59; Path=/api/v1/auth)
+    A-->>C: 200 { accessToken, user } + Set-Cookie: refreshToken (HttpOnly&#59; Secure&#59; SameSite=Strict&#59; Path=/api/v1/auth)
 ```
 
 ---
@@ -298,7 +299,7 @@ Tag: Auth
 Auth: PUBLIC (refresh token read from HttpOnly cookie)
 ```
 **Request body:** None. The refresh token is read automatically from the `refreshToken` HttpOnly cookie sent by the browser.  
-**Response 200** — `{ data: { accessToken, user } }` + new `refreshToken` HttpOnly cookie (replaces prior cookie). Old refresh token immediately invalidated.  
+**Response 200** — `{ accessToken, user }` + new `refreshToken` HttpOnly cookie (replaces prior cookie). Old refresh token immediately invalidated.  
 **Errors:** 401 token expired/revoked/not found
 
 #### Sequence
@@ -348,7 +349,7 @@ sequenceDiagram
     IS->>PG: COMMIT
 
     IS-->>A: {accessToken, newRefreshToken, user}
-    A-->>C: 200 { data: { accessToken, user } } + Set-Cookie: refreshToken (new HttpOnly cookie&#59; replaces old)
+    A-->>C: 200 { accessToken, user } + Set-Cookie: refreshToken (new HttpOnly cookie&#59; replaces old)
 ```
 **Reuse detection:** rotation sets `revoked_at` — the same column reuse detection reads — so presenting a rotated token a second time is unambiguously reuse. The server then soft-revokes every remaining session in that user's family, bumps `auth:revoke_before:{userId}` in Redis so in-flight access tokens stop passing `JwtAuthGuard`, and returns `401`. Both the legitimate user and the attacker must re-login; only the one holding the password succeeds.
 
@@ -988,16 +989,14 @@ The SPA calls this immediately on landing at `/auth/callback?code=…`. It is th
 **Response 200**
 ```json
 {
-  "data": {
-    "accessToken": "string (JWT, 15 min)",
-    "user": {
-      "id": "uuid",
-      "email": "string",
-      "fullName": "string",
-      "roles": ["BUYER"],
-      "emailVerified": true,
-      "accountType": "B2C | B2B"
-    }
+  "accessToken": "string (JWT, 15 min)",
+  "user": {
+    "id": "uuid",
+    "email": "string",
+    "fullName": "string",
+    "roles": ["BUYER"],
+    "emailVerified": true,
+    "accountType": "B2C | B2B"
   }
 }
 ```
@@ -1040,7 +1039,7 @@ sequenceDiagram
     IS->>PG: INSERT identity.refresh_session (user_id, token_hash, expires_at=NOW()+7d, device_metadata)
 
     IS-->>A: {accessToken, refreshToken, user}
-    A-->>C: 200 { data: { accessToken, user } } + Set-Cookie: refreshToken (HttpOnly&#59; Secure&#59; SameSite=Strict&#59; Path=/api/v1/auth)
+    A-->>C: 200 { accessToken, user } + Set-Cookie: refreshToken (HttpOnly&#59; Secure&#59; SameSite=Strict&#59; Path=/api/v1/auth)
 ```
 
 ---
