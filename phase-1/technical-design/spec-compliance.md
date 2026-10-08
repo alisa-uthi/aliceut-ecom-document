@@ -25,34 +25,31 @@ Recorded for context; these are closed.
 | Six auth routes returned 204 where the spec specifies a message body | Code fixed to the spec (backend#23) |
 | `POST /auth/login`, `/auth/forgot-password`, `/auth/reset-password` ignored `portal` | Code fixed to the spec (backend#23) — admin and seller portal login had been returning 400 |
 | Six seller request DTOs had no validation and lived inside service files | Code fixed: moved to `http/dto` with validators matching the spec's stated constraints |
+| `POST /seller/products` accepted no `images` or `variants`, and created the offer, price and stock in the same call | Code fixed to the spec: product-only create plus a new `POST /seller/offers` |
+| Create-product emitted `product.created`, a topic `kafka-init.sh` never creates and the indexer does not subscribe to — so new products never reached the search index | Code fixed: emits `product.changed`, which the indexer already handled |
 
 ---
 
 ## Open — API surface
 
-### 1. `POST /seller/products` takes the wrong body
+### 1. Orphaned product-image objects are never reaped
 
-[seller.md § Create product](api-design/seller.md) specifies:
+Resolved, with one gap left. `POST /seller/products` now takes the designed body
+— `images[]` and `variants[]`, no pricing — creates product, variants and
+images, emits `product.changed`, and returns `{productId, status}` with a
+`LISTING_PENDING_REVIEW` warning on a soft-tier hit. `POST /seller/offers` was
+built alongside it and is what lists the product: offer, price rows, stock row,
+and on a soft-tier hit a `FLAGGED` offer with a `moderation_case` written
+through the admin module. `POST /seller/products/images` supplies the storage
+keys ([ADR-0003](../../decisions/0003-product-image-upload-endpoint.md)); the
+label lands in `attributes.variantLabel`
+([ADR-0002](../../decisions/0002-variant-label-lives-in-attributes.md)).
 
-```json
-{ "title", "description", "categoryId", "images": ["storage key"], "variants": [{ "sku", "variantLabel", "attributes" }] }
-```
-
-The implementation instead takes `brand`, `nativeCurrencyCode`, `listPrice`,
-`salePrice`, `salePriceStartsAt`, `salePriceEndsAt`, `initialStock` and
-`lowStockThreshold`, and accepts **no** `images` or `variants` at all. So a
-seller cannot create a product with an image or a variant — and `images[0]` is
-specified as the search-result thumbnail and PDP hero, which means every
-seller-created listing is imageless.
-
-Needs a decision before code: the design creates the product and leaves pricing
-and stock to the offer and inventory routes, while the implementation creates
-product, offer, LIST price, optional SALE price and the stock row in one
-transaction. The design's split is the better contract, but the one-call
-version is why the seed and the seller portal work today. **Resolve by:**
-implementing `images` and `variants` (required either way), then either moving
-pricing out to `POST /seller/offers` per the design, or writing an ADR that
-keeps the combined call.
+**Still open:** an image uploaded but never referenced by a create-product call
+leaves an object in the `product-images` bucket that nothing deletes. It belongs
+with the scheduled jobs in [cleanup-jobs.md](cleanup-jobs.md). Related:
+create-product does not verify that each key exists in the bucket, so a client
+bug can store a broken image reference.
 
 ### 2. Seller and Admin responses are unmodelled
 
