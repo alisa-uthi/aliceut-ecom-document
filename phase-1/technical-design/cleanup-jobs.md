@@ -24,6 +24,7 @@ Phase 1 implementation of the data lifecycle convention. Every job runs in the `
 | [`cleanup-processed-events`](#cleanup-processed-events) | `platform.processed_event` | `30 3 * * *` | `CLEANUP_PROCESSED_EVENTS_CRON` | `pg_advisory_lock` |
 | [`cleanup-read-notifications`](#cleanup-read-notifications) | `notifications.in_app_notification` | `35 3 * * *` | `CLEANUP_IN_APP_NOTIFICATIONS_CRON` | `pg_advisory_lock` |
 | [`lift-expired-suspensions`](#lift-expired-suspensions) | `seller.seller_profile` | `0 * * * *` | `SUSPENSION_EXPIRY_CRON` | `pg_advisory_lock` |
+| [`cleanup-orphaned-product-images`](#cleanup-orphaned-product-images) | MinIO `product-images` (**not a table**) | `40 3 * * *` | `CLEANUP_PRODUCT_IMAGES_CRON` | `pg_advisory_lock` |
 
 **This table is the retention and lifecycle view, not the whole scheduled set.** The jobs missing from it — the ET-09 listing-removed digest, the hourly FX refresh, the delivery mock and the suspended-seller auto-refund — schedule domain work rather than deletes and live in [backend-module-architecture.md § Scheduled tasks](./backend-module-architecture.md#scheduled-tasks). `GET /health` reports `registeredJobs` over the whole registry, so that figure is larger than this table ([api-design/health.md](./api-design/health.md#workers-health-check)).
 
@@ -455,6 +456,43 @@ The payload carries the recipient identity ET-11 renders (`seller_name`, `busine
 
 **Why not defer reactivation to a consumer.** Leaving it to `seller.suspension_expired`'s subscribers would have required a new Catalog consumer group on the topic, and would have left `offer_ids` unsuppliable: the payload field the search consumer matches on is "the offers the expiry reactivated", and a producer that reactivates nothing has no set to name. It would also have split one state transition across a synchronous profile write and an asynchronous offer write, so a seller whose suspension expired would be `ACTIVE` with `INACTIVE` offers for as long as the consumer lagged. This is the shape manual reinstatement already uses ([api-design/admin.md](./api-design/admin.md#reinstate-seller)): reactivate in the transaction, publish the ids, let search re-enable the indexed entries from the payload.
 
+
+---
+
+<a id="cleanup-orphaned-product-images"></a>
+### MinIO `product-images` — orphaned upload sweep
+
+**The only job here whose store is object storage rather than a table.** Product images are uploaded before the product exists — [`POST /seller/products/images`](./api-design/seller.md#upload-product-image) returns a storage key, then [`POST /seller/products`](./api-design/seller.md#create-product) references it — so every upload abandoned between those two calls leaves an object no `catalog.product_image` row will ever reference and nothing will ever read: a seller who closes the form, a create that `422`s on the blocklist, a browser that dies. The bucket is anonymous-readable (`mc anonymous set download local/product-images`), so an orphan is not only storage cost: it stays fetchable by anyone holding its key.
+
+| Property | Value |
+|---|---|
+| Scheduler | `schedulers/product-image-cleanup.scheduler.ts` → `cleanupOrphanedProductImages()` |
+| Default schedule | `40 3 * * *` (03:40 UTC) |
+| Schedule env var | `CLEANUP_PRODUCT_IMAGES_CRON` |
+| Retention env var | `PRODUCT_IMAGE_ORPHAN_GRACE_HOURS` (default 24) |
+| Batch env var | `CLEANUP_BATCH_SIZE` (default 1000) |
+| Guard | `pg_advisory_lock` on `cleanup-orphaned-product-images` |
+
+Two things differ from the table jobs above, and both are deliberate ([ADR-0004](../../decisions/0004-orphaned-product-image-sweep.md)):
+
+**The grace window is a safety property, not an optimisation.** An object younger than `PRODUCT_IMAGE_ORPHAN_GRACE_HOURS` is never a candidate, because *"not referenced yet" is the normal state of a fresh upload* while the seller is still filling in the form. Without the window this job would delete images out from under an in-progress listing. The window's own cost is that an abandoned upload stays publicly fetchable for up to a day.
+
+**The reference check runs per batch, immediately before each delete**, not once per run, so a listing created while the job is walking the bucket protects its own images:
+
+```
+candidates ← list(product-images) where lastModified < now() - :graceHours
+for each batch of :batchSize candidates:
+    referenced ← SELECT storage_key FROM catalog.product_image
+                 WHERE storage_key = ANY(:batch)
+    removeObjects(product-images, batch - referenced)
+```
+
+The predicate is evaluated against the current clock and no cursor is persisted, so an interrupted run resumes on the next tick — the same property the table jobs rely on.
+
+`workers` needs MinIO credentials for this job, which it did not before; they are optional in its env validation so a deployment running no object-storage job still boots.
+
+**Not covered:** `catalog.product_image` rows themselves are never deleted by a job — they go with their product, whose lifecycle is status-driven. And create-product does not verify that a key exists in the bucket before storing it, so a client bug can still store a broken reference; see [ADR-0003](../../decisions/0003-product-image-upload-endpoint.md).
+
 ---
 
 <a id="no-job"></a>
@@ -464,6 +502,7 @@ Every time-bounded store in the model appears in the summary table above or in t
 
 | Store | Why no job here |
 |---|---|
+| MinIO `kyc-documents`, `user-assets` | No job. KYC documents are evidence for an admin decision and are retained with the application; `user-assets` holds the profile/business logo, whose lifecycle follows its profile row. Only `product-images` accumulates uploads that were never referenced, because only it is written before the row that would reference it exists — see [its job](#cleanup-orphaned-product-images). |
 | MongoDB `audit_logs`, `activity_events`, `pii_access_logs` | Expired by their own MongoDB TTL indexes ([data-model-mongodb.md](./data-model-mongodb.md)). The TTL index is the single retention mechanism for MongoDB; a job doing the same deletes would race the TTL monitor. |
 | `pricing.fx_rate` | Nothing to prune. The table is one row per currency pair, primary key `(base_currency_code, quote_currency_code)`, refreshed by upsert in place — a fixed-size table whose row count is the number of supported pairs. Staleness is a **read-time** concern: when `now() - as_of` exceeds `FX_STALE_AFTER_HOURS` (default 24) the API returns the rate marked stale and the UI shows an indicative-rate note. The field is `as_of`; there is no `fetched_at` and no rate history. The hourly upsert that refreshes the rows is `fx-rate.scheduler.ts` (`FX_RATE_REFRESH_CRON`, default `0 * * * *`) — a refresh, not a retention delete, which is why it is not in the summary table above. |
 | `admin.keyword_blocklist` | Deactivation is `is_active = false`, never a delete — the audit history of which term was active when a listing was flagged has to survive. The in-process cache of active terms is refreshed on an in-process TTL (`KEYWORD_BLOCKLIST_CACHE_TTL`, default 60 s), which is a cache expiry, not a scheduled job. Mutations to the table publish `keyword_blocklist.changed` for the audit trail ([data-model-mongodb.md](./data-model-mongodb.md)), and **no consumer of that topic rescans the catalogue**: a newly added term applies at the next listing-time scan and never retroactively flags a live listing. There is no rescan job in V1 and none is to be added on the strength of that topic. |
