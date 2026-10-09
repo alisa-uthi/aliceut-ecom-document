@@ -67,6 +67,12 @@ Daily log of work on this project. Newest entry on top. One entry per active day
 **Next:**
 - `spec-compliance.md` § 1 missing endpoints (seller profile, KYC resubmit, catalog and FX reads), and § 3, the shared-product soft delete that currently withdraws a co-seller's live listing.
 
+**Later the same day — six parallel fixes, backend#31–#37:**
+- Shared-product soft delete withdraws only the caller's offers and removes the product row only for the last seller (#31). The search indexer no longer deletes a whole document when one seller withdraws, and its `processed_event` insert had omitted a NOT NULL column, so every indexed event had been retrying forever (#33).
+- DLQ per consumer group with bounded retry, as reusable `workers` plumbing (#33). The four remaining uncatalogued topics now go to their designed events (#34). Every scheduler moved from `api` to `workers` under an advisory lock (#37). `api` health probes really probe (#32).
+- `UPDATE … RETURNING` was destructured as one row at a dozen sites, but TypeORM returns `[rows, rowCount]`: refund and cancel had never released a reservation and every price withdrawal answered 500 (#35, #37).
+- Seller profile, KYC resubmit and business logo endpoints built (#36). The work registered new entries in `spec-compliance.md`: `POST /seller/kyc` publishes to an uncreated topic, validation answers `422` everywhere, and the design's `PATCH /seller/profile` writes a column that does not exist.
+
 <a id="2026-09-30b"></a>
 ## 2026-09-30 (later)
 **Focus:** redo the backlog decomposition that `c805aed` deleted — this time as an import seed for GitHub Issues rather than as checked-in task state.
