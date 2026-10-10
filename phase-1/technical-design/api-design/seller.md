@@ -64,7 +64,7 @@ Guard names are the ones defined in [api-conventions.md § Auth Guard Legend](..
 | `POST /seller/register` | Postgres | `identity.user` (insert, or add SELLER role to an existing row), `seller.seller_profile` (insert) |
 | `POST /seller/kyc` | Postgres | `seller.kyc_application` (insert), `platform.outbox_event` (`seller.kyc.submitted`) |
 | `GET /seller/profile` | Postgres | `seller.seller_profile` |
-| `PATCH /seller/profile` | Postgres | `seller.seller_profile`, `platform.outbox_event` (`seller.profile_changed`, only when `business_name` changed) |
+| `PATCH /seller/profile` | Postgres | `seller.seller_profile` (`business_name` and the address columns only — [ADR-0006](../../../decisions/0006-seller-profile-patch-writes-address-columns.md)), `platform.outbox_event` (`seller.profile_changed`, only when `business_name` changed) |
 | `GET /seller/kyc` | Postgres | `seller.kyc_application` |
 | `POST /seller/kyc/resubmit` | Postgres | `seller.kyc_application` (insert new), `platform.outbox_event` (`seller.kyc.submitted` with `is_resubmission: true`) |
 | `POST /seller/offers` | Postgres | `CatalogApplicationService` (`catalog.offer` + `offer.changed`), `PricingApplicationService` (`pricing.offer_price`), `InventoryApplicationService` (`inventory.stock` + `inventory.changed`) |
@@ -454,16 +454,36 @@ Auth: SELLER (not suspended)
 ```json
 {
   "businessName": "string (max 200 chars)",
-  "submittedData": "object (business address, contact, phone; countryCode is ISO 3166-1 alpha-2)"
+  "businessAddress": {
+    "addressLine1": "string (max 200 chars)",
+    "addressLine2": "string | null (max 200 chars)",
+    "city": "string (max 100 chars)",
+    "stateRegion": "string | null (max 100 chars)",
+    "postalCode": "string (max 20 chars)",
+    "countryCode": "ISO 3166-1 alpha-2, e.g. TH"
+  }
 }
 ```
+**The address is written to the columns `seller.seller_profile` already carries** ([ADR-0006](../../../decisions/0006-seller-profile-patch-writes-address-columns.md)), one field to one column:
+
+| Request field | Column | Rule |
+|---|---|---|
+| `businessName` | `business_name` | Non-empty when present |
+| `businessAddress.addressLine1` | `address_line_1` | Non-empty when present — the column is `NOT NULL` |
+| `businessAddress.addressLine2` | `address_line_2` | `null` clears it |
+| `businessAddress.city` | `city` | Non-empty when present |
+| `businessAddress.stateRegion` | `state_region` | `null` clears it |
+| `businessAddress.postalCode` | `postal_code` | Non-empty when present |
+| `businessAddress.countryCode` | `country_code` | ISO 3166-1 alpha-2 |
+
+Every field is independently optional: an omitted field leaves its column unchanged, so a seller can correct the postal code alone. A field that is present must carry a value for a `NOT NULL` column — `null` or `""` there is a `400`, not a clear. **Any other key is a `400`**, at either level: there is no phone, contact or registration-number column, and those belong to the KYC application (`seller.kyc_application.submitted_data`), which is immutable once submitted and changed only by [resubmission](#resubmit-kyc-application). `tax_id` is not editable here for the same reason. A body with no fields writes nothing and returns the current profile.
 A suspended seller may **read** the profile but not write it — editing a business identity while the account is under suspension is exactly the change an admin has paused.
 
 **Response 200** — updated seller profile (`data`-wrapped, same shape as [`GET /seller/profile`](#get-seller-profile))  
 Side effect: `seller.profile_changed` via the outbox, **only when `businessName` changed** ([kafka-events.md § 2.28](../kafka-events.md#228-sellerprofile_changed)).  
 **Errors:** 400 validation, 403 seller suspended
 
-**A rename has to reach the search index.** `business_name` is copied onto every one of the seller's `offers[]` entries as `seller_name` when the entry is created, and no `offer.changed` follows a profile edit — the offers did not change. Without an event here the index would serve the old name for as long as the seller left their listings alone, which for a seller who never edits one is permanently, and no later event would be obliged to repair it. The event is emitted on a `business_name` change only: a `submittedData`-only edit touches nothing indexed, and publishing on every `PATCH` would reindex every listing the seller holds to write the value already there.
+**A rename has to reach the search index.** `business_name` is copied onto every one of the seller's `offers[]` entries as `seller_name` when the entry is created, and no `offer.changed` follows a profile edit — the offers did not change. Without an event here the index would serve the old name for as long as the seller left their listings alone, which for a seller who never edits one is permanently, and no later event would be obliged to repair it. The event is emitted on a `business_name` change only: an address-only edit touches nothing indexed, and publishing on every `PATCH` would reindex every listing the seller holds to write the value already there.
 
 #### Sequence
 
@@ -476,19 +496,20 @@ sequenceDiagram
     participant KO as Kafka Outbox
     participant KR as Kafka Relay
 
-    C->>A: PATCH /seller/profile { businessName?, submittedData? }
+    C->>A: PATCH /seller/profile { businessName?, businessAddress? }
     Note over A,G: Guard: JWT + SELLER + not suspended (writes are blocked while suspended&#59; the matching read is not)
     A->>G: run the guard chain named above
     G-->>A: authorized (claims only — no DB read)
 
-    A->>A: validate request body
+    A->>A: validate request body (unknown keys rejected, NOT NULL columns non-empty, countryCode alpha-2)
     alt validation fails
         A-->>C: 400 Bad Request
     end
 
     Note over P,KO: BEGIN TRANSACTION
     A->>P: SELECT business_name FROM seller.seller_profile WHERE id = :sellerProfileId FOR UPDATE
-    A->>P: UPDATE seller.seller_profile SET business_name=?, submitted_data=?, updated_at=NOW() WHERE id = :sellerProfileId
+    A->>P: UPDATE seller.seller_profile SET <only the supplied columns of business_name, address_line_1, address_line_2, city, state_region, postal_code, country_code>, updated_at=NOW() WHERE id = :sellerProfileId
+    Note over A,P: No UPDATE at all when the body supplies no field
     alt business_name changed
         A->>KO: INSERT platform.outbox_event (topic='seller.profile_changed', aggregate_type='seller.seller_profile', aggregate_id=:sellerProfileId, key=:sellerProfileId, payload={seller_id:sellerProfileId, seller_name:newBusinessName, changed_at:NOW()})
         Note over A,KO: Emitted on a business_name change only. offers[].seller_name is a copy of this value and no offer.changed follows a profile edit, so this is the one event that corrects it

@@ -611,7 +611,7 @@ Every parameter below is passed through to an API query parameter of the same na
 | Param | Example | Purpose |
 |-------|---------|---------|
 | `q` | `?q=laptop` | Full-text query |
-| `categoryId` | `?categoryId=<uuid>` | Category filter, subcategories included. A UUID, not a slug |
+| `category` | `?category=<slug>` | Category filter, subcategories included. A slug, not a UUID ([ADR-0005](../../decisions/0005-search-category-filter-is-a-slug.md)) |
 | `priceMin` | `?priceMin=100.00` | Lower bound, a **decimal string** in `currency` |
 | `priceMax` | `?priceMax=1500.00` | Upper bound, a decimal string |
 | `currency` | `?currency=THB` | Currency the price bounds and displayed amounts are in; defaults to USD |

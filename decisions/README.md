@@ -50,3 +50,5 @@ Copy [`0000-adr-template.md`](0000-adr-template.md) to start one.
 | [0002](0002-variant-label-lives-in-attributes.md) | `variantLabel` is persisted inside `product_variant.attributes` | Accepted |
 | [0003](0003-product-image-upload-endpoint.md) | Product images are uploaded through `POST /seller/products/images` | Accepted |
 | [0004](0004-orphaned-product-image-sweep.md) | Orphaned product images are swept by a scheduled job with a grace window | Accepted |
+| [0005](0005-search-category-filter-is-a-slug.md) | The search `category` filter is a category slug | Accepted |
+| [0006](0006-seller-profile-patch-writes-address-columns.md) | `PATCH /seller/profile` writes the business address columns | Accepted |
