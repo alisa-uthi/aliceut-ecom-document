@@ -165,7 +165,7 @@ section.categories [padding: 24px 0]
   h2 mat-headline-5 — "Shop by Category"
   div.category-grid [display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 16px]
     mat-card.category-tile *ngFor="let cat of categories; trackBy: trackByCategoryId"
-      [routerLink]="['/search']" [queryParams]="{ categoryId: cat.id }"
+      [routerLink]="['/search']" [queryParams]="{ category: cat.slug }"
       mat-icon [font-size: 40px] — [cat.icon]
       span mat-body-2 — {{ cat.name }}
 
@@ -200,7 +200,7 @@ section.latest-products [padding: 24px 0]
 ### Interactions
 
 - Hero search submits on Enter or the arrow button → `/search?q={query}`.
-- Category tile → `/search?categoryId={id}`.
+- Category tile → `/search?category={slug}`.
 - `addToCart` from a card adds the card's offer at quantity 1 — see [Screen 3](#screen-3-pdp) for the add-to-cart contract, which is identical.
 
 ### Mobile
@@ -212,10 +212,10 @@ section.latest-products [padding: 24px 0]
 <a id="screen-2-search-results"></a>
 ## Screen 2 — Search Results
 
-**Route:** `/search?q=&categoryId=&priceMin=&priceMax=&currency=&inStock=&sortBy=`  
+**Route:** `/search?q=&category=&priceMin=&priceMax=&currency=&inStock=&sortBy=`  
 **Auth:** None required
 
-Query-parameter names match [search.md § Product search](../technical-design/api-design/search.md#product-search) exactly: `categoryId`, `priceMin`, `priceMax`, `currency`, `inStock`, `sortBy` with camelCase values (`relevance`, `priceAsc`, `priceDesc`, `newest`). There is **no `page`, no `pageSize` and no cursor in the URL** — see [Pagination](#pagination) above. There is **no `minRating`**: no rating field exists in the search index, the ERD or any result object.
+Query-parameter names match [search.md § Product search](../technical-design/api-design/search.md#product-search) exactly: `category` (a category slug — [ADR-0005](../../decisions/0005-search-category-filter-is-a-slug.md)), `priceMin`, `priceMax`, `currency`, `inStock`, `sortBy` with camelCase values (`relevance`, `priceAsc`, `priceDesc`, `newest`). There is **no `page`, no `pageSize` and no cursor in the URL** — see [Pagination](#pagination) above. There is **no `minRating`**: no rating field exists in the search index, the ERD or any result object.
 
 ### Layout
 
@@ -309,7 +309,7 @@ div.search-layout [display: flex; gap: 24px]
 
 `GET /search/products`. Each result carries `productId`, `title`, `brand`, `categoryId`, `categoryPath`, `images[].storageKey`, `lowestOffer`, `inStock` and `score`. `lowestOffer` maps to `ProductCard.effectivePrice`; its `displayAmount` / `displayCurrency` / `fxRate` / `fxAsOf` / `fxStale` fields drive the `≈` prefix and the indicative-rate tooltip inside `PriceDisplay`. `lowestOffer.priceType` is only ever `LIST` or `SALE` — `B2B_TIER` is not a V1 price type.
 
-`facets.categories` supplies the per-category counts beside the tree checkboxes. `facets.priceRange` supplies `displayMin` / `displayMax`, which bound the two `CurrencyInput` fields; both are `null` together when no FX rate exists for the pair, and the fields then have no bounds.
+`facets.categories` supplies the per-category counts beside the tree checkboxes, matched to tree nodes by `id`; a checked node filters by its `slug`. `categoryPath` on a result is slugs, so the card resolves display names from the category tree already loaded for the sidebar. `facets.priceRange` supplies `displayMin` / `displayMax`, which bound the two `CurrencyInput` fields; both are `null` together when no FX rate exists for the pair, and the fields then have no bounds.
 
 **The price filter is two `CurrencyInput` fields, not a slider.** A numeric `mat-slider` binds a JS `number` to money, which FR-P-04 forbids, and `CurrencyInput` is the control the design system designates for both ends of a price range. Bounds are passed as decimal **strings** through `min` / `max`. The filter is applied by Elasticsearch against the pre-indexed `display_prices` value for the requested currency, so results may lag an FX-rate change by the index freshness window (NFR-13).
 
@@ -353,7 +353,7 @@ div.pdp-layout [display: grid; grid-template-columns: 1fr 380px; gap: 32px; alig
       a mat-button routerLink="/" — Home
       mat-icon [font-size: 16px] — chevron_right
       a mat-button *ngFor="let crumb of breadcrumbs; trackBy: trackByCategoryId"
-        [routerLink]="['/search']" [queryParams]="{ categoryId: crumb.id }" — {{ crumb.name }}
+        [routerLink]="['/search']" [queryParams]="{ category: crumb.slug }" — {{ crumb.name }}
 
     div.image-gallery
       div.primary-image [aspect-ratio: 1; border-radius: 8px; overflow: hidden; border: 1px solid divider]

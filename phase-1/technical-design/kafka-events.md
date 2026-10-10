@@ -766,7 +766,7 @@ Terminal statuses count as settled, not pending:
           { "name": "product_id",   "type": "string" },
           { "name": "change_type",  "type": { "type": "enum", "name": "ProductChangeType", "symbols": ["CREATED","UPDATED","REMOVED","UNKNOWN"], "default": "UNKNOWN" } },
           { "name": "category_id",  "type": "string" },
-          { "name": "category_path", "type": { "type": "array", "items": "string" }, "doc": "Ancestor-to-leaf category names, e.g. ['Electronics','Cameras'] — the indexed keyword field a category filter matches on and the breadcrumb a search result renders. Catalog owns catalog.category and resolves the path inside the producing transaction; the search consumer cannot walk the tree itself without reading catalog" },
+          { "name": "category_path", "type": { "type": "array", "items": "string" }, "doc": "Ancestor-to-leaf category slugs, e.g. ['electronics','cameras'] — the indexed keyword field the search `category` slug filter matches on, so a parent slug matches its subcategories' products (ADR-0005). Slugs, not names: display names come from the catalog category tree. Catalog owns catalog.category and resolves the path inside the producing transaction; the search consumer cannot walk the tree itself without reading catalog" },
           { "name": "title",        "type": "string" },
           { "name": "brand",        "type": ["null","string"], "default": null },
           { "name": "description",  "type": ["null","string"], "default": null },

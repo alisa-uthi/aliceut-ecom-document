@@ -602,7 +602,7 @@ At checkout, the buyer may select an `identity.address` record. The checkout ser
 | `suspension_reason` | `TEXT` | Nullable; free text reason recorded by admin at suspension time. |
 | `created_at`, `updated_at` | `TIMESTAMPTZ` | Required audit timestamps |
 
-The business address is held as columns here rather than as a foreign key to `identity.address`: the seller schema owns its own business data, and no cross-schema FK is introduced. The price is that the address shape defined by `identity.address` is restated, which is accepted deliberately. Invoice and order-confirmation rendering read these columns — never `seller.kyc_application.submitted_data`, which holds the unvalidated JSONB the seller typed at application time and is not the seller's current address of record.
+The business address is held as columns here rather than as a foreign key to `identity.address`: the seller schema owns its own business data, and no cross-schema FK is introduced. The price is that the address shape defined by `identity.address` is restated, which is accepted deliberately. Invoice and order-confirmation rendering read these columns — never `seller.kyc_application.submitted_data`, which holds the unvalidated JSONB the seller typed at application time and is not the seller's current address of record. The seller edits these columns directly through `PATCH /seller/profile` ([ADR-0006](../../decisions/0006-seller-profile-patch-writes-address-columns.md)); the table has no `submitted_data` column of its own.
 
 <a id="table-seller-kyc-application"></a>
 #### `seller.kyc_application`

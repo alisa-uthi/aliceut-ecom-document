@@ -139,7 +139,7 @@ Pagination: cursor (Elasticsearch search_after)
 | Param | Type | Description |
 |-------|------|-------------|
 | `q` | string | Full-text query |
-| `categoryId` | UUID | Filter by category (includes subcategories) |
+| `category` | string (slug) | Filter by category **slug**, subcategories included: matches every product whose `category_path` contains the slug ([ADR-0005](../../../decisions/0005-search-category-filter-is-a-slug.md)) |
 | `priceMin` | string (decimal) | Min price in `currency` |
 | `priceMax` | string (decimal) | Max price |
 | `currency` | ISO 4217 | Currency for price filters (default USD) |
@@ -160,7 +160,7 @@ The story text at US-B-04:112 writes the sort token as `?sort=price_asc`; that p
     "title": "string",
     "brand": "string",
     "categoryId": "uuid",
-    "categoryPath": ["Electronics", "Cameras"],
+    "categoryPath": ["electronics", "cameras"],
     "images": [{ "storageKey": "string" }],
     "lowestOffer": {
       "offerId": "uuid",
@@ -178,7 +178,7 @@ The story text at US-B-04:112 writes the sort token as `?sort=price_asc`; that p
     "score": 1.234
   }],
   "facets": {
-    "categories": [{ "id": "uuid", "name": "string", "count": 12 }],
+    "categories": [{ "id": "uuid", "slug": "string", "name": "string", "count": 12 }],
     "priceRange": { "min": "9.99", "max": "999.00", "currency": "USD", "displayMin": "344.00", "displayMax": "34400.00", "displayCurrency": "THB" }
   },
   "meta": { "nextCursor": "string | null", "hasMore": true }
@@ -186,6 +186,7 @@ The story text at US-B-04:112 writes the sort token as `?sort=price_asc`; that p
 ```
 
 **Notes:**
+- **The category filter is a slug, not an id** ([ADR-0005](../../../decisions/0005-search-category-filter-is-a-slug.md)). It is a `term` filter on the `category_path` keyword field, which holds the product's category slugs ancestor-to-leaf (`["electronics", "cameras"]`), so `category=electronics` matches a product filed under `electronics/cameras` — subcategories are included because every ancestor is in the path, not by a tree walk at query time. `categoryPath` in each result is that same slug array; a client renders breadcrumb labels from the `GET /catalog/categories` tree, which carries `name` beside `slug`. Slugs are unique among siblings only (`catalog.category` unique index on `(parent_id, slug)`), so a slug reused under two parents matches products under both. `category_id` stays in the mapping and in the result for linking to the catalog, and is not a query parameter.
 - `lowestOffer.amount` / `lowestOffer.currency` = the offer's price in its `native_currency_code`. Each offer has exactly one pricing currency, so the "lowest offer" comparison is made on the indexed `display_prices[currency]` value for the requested currency and there is no per-offer currency choice to make.
 - `lowestOffer.priceType` is `LIST` or `SALE` only — there is no `B2B_TIER` in V1. `compareAtAmount` is the offer's live `LIST` amount when `priceType = 'SALE'`, enabling struck-through original price display on the search card (US-B-05). It is `null` when `priceType = 'LIST'`. Effective-price resolution is by price type and current time only — account type and quantity are not inputs. See [catalog.md § Offer currency and price resolution](catalog.md#offer-currency-and-price-resolution).
 - `displayAmount` / `displayCurrency` / `fxRate` / `fxAsOf` / `fxStale` follow [pricing.md § Display-currency fields](pricing.md#fx-display-fields), against the `currency` query param.
@@ -218,10 +219,10 @@ sequenceDiagram
     participant SearchService
     participant ES as Elasticsearch
 
-    Client->>API: GET /search/products?q=camera&categoryId&priceMin&priceMax&currency=USD&inStock=true&sortBy=relevance&limit=20&cursor
+    Client->>API: GET /search/products?q=camera&category&priceMin&priceMax&currency=USD&inStock=true&sortBy=relevance&limit=20&cursor
     Note over API: PUBLIC — no auth guard
-    API->>SearchService: searchProducts({ q, categoryId, priceMin, priceMax, currency, inStock, sortBy, limit, cursor })
-    Note over SearchService: Build ES bool query: must=multi_match(title,brand,description when q present)#59; filter=status ACTIVE, seller_active=true, category_id/path, display_prices[currency] range, available_qty>0 (inStock)#59; sort=(chosen sort key, then _id) — score|display_prices[currency].asc|.desc|created_at.desc, always tie-broken on _id so the sort key is unique and search_after cannot skip or repeat a document#59; search_after=decoded cursor#59; size=limit+1#59; aggs=category terms+display_prices[currency] stats
+    API->>SearchService: searchProducts({ q, category, priceMin, priceMax, currency, inStock, sortBy, limit, cursor })
+    Note over SearchService: Build ES bool query: must=multi_match(title,brand,description when q present)#59; filter=status ACTIVE, seller_active=true, term category_path=:category, display_prices[currency] range, available_qty>0 (inStock)#59; sort=(chosen sort key, then _id) — score|display_prices[currency].asc|.desc|created_at.desc, always tie-broken on _id so the sort key is unique and search_after cannot skip or repeat a document#59; search_after=decoded cursor#59; size=limit+1#59; aggs=category terms+display_prices[currency] stats
     SearchService->>ES: POST /products/_search { query, sort, search_after, size, aggs, track_total_hits: false }
     ES-->>SearchService: hits[], aggregations
     Note over SearchService: If hits.length = limit+1: hasMore=true, trim last hit. Encode nextCursor from the sort values of the last included hit. No total is requested or returned — track_total_hits is false, which also removes the cost of counting
@@ -462,7 +463,7 @@ sequenceDiagram
     Note over SellerAPI,Postgres: Seller changes businessName
     SellerAPI->>Postgres: BEGIN TX<br/>UPDATE seller.seller_profile SET business_name = :businessName<br/>INSERT platform.outbox_event (topic=seller.profile_changed, payload={seller_id, seller_name, changed_at})
     Postgres-->>SellerAPI: COMMIT
-    Note over SellerAPI,Postgres: The outbox row is written only when business_name actually changed —<br/>a PATCH that touches submittedData alone indexes nothing
+    Note over SellerAPI,Postgres: The outbox row is written only when business_name actually changed —<br/>a PATCH that touches the business address alone indexes nothing
     Relay->>Kafka: Produce to seller.profile_changed (partition key: seller_id)
     Kafka-->>Consumer: Consume seller.profile_changed (group: search.seller-profile-changed)
     Note over Consumer: Idempotency check on platform.processed_event
