@@ -1,7 +1,7 @@
 # Spec compliance — known code/spec divergences
 
 **Status:** Living document
-**Updated:** 2026-10-09
+**Updated:** 2026-10-10
 
 The technical design in this directory is canonical. This file is the register
 of places where the code is known **not** to match it yet, so that no mismatch
@@ -15,7 +15,7 @@ history here.
 
 ---
 
-## Resolved 2026-10-08/09
+## Resolved 2026-10-08/10
 
 Recorded for context; these are closed.
 
@@ -37,98 +37,116 @@ Recorded for context; these are closed.
 | `api` health probes reported `up` without checking anything | Code fixed (backend#32): real probes with per-check and total timeouts, shared with `workers` |
 | `UPDATE`/`DELETE ... RETURNING` results were destructured as one row, but TypeORM returns `[rows, rowCount]` — refund and cancel never released reservations, every price withdrawal answered 500, suspend and reinstate events carried null offer ids | Code fixed (backend#35, #37): `returningRows` / `returningRow` / `affectedCount` in `shared`; test mocks return the real shape |
 | `GET`/`PATCH /seller/profile`, `POST /seller/kyc/resubmit` and `POST /profile/me/logo` were missing | Built to the spec (backend#36) |
+| `GET /catalog/products`, `GET /catalog/categories/:categoryId` and `GET /pricing/fx-rates` were missing | Built to the spec (backend#41) |
+| The global `ValidationPipe` answered request validation with `422`, and the exception filter emitted `{code, message, details}` | Code fixed (backend#39): `400` with the api-conventions error shape `{statusCode, error, message, errors[]}`; the business-rule `422`s the spec keeps are unchanged |
+| `POST /seller/kyc` took JSON and published to the uncreated `platform.seller.kyc.submitted`, keyed on the application | Code fixed (backend#40): multipart upload, `seller.kyc.submitted` keyed on the seller profile. It also creates the profile when none exists, which is **interim** (entry 5) |
+| `admin.service.ts` read the nonexistent `u.first_name` / `u.last_name` in seven queries | Code fixed (backend#40): `u.full_name` |
+| `fulfillment.refunded`, `.cancelled` and `.shipped` were keyed on `fulfillment_id` | Code fixed (backend#40): keyed on `order_id`; refunded and cancelled payloads follow §2.7 / §2.16 |
+| Checkout reservations expired after two days; `order.finalized` carried `buyer_business_logo_url: null`; a null `preferred_currency` checked out in USD | Code fixed (backend#38): 15-minute TTL; logo key presigned; currency resolved from `Accept-Language` |
+| Search's `category` filter was a slug where the design said a `categoryId` UUID, and `category_path` held only the leaf | [ADR-0005](../../decisions/0005-search-category-filter-is-a-slug.md): the filter is a slug, and `category_path` is ancestor-to-leaf slugs in the index and in every `product.changed` (backend#42). `reindexAllProducts` must run once after deploy |
+| The `PATCH /seller/profile` design wrote `seller_profile.submitted_data`, a column that does not exist | [ADR-0006](../../decisions/0006-seller-profile-patch-writes-address-columns.md): the request is `{businessName?, businessAddress?}` on the address columns (backend#42) |
 
 ---
 
 ## Open — API surface
 
-<a id="missing-endpoints"></a>
-### 1. Missing endpoints
+### 1. Response models far from the design
 
-From the design, not yet implemented: `GET /catalog/products`,
-`GET /catalog/categories/:categoryId` and `GET /pricing/fx-rates`.
+- `Cart` is specified to BE the checkout preview — `productTitle`,
+  `sellerName`, `effectivePrice`, `lineTotal`, `groups[]`, the four totals and
+  the FX display fields — and currently returns offer ids and quantities only.
+- Search results return `description`, `status`, `lowestListPrice` /
+  `lowestSalePrice`, `imageStorageKey` and `offers[]`; the design has `brand`,
+  `categoryId`, `images[]`, `lowestOffer`, `inStock`, `score` and `facets`.
+- Checkout still takes `items[{offerId, quantity}]` rather than the designed
+  `cartItems[]` plus the `confirmedPrices[]` / `PRICE_CHANGED` handshake.
+- `GET /pricing/offers/:offerId/effective-price` returns `nativeAmount` /
+  `nativeCurrency` without `priceType`, `compareAtAmount` or `saleEndsAt`;
+  defaults `currency` to USD where pricing.md makes it required; answers a
+  missing FX row with the native currency and `fxStale: true` instead of
+  `displayAmount: null`; and has no `404` for an inactive offer and no `422`
+  for a missing `LIST` price. Pricing does not apply the Auto-currency rule
+  that checkout now uses.
+- `GET /catalog/products/:productId` omits `offers[]`;
+  `GET /catalog/products/:productId/offers` has a non-spec shape and no
+  seller-eligibility filter; the category list exposes `isProhibited`.
+- `GET /seller/kyc` returns `{kycStatus, applicationStatus, decisionReason}`
+  where seller.md specifies the application record and a `404` when there is
+  none, and its join drops decided applications.
+- `GET /seller/profile` returns no address fields, so a seller cannot read
+  back the address `PATCH` writes. The design omits them too, so this is a
+  spec gap.
+- `fulfillment.shipped` lacks the §2.5 `buyer_*` and `seller_name` fields.
 
-The backend additionally serves `GET /catalog/categories/:categoryId/products`,
-which is **not** in the design. Reconciling it is a design question, not a
-rename.
-
-### 2. Response models far from the design
-
-`Cart` is specified to BE the checkout preview — `productTitle`, `sellerName`,
-`effectivePrice`, `lineTotal`, `groups[]`, the four totals and the FX display
-fields — and currently returns offer ids and quantities only. Search results
-lack `brand`, `images[]`, `lowestOffer`, `score` and the `facets` block.
-Checkout still takes `items[{offerId, quantity}]` rather than the designed
-`cartItems[]` plus the `confirmedPrices[]` / `PRICE_CHANGED` handshake.
-
-### 3. API amounts are emitted at storage scale
+### 2. API amounts are emitted at storage scale
 
 Every monetary field is returned as the driver hands it back — `"99.9900"`,
 four fractional digits, whatever the currency. The design renders amounts at
 the currency's `minor_unit_scale` and specifies a startup-loaded
 `CurrencyScaleCache` in `pricing` as the single source of that scale
 ([backend-coding-standards.md §3.2](../../conventions/backend-coding-standards.md)).
-No such cache exists, so nothing formats: a JPY price reads `"1000.0000"` where
-the scale is zero. Amounts are strings end to end and no arithmetic is done in
-JS `number`, so this is a presentation divergence rather than a money-handling
-one — but it is one the whole API shares, and the fix belongs in one pass over
-every money-returning endpoint.
+No such cache exists, so nothing formats: a JPY price reads `"1000.0000"`.
+The effective-price conversion also rounds with `toFixed(4)`. The supported
+currency list `USD, THB, JPY, SGD` is redefined in five or more libs; the
+cache is the natural single source for that too.
 
-### 4. Validation failures answer `422`, not `400`
+### 3. Undesigned `GET /catalog/categories/:categoryId/products`
 
-The global `ValidationPipe` uses `422`, where every endpoint's error table
-specifies `400` for a validation failure. It is one setting, but it changes
-every endpoint's contract, so it lands with a contract-test pass.
+`GET /catalog/products?categoryId=` (backend#41) now covers it. The legacy
+route 404s on an unknown category, returns the detail shape with `variants`
+always `[]` because the query never loads them, uses a raw product id as its
+cursor and clamps `limit` to 50. Delete it, or design it.
 
-### 5. `POST /seller/kyc` does not follow its design
+### 4. `product.changed` payloads differ per producer
 
-It takes a JSON body where the design specifies a multipart document upload,
-and it publishes `seller.kyc.submitted` to `platform.seller.kyc.submitted` — a
-topic `kafka-init.sh` does not create, so the event is never delivered — keyed
-on the application id rather than the seller. `POST /seller/kyc/resubmit`
-(backend#36) is built to the design and is the pattern to follow.
+`CREATED` omits `brand` and shapes `variants[]` and `images[]` differently
+from §2.10; `UPDATED` omits `created_at`, `variants[]` and `images[]`.
+`category_path` now agrees everywhere (ADR-0005). A Schema Registry (entry 8)
+would have caught this.
 
-### 6. Smaller handler divergences
+### 5. `POST /seller/register` does not follow its design
 
-- `admin.service.ts` `reinstateSeller` selects `u.first_name` / `u.last_name`;
-  `identity.user` has only `full_name`.
-- `fulfillment.refunded` and `fulfillment.cancelled` are keyed on
-  `fulfillment_id`; the catalogue keys them on `order_id`.
-- Checkout reservations expire after two days; [orders.md](api-design/orders.md)
-  specifies 15 minutes.
-- `order.finalized` always carries `buyer_business_logo_url: null`; the stored
-  logo key is not presigned on that path.
-- `product.changed` carries a different payload per producer. `REMOVED`
-  (backend#31) follows the §2.10 schema; `CREATED` omits `brand` and shapes
-  `variants[]` and `images[]` differently, and `UPDATED` omits
-  `category_path`, `created_at`, `variants[]` and `images[]`. `category_path`
-  is a leaf slug everywhere, where §2.10 specifies ancestor-to-leaf names —
-  tied to the search filter in entry 7.
+It creates no `seller_profile`, returns only `{userId}` with no access token,
+`sellerProfileId` or refresh cookie, does not verify the password when linking
+an existing account (no `401` / `PASSWORD_REQUIRED_FOR_LINK`), and emits the
+uncatalogued `platform.seller.registered`. The design's profile insert also
+cannot run as written: it leaves `business_name` and `tax_id` NULL, and
+migration 0007 makes those and the address columns NOT NULL. That
+**spec/schema gap** has to be settled first. Until register is fixed,
+`POST /seller/kyc` creates the profile when none exists (backend#40); that
+branch must be removed in the same change.
 
-### 7. Deviations kept on purpose, pending an ADR
+### 6. Decisions the design leaves open
 
-- Search's `category` filter is a **slug**, not the designed `categoryId` UUID.
-  The products index carries only a `category_path` of slugs, so the designed
-  filter would always match nothing. Serving it needs the indexer to emit
-  category ids plus ancestors, an ES mapping change and a reindex.
-- Checkout resolves a null `preferred_currency` to USD; the design resolves it
-  from `Accept-Language`.
-
-Both need an ADR or an implementation, not silence.
-
-### 8. The design writes a column that does not exist
-
-The `PATCH /seller/profile` sequence writes `seller_profile.submitted_data`,
-which neither the ERD nor migration 0007 has. backend#36 maps `submittedData`
-onto the address columns the table does carry and rejects the phone and
-contact keys, which have no column. This is a **spec** gap: an ADR either adds
-the column or rewrites the request to the address fields.
+- **Locale to currency.** The design says "the currency matching the locale"
+  with no table. backend#38 resolves only the highest-q locale, maps a bare
+  language to its likely region (`th` to THB, `ja` to JPY, `en` to USD), and
+  falls back to USD.
+- **Event logo URL lifetime.** `order.finalized` carries a presigned logo URL
+  valid for one hour, so an email built or opened later shows a dead image.
+  Either event URLs get a longer TTL or the consumer presigns from a key in
+  the payload.
+- **Refund reason.** A refund requires a `reason` so the buyer is told why,
+  but the §2.7 `fulfillment.refunded` schema has no field for it, so it is
+  stored nowhere.
+- **`POST /seller/kyc` with a `REJECTED` application.** backend#40 answers
+  `409` pointing to `/seller/kyc/resubmit`; the sequence lists only
+  `PENDING`, `UNDER_REVIEW` and `APPROVED` for the `409`.
+- **Duplicate SKU within one product** is a `422`; seller.md does not list it,
+  and it reads as request validation (`400`).
+- **Response details not spelled out:** the `GET
+  /catalog/categories/:categoryId` body (built as the list shape with direct
+  children), an unknown `categoryId` on `GET /catalog/products` (built as an
+  empty page), and the `GET /pricing/fx-rates` error table.
+- search.md says Catalog resolves `category_path` because walking the tree
+  would read another module's schema. The indexer already reads `catalog.*`,
+  so that rationale is stale.
 
 ---
 
 ## Open — platform conventions
 
-### 9. Only one consumer exists
+### 7. Only one consumer exists
 
 `apps/workers` runs the outbox relay, the schedulers and the search indexer.
 The notification, audit and inventory consumers the design relies on are not
@@ -148,24 +166,36 @@ built, so:
 This is sprint scope rather than a defect, but it is the reason several
 handlers do work the design assigns to a consumer.
 
-### 10. Events are JSON, not Avro
+### 8. Events are JSON, not Avro
 
 [kafka-events.md](../../conventions/kafka-events.md) specifies Avro with the
 Confluent Schema Registry under BACKWARD compatibility. The outbox relay and
 the consumers use `JSON.stringify` / `JSON.parse`. Coherent end to end, but not
 the designed wire format, and the Schema Registry is running unused. A registry
-would have caught the mixed `product.changed` payloads in entry 6.
+would have caught the mixed `product.changed` payloads in entry 4.
 
-### 11. Seller handlers write other modules' schemas directly
+### 9. Seller handlers write other modules' schemas directly
 
 The seller routes write `catalog`, `pricing`, `inventory` and `orders` rows
 themselves rather than through each owner's application service, which the
 [sole-writer rule](api-design/seller.md#db-mapping) requires. The soft-delete's
 pending check still joins `orders` tables to `catalog.offer` in one statement.
 
-### 12. Most retention jobs are not built
+### 10. Most retention jobs are not built
 
 [cleanup-jobs.md](cleanup-jobs.md) lists more jobs than the five `workers` now
 runs (outbox retention, suspension expiry, suspended-seller auto-refund, FX
 refresh and the orphaned-image sweep). The remaining seven have no
 implementation.
+
+### 11. Tooling the conventions assume is missing
+
+- No project has a `lint` target, so CI's `nx run-many -t lint` runs nothing
+  and the money-field lint rule the conventions require is not enforced.
+- The pre-merge checklist requires a Supertest test per endpoint; the backend
+  has none.
+- About 50 nullable string DTO fields are emitted as `type: object` in the
+  OpenAPI document (NestJS union reflection), mostly in seller and admin.
+- Many endpoints with a request DTO do not declare the `400` they can answer.
+- `CheckoutService` sits in `application/` but runs raw SQL through TypeORM's
+  `DataSource`, against the Tier 1 layer rule.

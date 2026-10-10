@@ -31,6 +31,7 @@ Daily log of work on this project. Newest entry on top. One entry per active day
 > **Note on `phase-1/audits/` paths below.** That directory is gone: its two files — `2026-09-22-wave0-decisions.md` (decision records D-01…D-14) and `2026-09-22-alignment-audit-fix-plan.md` — were committed on 2026-09-22 and deleted again on 2026-09-24 by commit `c5767b8`. A `phase-1/audits/README.md` was never committed at any point, so entries below that describe creating one describe work that did not land. Every `phase-1/audits/…` path in the dated entries records what was worked from at the time; none of them resolve today. The decisions themselves are recorded inline in the documents they bind — `BRD.md` §12 and its amendment list, and `CLAUDE.md` Core Rules — and in the git history of commits `4f24166`, `61bbda4`, `f0db299` and `c5767b8`.
 
 **Index**
+- [2026-10-10](#2026-10-10) — Spec-compliance wave 2: missing endpoints, validation 400, KYC to design, checkout fixes, ADR-0005/0006 with their code.
 - [2026-10-09](#2026-10-09) — Seller and Admin API surface brought to the design: every 2xx response modelled, cursor pagination, and the defects that read exposed.
 - [2026-09-30 (later)](#2026-09-30b) — Phase 1 decomposed into 136 tasks, imported to GitHub Issues + Project 3; per-phase seed CSV, validator and task template.
 - [2026-09-30](#2026-09-30) — Dead `D-NN` pointer scrub finished; the five open audit contradictions resolved (BRD v1.4); `conventions/` pass closed.
@@ -48,6 +49,25 @@ Daily log of work on this project. Newest entry on top. One entry per active day
 - [2026-08-29](#2026-08-29) — Requirements deep-dive: order lifecycle, buyer stories, auth portals, BA revalidation.
 - [2026-08-22](#2026-08-22) — Phase 1 technical-design kickoff; architecture overview + ERD.
 - [2026-08-19](#2026-08-19) — Requirements freeze (BRD v1.2 signed off) + repo scaffolding.
+
+<a id="2026-10-10"></a>
+## 2026-10-10
+**Focus:** spec-compliance wave 2, run as six parallel agents.
+
+**Done:**
+- backend#38: checkout reservation TTL 15 min, `order.finalized` business logo presigned, null `preferred_currency` resolved from `Accept-Language`.
+- backend#39: request validation answers `400` with the api-conventions error shape; spec-kept business `422`s unchanged.
+- backend#40: `POST /seller/kyc` built to its design (multipart, `seller.kyc.submitted` keyed on seller); admin queries read `full_name`; fulfillment events keyed on `order_id`.
+- backend#41: `GET /catalog/products`, `GET /catalog/categories/:categoryId`, `GET /pricing/fx-rates`.
+- document#151 + backend#42: [ADR-0005](decisions/0005-search-category-filter-is-a-slug.md) (search category filter is a slug, ancestor slug path) and [ADR-0006](decisions/0006-seller-profile-patch-writes-address-columns.md) (`PATCH /seller/profile` writes the address columns).
+- `spec-compliance.md` rewritten: eight entries closed, new findings registered (register flow, effective-price, open design decisions, missing tooling).
+
+**Decisions:**
+- Search `category` stays a slug (ADR-0005); seller profile address uses existing columns (ADR-0006); checkout Auto currency follows `Accept-Language`.
+
+**Blockers:**
+- `FRONTEND_CLIENT_SYNC_TOKEN` is not set on the backend repo, so the client-sync notify job fails on every main push.
+- `reindexAllProducts` must run once after backend#42 deploys.
 
 <a id="2026-10-09"></a>
 ## 2026-10-09
