@@ -61,7 +61,7 @@ Guard names are the ones defined in [api-conventions.md § Auth Guard Legend](..
 
 | Endpoint | Primary DB | Tables / Notes |
 |----------|-----------|----------------|
-| `POST /seller/register` | Postgres | `identity.user` (insert, or add SELLER role to an existing row), `seller.seller_profile` (insert) |
+| `POST /seller/register` | Postgres | `identity.user` (insert, or add SELLER role to an existing row), `seller.seller_profile` (insert, every `NOT NULL` column from the request — [ADR-0007](../../../decisions/0007-seller-register-collects-business-details.md)), `identity.refresh_session` (insert). No outbox row |
 | `POST /seller/kyc` | Postgres | `seller.kyc_application` (insert), `platform.outbox_event` (`seller.kyc.submitted`) |
 | `GET /seller/profile` | Postgres | `seller.seller_profile` |
 | `PATCH /seller/profile` | Postgres | `seller.seller_profile` (`business_name` and the address columns only — [ADR-0006](../../../decisions/0006-seller-profile-patch-writes-address-columns.md)), `platform.outbox_event` (`seller.profile_changed`, only when `business_name` changed) |
@@ -133,23 +133,48 @@ Auth: PUBLIC
 Rate limit: 5 attempts per IP per 15 min
 ```
 
-**No token.** A prospective seller reaches `/seller/register` with no AliceUT account of any kind, and the seller portal has no OAuth buttons ([diagram 06](../../diagrams/06-auth-portals.md)) — so requiring a buyer JWT here made the entire seller funnel unreachable. The endpoint is step 1 of two: it settles the *account*, and [`POST /seller/kyc`](#submit-kyc-application) submits the documents.
+**No token.** A prospective seller reaches `/seller/register` with no AliceUT account of any kind, and the seller portal has no OAuth buttons ([diagram 06](../../diagrams/06-auth-portals.md)) — so requiring a buyer JWT here made the entire seller funnel unreachable. The endpoint is step 1 of two: it settles the *account* and creates the *seller profile*, and [`POST /seller/kyc`](#submit-kyc-application) submits the documents.
 
 **Request body** (`application/json`)
 ```json
 {
   "email": "string (email)",
   "password": "string (min 8, >= 1 letter, >= 1 number)",
-  "fullName": "string (2–80 chars)"
+  "fullName": "string (2–80 chars)",
+  "businessName": "string (1–200 chars)",
+  "taxId": "string (1–50 chars)",
+  "businessAddress": {
+    "addressLine1": "string (1–200 chars)",
+    "addressLine2": "string (max 200 chars) | null — optional",
+    "city": "string (1–100 chars)",
+    "stateRegion": "string (max 100 chars) | null — optional",
+    "postalCode": "string (1–20 chars)",
+    "countryCode": "string (ISO 3166-1 alpha-2, e.g. \"TH\")"
+  }
 }
 ```
+
+**The business details are required on every path** ([ADR-0007](../../../decisions/0007-seller-register-collects-business-details.md)). Both the new-account and the linking path insert `seller.seller_profile`, and migration `0007_seller_schema` makes its name, tax ID and address columns `NOT NULL`. Each field lands in its own column. `businessAddress` has the same fields as the object [`PATCH /seller/profile`](#update-seller-profile) takes ([ADR-0006](../../../decisions/0006-seller-profile-patch-writes-address-columns.md)), but here the four required ones must be present:
+
+| Field | `seller.seller_profile` column | Rule |
+|---|---|---|
+| `businessName` | `business_name` | Required, non-empty, max 200 |
+| `taxId` | `tax_id` | Required, non-empty, max 50; stored as typed (no country-specific format check in V1) |
+| `businessAddress.addressLine1` | `address_line_1` | Required, non-empty, max 200 |
+| `businessAddress.addressLine2` | `address_line_2` | Optional, max 200; omitted or `null` stores `NULL` |
+| `businessAddress.city` | `city` | Required, non-empty, max 100 |
+| `businessAddress.stateRegion` | `state_region` | Optional, max 100; omitted or `null` stores `NULL` |
+| `businessAddress.postalCode` | `postal_code` | Required, non-empty, max 20 |
+| `businessAddress.countryCode` | `country_code` | Required, ISO 3166-1 alpha-2 |
+
+Any other key, at either level, is `400`. Phone and registration number are not profile data: they go in the KYC application's `submittedData`.
 
 **Three cases, decided by whether the email is already known** (US-S-01:25):
 
 | Case | Behaviour |
 |---|---|
-| Email unknown | A new `identity.user` is created with `roles = ['SELLER']` and the supplied password. `password` is the new account's password. |
-| Email known, account **has** a local password | `password` is **verified against the existing hash**, and on success `SELLER` is appended to that account's roles. This is the account-linking path, and the password is the proof of ownership that a buyer JWT was standing in for. A wrong password is `401`. |
+| Email unknown | A new `identity.user` is created with `roles = ['SELLER']`, `account_type = 'B2C'` (US-S-01) and the supplied password. `password` is the new account's password. |
+| Email known, account **has** a local password | `password` is **verified against the existing hash**, and on success `SELLER` is appended to that account's roles. This is the account-linking path, and the password is the proof of ownership that a buyer JWT was standing in for. A wrong password is `401`. A `SUSPENDED` or `BANNED` account is `403 Account suspended` even with the right password: this route opens a session, so it applies the same account-status gate as [`POST /auth/login`](auth.md#login-local) ([ADR-0007](../../../decisions/0007-seller-register-collects-business-details.md)). |
 | Email known, account is **OAuth-only** (`password_hash IS NULL`) | `409` with code **`PASSWORD_REQUIRED_FOR_LINK`**. There is no password to verify, so ownership cannot be proven here. The response points the seller at the buyer-portal password-set flow (US-B-15, [`POST /auth/set-password`](auth.md#set-local-password-oauth-only-account)); once a local password exists, the registration retry takes the linking path above. **A second account is never created for an email that already exists** — that would split one person's orders, cart and addresses across two identities that can never be merged. |
 
 **No "business account" checkbox.** The seller form does not offer one, and a seller account is not `BUYER` or B2B by default. A seller who also wants B2B buyer status registers or updates a separate buyer account (US-S-01:29).
@@ -174,9 +199,11 @@ Rate limit: 5 attempts per IP per 15 min
 ```
 **Cookie set:** `Set-Cookie: refreshToken=<opaque>; HttpOnly; Secure; SameSite=Strict; Path=/api/v1/auth; Max-Age=604800`
 
-The response opens a SELLER session, because step 2 needs one. `roles` carries every role the account holds — an existing buyer that just linked SELLER returns `["BUYER","SELLER"]`.
+The response opens a SELLER session, because step 2 needs one. `roles` carries every role the account holds — an existing buyer that just linked SELLER returns `["BUYER","SELLER"]`. The refresh cookie is the one [`POST /auth/login`](auth.md#login-local) sets — same name, attributes and path — so [`POST /auth/refresh`](auth.md#refresh-token) rotates it like any other session.
 
-**Errors:** 400 validation, 401 password does not match the existing account, 409 `PASSWORD_REQUIRED_FOR_LINK`, 409 the account already holds a seller profile
+**No event.** Registration writes no outbox row: the [event catalogue](../kafka-events.md) has no registration topic, and nothing downstream acts on one. The first seller event is `seller.kyc.submitted`, from step 2.
+
+**Errors:** 400 validation, 401 password does not match the existing account, 403 the existing account is suspended or banned, 409 `PASSWORD_REQUIRED_FOR_LINK`, 409 the account already holds a seller profile
 
 #### Sequence
 
@@ -187,7 +214,7 @@ sequenceDiagram
     participant SS as SellerService
     participant P as Postgres
 
-    C->>A: POST /seller/register { email, password, fullName }
+    C->>A: POST /seller/register { email, password, fullName, businessName, taxId, businessAddress }
     Note over A: PUBLIC — no JWT, no BUYER role, no email-verification gate
 
     A->>A: Rate limit check (5 req / IP / 15 min)
@@ -195,24 +222,21 @@ sequenceDiagram
         A-->>C: 429 Too Many Requests
     end
 
-    A->>A: validate body (email format, password complexity, fullName 2-80)
+    A->>A: validate body (email format, password complexity, fullName 2-80, businessName, taxId, businessAddress required fields + alpha-2 countryCode)
     alt validation fails
         A-->>C: 400 Bad Request {errors[]}
     end
 
-    A->>SS: registerSeller(email, password, fullName)
-    SS->>P: SELECT identity.user WHERE LOWER(email) = LOWER(:email)
+    A->>SS: registerSeller(dto)
+    Note over P: BEGIN TRANSACTION — one transaction from the account lookup to the session insert, rolled back on every error branch
+    SS->>P: SELECT identity.user WHERE LOWER(email) = LOWER(:email) FOR UPDATE
 
     alt email unknown — create a seller account
         SS->>SS: argon2id.hash(password)
-        Note over P: BEGIN TRANSACTION
-        SS->>P: INSERT identity.user (email, password_hash, full_name, roles=['SELLER'], email_verified=false, account_type=NULL, status='ACTIVE')
-        SS->>P: INSERT seller.seller_profile (user_id, business_name=NULL, tax_id=NULL, kyc_status='PENDING_KYC', suspension_status='ACTIVE')
-        SS->>P: INSERT identity.refresh_session (user_id, token_hash, expires_at=NOW()+7d)
-        Note over P: COMMIT
+        SS->>P: INSERT identity.user (email, password_hash, full_name, roles=['SELLER'], email_verified=false, account_type='B2C', status='ACTIVE')
     else email known AND password_hash IS NULL (OAuth-only)
         SS-->>A: ConflictException(PASSWORD_REQUIRED_FOR_LINK)
-        A-->>C: 409 Conflict { code: "PASSWORD_REQUIRED_FOR_LINK", message: "Set a password in your account settings before registering as a seller." }
+        A-->>C: 409 Conflict { statusCode: 409, error: "PASSWORD_REQUIRED_FOR_LINK", message: "Set a password in your account settings before registering as a seller." }
         Note right of C: buyer portal → Account → Set password (US-B-15), then retry
     else email known AND local password set
         SS->>SS: argon2id.verify(password, user.password_hash)
@@ -220,21 +244,24 @@ sequenceDiagram
             SS-->>A: UnauthorizedException
             A-->>C: 401 Unauthorized "Invalid credentials"
         end
+        alt user.status = 'SUSPENDED' or 'BANNED'
+            SS-->>A: ForbiddenException
+            A-->>C: 403 Forbidden "Account suspended"
+        end
+        SS->>P: UPDATE identity.user SET roles = array_append(roles, 'SELLER') WHERE id = user.id AND NOT ('SELLER' = ANY(roles))
         SS->>P: SELECT seller.seller_profile WHERE user_id = user.id
         alt seller profile already exists
             SS-->>A: ConflictException
             A-->>C: 409 Conflict "This account already has a seller profile."
         end
-        Note over P: BEGIN TRANSACTION
-        SS->>P: UPDATE identity.user SET roles = array_append(roles, 'SELLER') WHERE id = user.id
-        SS->>P: INSERT seller.seller_profile (user_id, business_name=NULL, tax_id=NULL, kyc_status='PENDING_KYC', suspension_status='ACTIVE')
-        SS->>P: INSERT identity.refresh_session (user_id, token_hash, expires_at=NOW()+7d)
-        Note over P: COMMIT
     end
 
-    SS->>SS: Sign JWT accessToken (sub, roles, email_verified, seller_kyc_status='PENDING_KYC', seller_suspension_status='ACTIVE')
+    SS->>P: INSERT seller.seller_profile (user_id, business_name, tax_id, address_line_1, address_line_2, city, state_region, postal_code, country_code, kyc_status='PENDING_KYC', suspension_status='ACTIVE')
+    SS->>P: INSERT identity.refresh_session (user_id, token_hash, expires_at=NOW()+7d)
+    SS->>SS: Sign JWT accessToken (sub, roles, email_verified, seller_profile_id, seller_kyc_status='PENDING_KYC', seller_suspension_status='ACTIVE')
+    Note over P: COMMIT — no platform.outbox_event row
     SS-->>A: { accessToken, refreshToken, sellerProfileId, user }
-    A-->>C: 201 Created { data: { accessToken, sellerProfileId, user, kycStatus: "PENDING_KYC", nextStep: "SUBMIT_KYC" } } + Set-Cookie: refreshToken (Path=/api/v1/auth)
+    A-->>C: 201 Created { data: { accessToken, sellerProfileId, user, kycStatus: "PENDING_KYC", nextStep: "SUBMIT_KYC" } } + Set-Cookie: refresh cookie (as POST /auth/login, Path=/api/v1/auth)
 ```
 
 ---
@@ -274,7 +301,7 @@ documents[]: file[] (business licence PDF, ID document, proof of address — enc
 }
 ```
 Side effect: `seller.kyc.submitted` event via the outbox — the notification consumer sends ET-14 to the seller and ET-21 to the admin.  
-**Errors:** 400 validation, 409 an application is already `PENDING` or `APPROVED` (a rejected one is resubmitted through [`POST /seller/kyc/resubmit`](#resubmit-kyc-application)), 413 a file exceeds `KYC_UPLOAD_MAX_BYTES`, 415 a file fails the type allowlist
+**Errors:** 400 validation, 404 the account holds no seller profile (it is created by [`POST /seller/register`](#register-as-seller), never here — [ADR-0007](../../../decisions/0007-seller-register-collects-business-details.md)), 409 an application is already `PENDING` or `APPROVED` (a rejected one is resubmitted through [`POST /seller/kyc/resubmit`](#resubmit-kyc-application)), 413 a file exceeds `KYC_UPLOAD_MAX_BYTES`, 415 a file fails the type allowlist
 
 <a id="kyc-upload-validation"></a>
 **Upload validation.** Each file is checked three ways before it reaches object storage, and all three must pass:
@@ -314,6 +341,10 @@ sequenceDiagram
 
     A->>SS: submitKyc(dto, jwt.sub)
     SS->>P: SELECT seller.seller_profile WHERE user_id = jwt.sub
+    alt no seller profile
+        SS-->>A: NotFoundException
+        A-->>C: 404 Not Found — seller profile not found
+    end
     SS->>P: SELECT seller.kyc_application WHERE seller_profile_id = :sellerProfileId ORDER BY submitted_at DESC LIMIT 1
     alt latest application status IN (PENDING, UNDER_REVIEW, APPROVED)
         SS-->>A: ConflictException

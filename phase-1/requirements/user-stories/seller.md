@@ -22,7 +22,7 @@ Priority: Must — trace: FR-S-01, NFR-09
 Seller registration is at `/seller/register`. No existing buyer account is required; an account can hold both BUYER and SELLER roles.
 
 **Acceptance criteria**
-- **Step 1 — Account:** if the submitted email matches an existing account, the seller must authenticate with their password to link the SELLER role to that account. If the email is new, a seller account is created with email, password (≥ 8 chars, ≥ 1 letter, ≥ 1 number), and full name. After account step, the KYC application form is presented.
+- **Step 1 — Account:** if the submitted email matches an existing account, the seller must authenticate with their password to link the SELLER role to that account. If the email is new, a seller account is created with email, password (≥ 8 chars, ≥ 1 letter, ≥ 1 number), and full name. On both paths the step also collects the legal business name, tax ID and business address (line 1, optional line 2, city, optional state/region, postal code, country), which create the seller profile ([ADR-0007](../../../decisions/0007-seller-register-collects-business-details.md)). After account step, the KYC application form is presented.
 - **Step 2 — KYC application:** legal business name, business type (LLC / sole prop / corp), tax ID (country regex), country, business address, phone, uploads (business license PDF, ID doc, proof of address).
 - On KYC submit → application created with pending status; seller receives confirmation email (→ ET-14) and admin receives alert (→ ET-21).
 - Seller with a pending or approved application cannot submit a new one; rejected application shows "Update and resubmit" CTA instead of the new-application form.
