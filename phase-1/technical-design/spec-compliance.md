@@ -60,19 +60,13 @@ Recorded for context; these are closed.
 | `GET /seller/kyc` returned a status summary and dropped decided applications; `GET /seller/profile` had no address; `fulfillment.shipped` lacked the §2.5 buyer and seller fields | Code fixed (backend#48, frontend#25); [ADR-0009](../../decisions/0009-seller-profile-get-returns-business-address.md) adds `businessAddress` to the profile response, and the KYC form prefills from it |
 | The buyer register page signed in twice, and a `401` from the refresh call left every app's interceptor waiting forever | Code fixed (frontend#25) |
 | `GET /orders` and `GET /orders/:id` returned the old `OrderDto`, a status filter returned short pages while `hasMore` was true, `:orderId` took only a UUID, and the generated client could not type the `201` of `POST /orders` | Code fixed to orders.md (backend#55, frontend#28): `OrderSummaryDto` with cursor pagination, `OrderDetailDto` (shipping address, totals, lifecycle timestamps), UUID or `ORD-` id with ownership in the query; the `200` schema is a `oneOf` of the replay and placed envelopes, so the client types both. Two modules' `FulfillmentItemDto` shared one schema name, which blanked seller item titles; renamed |
+| Events were camelCase JSON envelopes and the Schema Registry ran unused; `product.changed` `CREATED` and `UPDATED` each omitted §2.10 fields, and `offer.changed`, `inventory.changed`, `listing.flagged` and the auth and fulfillment payloads differed from their schemas | Code fixed to kafka-events.md (backend#56, infra#4): the 29 catalog schemas are `libs/contracts/avro/*.avsc` with generated types; the relay publishes the §1 snake_case envelope in Confluent wire format and consumers decode through the registry; `OutboxService.writeEvent` is typed per topic and every producer spec encodes its payloads against the `.avsc`. [ADR-0012](../../decisions/0012-avro-subjects-registered-by-ci-and-schema-init.md): one script registers the subjects, from CI against an ephemeral registry and from a compose `schema-init` one-shot before `workers` |
 
 ---
 
 ## Open — API surface
 
-### 1. `product.changed` payloads differ per producer
-
-`CREATED` omits `brand` and shapes `variants[]` and `images[]` differently
-from §2.10; `UPDATED` omits `created_at`, `variants[]` and `images[]`.
-`category_path` now agrees everywhere (ADR-0005). A Schema Registry (entry 6)
-would have caught this.
-
-### 2. Session and account gaps found with seller register
+### 1. Session and account gaps found with seller register
 
 - **Refresh cookie.** auth.md and seller.md name it `refreshToken` with
   `SameSite=Strict`; the code sets `refresh_token` with `SameSite=Lax`, on
@@ -89,7 +83,7 @@ would have caught this.
 - **No seller profile page.** `PATCH /seller/profile` and its address have no
   screen in the seller app.
 
-### 3. Money gaps left after CurrencyScaleCache
+### 2. Money gaps left after CurrencyScaleCache
 
 - The `pricing.currency` seed has no `BHD` row, which the §3.2 table lists
   (scale 3, not seller-allowed).
@@ -107,7 +101,7 @@ would have caught this.
   price times quantity, and `buyer_currency_total` (rounded once) can differ by
   one minor unit from the sum of per-line buyer amounts. Literal to orders.md.
 
-### 4. Decisions the design leaves open
+### 3. Decisions the design leaves open
 
 - **Locale to currency.** The design says "the currency matching the locale"
   with no table. backend#38 resolves only the highest-q locale, maps a bare
@@ -163,7 +157,7 @@ would have caught this.
 
 ## Open — platform conventions
 
-### 5. Only one consumer exists
+### 4. Only one consumer exists
 
 `apps/workers` runs the outbox relay, the schedulers and the search indexer.
 The notification, audit and inventory consumers the design relies on are not
@@ -183,15 +177,30 @@ built, so:
 This is sprint scope rather than a defect, but it is the reason several
 handlers do work the design assigns to a consumer.
 
-### 6. Events are JSON, not Avro
+### 5. Event producer gaps found with Avro
 
-[kafka-events.md](../../conventions/kafka-events.md) specifies Avro with the
-Confluent Schema Registry under BACKWARD compatibility. The outbox relay and
-the consumers use `JSON.stringify` / `JSON.parse`. Coherent end to end, but not
-the designed wire format, and the Schema Registry is running unused. A registry
-would have caught the mixed `product.changed` payloads in entry 1.
+- A seller soft delete emits only `listing.soft_deleted`; §2.11 says it also
+  emits `offer.changed` `REMOVED`. An admin `REMOVE` decision emits no
+  `offer.changed` `REMOVED` either.
+- The admin and seller-order producers set `correlation_id` to a fresh
+  uuidv7 instead of the request's `X-Correlation-ID`, which §1 requires.
+- `createProduct` never stores `brand`, so `product.changed` `CREATED`
+  always carries `brand: null`.
+- `fulfillment.delivered`, `order.completed`,
+  `inventory.reservation_expired` and `keyword_blocklist.changed` have a
+  schema and no producer.
+- Built as: DLQ records are JSON (conventions §5 names no encoding) with an
+  `envelope_encoding` of `json`, or `base64` for bytes that did not decode. A
+  payload that does not match its schema marks the outbox row `FAILED` at once,
+  since no retry changes it. `inventory.changed` for a newly created offer uses
+  `change_reason` `MANUAL_UPDATE` with the opening `on_hand_qty` as `delta`,
+  because §2.12 has no creation symbol. `seller.suspension_amended` sends `''`
+  when the stored reason is null.
+- Open: `inventory.low_stock` `sku_label` / `sku_id` are non-null in §2.13 and
+  sent as `''` for an offer without a variant. Either they become nullable or
+  every offer must have a variant.
 
-### 7. Seller handlers write other modules' schemas directly
+### 6. Seller handlers write other modules' schemas directly
 
 The seller routes write `catalog`, `pricing`, `inventory` and `orders` rows
 themselves rather than through each owner's application service, which the
@@ -199,16 +208,20 @@ themselves rather than through each owner's application service, which the
 pending check still joins `orders` tables to `catalog.offer` in one statement.
 The search indexer rebuilds each document by reading `catalog`, `seller`,
 `pricing` and `inventory` directly, rather than merging per-event payload
-fields as search.md § Document composition specifies.
+fields as search.md § Document composition specifies. The `product.changed`
+and `offer.changed` payload builders (backend#56) read `seller.seller_profile`
+and `pricing.offer_price` / `fx_rate` with SQL inside the producing
+transaction, not through the owners' application services, which conventions
+§4.2 requires; those services read outside the transaction.
 
-### 8. Most retention jobs are not built
+### 7. Most retention jobs are not built
 
 [cleanup-jobs.md](cleanup-jobs.md) lists more jobs than the five `workers` now
 runs (outbox retention, suspension expiry, suspended-seller auto-refund, FX
 refresh and the orphaned-image sweep). The remaining seven have no
 implementation.
 
-### 9. Tooling the conventions assume is missing
+### 8. Tooling the conventions assume is missing
 
 - No project has a `lint` target, so CI's `nx run-many -t lint` runs nothing
   and the money-field lint rule the conventions require is not enforced.
