@@ -3,7 +3,7 @@
 **Status:** Accepted
 **Date:** 2026-10-15
 **Affects:** `phase-1/technical-design/api-design/seller.md` (§ DB Mapping, § Register as seller, § Submit KYC application), `phase-1/ui-design/seller-portal.md` (§ Screen 2 — Seller Register), `phase-1/requirements/user-stories/seller.md` (US-S-01 Step 1)
-**Implemented by:** aliceut-ecom-backend (register creates the profile; KYC fallback removed), aliceut-ecom-frontend (register form sends the new fields)
+**Implemented by:** aliceut-ecom-document#153, aliceut-ecom-backend#45, aliceut-ecom-frontend#20
 
 ## Context
 
