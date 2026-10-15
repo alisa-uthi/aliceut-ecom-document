@@ -54,3 +54,4 @@ Copy [`0000-adr-template.md`](0000-adr-template.md) to start one.
 | [0006](0006-seller-profile-patch-writes-address-columns.md) | `PATCH /seller/profile` writes the business address columns | Accepted |
 | [0007](0007-seller-register-collects-business-details.md) | `POST /seller/register` collects the business details the seller profile requires | Accepted |
 | [0008](0008-api-amounts-round-half-up.md) | API amounts round half-up to the currency's `minor_unit_scale` | Accepted |
+| [0009](0009-seller-profile-get-returns-business-address.md) | `GET /seller/profile` returns the business address | Accepted |
