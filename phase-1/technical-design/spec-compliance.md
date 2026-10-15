@@ -51,38 +51,26 @@ Recorded for context; these are closed.
 | The frontend called the backend through hand-written `HttpClient` wrappers; the generated client was gitignored, so the client-sync workflow could never open a PR | Code fixed (frontend#21): `@aliceut/api-client` re-exports the committed `openapi-generator-cli` output, the wrappers are deleted, and frontend CI fails when the committed client differs from the backend spec. Moving onto the spec's shapes fixed buyer register (sent `accountType`), multipart KYC submit, the category tree, search and order field names, and admin enums |
 | `POST /auth/register` rejected `accountType` with `400` and hardcoded `B2C`, so no buyer could become B2B | Code fixed to auth.md (backend#47, frontend#23): required `accountType` `B2C \| B2B`, stored and carried in the token; the buyer register toggle sends it |
 | The rounding mode for API amounts was unspecified | [ADR-0008](../../decisions/0008-api-amounts-round-half-up.md): half-up, stated in backend-coding-standards §3.1/§3.2 (implemented by backend#46) |
+| `GET /pricing/offers/:offerId/effective-price` returned `nativeAmount` / `nativeCurrency`, defaulted `currency` to USD, answered a missing FX row with `fxStale: true`, and had no `404` / `422` | Code fixed to pricing.md (backend#50): `amount`, `currency`, `priceType`, `compareAtAmount`, `saleEndsAt` and the five display keys; `currency` required; `displayAmount: null` without an FX row; `404` for an inactive offer, `422` without a `LIST` price. Cart, checkout and catalog resolve prices through the same pricing functions |
+| `Cart` returned offer ids and quantities; checkout took `items[{offerId, quantity}]`, always captured `LIST`, converted a missing FX pair at 1:1, stored `'****'` and the payment method as `shipping_method`, and hashed the idempotency key instead of the body | Code fixed (backend#53, frontend#25): the cart is the checkout preview (lines, `groups[]`, four totals, FX fields); checkout takes `cartItems[]` plus `confirmedPrices[]` with `409 PRICE_CHANGED`, `skippedItems` and `failedGroups`; the request body is hashed |
+| Search results had `description`, `status`, storage-scale `lowestListPrice` / `lowestSalePrice`, `imageStorageKey` and `offers[]`, and the index mapping differed from search.md | Code fixed (backend#51, frontend#25): the search.md result shape with `lowestOffer`, `inStock`, `score` and `facets`; the mapping matches § Index Mapping, and `workers` rebuilds the index from Postgres when `_meta.mapping_version` changes; `workers` no longer mounts `/search` or `/pricing`. Infra's init container and stale template are gone (infra#3) |
+| Search broke sort ties on `_id`, which Elasticsearch 8 rejects | [ADR-0010](../../decisions/0010-search-sort-tiebreak-is-product-id.md): tie-break on `product_id` (backend#52) |
+| `GET /catalog/products/:productId` omitted `offers[]`, `GET .../offers` had a non-spec shape and no seller-eligibility filter, and the category list exposed `isProhibited` | Code fixed to catalog.md (backend#49, frontend#25) |
+| A null `preferred_currency` meant USD in catalog and cart but the Accept-Language rule in checkout | [ADR-0011](../../decisions/0011-null-preferred-currency-resolves-from-accept-language.md): pricing's Auto rule everywhere (backend#54) |
+| `GET /seller/kyc` returned a status summary and dropped decided applications; `GET /seller/profile` had no address; `fulfillment.shipped` lacked the §2.5 buyer and seller fields | Code fixed (backend#48, frontend#25); [ADR-0009](../../decisions/0009-seller-profile-get-returns-business-address.md) adds `businessAddress` to the profile response, and the KYC form prefills from it |
+| The buyer register page signed in twice, and a `401` from the refresh call left every app's interceptor waiting forever | Code fixed (frontend#25) |
 
 ---
 
 ## Open — API surface
 
-### 1. Response models far from the design
+### 1. Order read models
 
-- `Cart` is specified to BE the checkout preview — `productTitle`,
-  `sellerName`, `effectivePrice`, `lineTotal`, `groups[]`, the four totals and
-  the FX display fields — and currently returns offer ids and quantities only.
-- Search results return `description`, `status`, `lowestListPrice` /
-  `lowestSalePrice`, `imageStorageKey` and `offers[]`; the design has `brand`,
-  `categoryId`, `images[]`, `lowestOffer`, `inStock`, `score` and `facets`.
-- Checkout still takes `items[{offerId, quantity}]` rather than the designed
-  `cartItems[]` plus the `confirmedPrices[]` / `PRICE_CHANGED` handshake.
-- `GET /pricing/offers/:offerId/effective-price` returns `nativeAmount` /
-  `nativeCurrency` without `priceType`, `compareAtAmount` or `saleEndsAt`;
-  defaults `currency` to USD where pricing.md makes it required; answers a
-  missing FX row with the native currency and `fxStale: true` instead of
-  `displayAmount: null`; and has no `404` for an inactive offer and no `422`
-  for a missing `LIST` price. Pricing does not apply the Auto-currency rule
-  that checkout now uses.
-- `GET /catalog/products/:productId` omits `offers[]`;
-  `GET /catalog/products/:productId/offers` has a non-spec shape and no
-  seller-eligibility filter; the category list exposes `isProhibited`.
-- `GET /seller/kyc` returns `{kycStatus, applicationStatus, decisionReason}`
-  where seller.md specifies the application record and a `404` when there is
-  none, and its join drops decided applications.
-- `GET /seller/profile` returns no address fields, so a seller cannot read
-  back the address `PATCH` writes. The design omits them too, so this is a
-  spec gap.
-- `fulfillment.shipped` lacks the §2.5 `buyer_*` and `seller_name` fields.
+- `GET /orders` and `GET /orders/:id` still return the old `OrderDto`
+  (`sellerProfileId`, `productTitleSnapshot`, ...) rather than orders.md's
+  shape. Only the `201` checkout result was rebuilt.
+- `POST /orders` documents a `200` replay body and a `201` placed body; the
+  generated client types only the first, so the buyer app casts the `201`.
 
 ### 2. `product.changed` payloads differ per producer
 
@@ -105,19 +93,11 @@ would have caught this.
 - **Sellers registered before backend#45** hold the `SELLER` role with no
   profile, so `POST /seller/kyc` answers `404`. Calling register again with the
   password creates the profile (ADR-0007); no data migration was written.
-- **The KYC form re-asks business name, tax id and country.** Prefilling needs
-  `GET /seller/profile` to return the address (entry 1).
-- **Buyer register signs in twice.** The buyer register page calls `login()`
-  right after `register()`, although register already opens a session.
-- **Frontend refresh interceptor.** In all three apps, a `401` from the refresh
-  call itself leaves the interceptor waiting forever instead of clearing the
-  session.
+- **No seller profile page.** `PATCH /seller/profile` and its address have no
+  screen in the seller app.
 
 ### 4. Money gaps left after CurrencyScaleCache
 
-- Search `lowestListPrice` / `lowestSalePrice` stay at storage scale, carry no
-  currency and take a minimum across currencies; the design shape is
-  `lowestOffer {amount, currency}` (entry 1).
 - The `pricing.currency` seed has no `BHD` row, which the §3.2 table lists
   (scale 3, not seller-allowed).
 - Seller price input accepts 4 dp in any currency, backend and frontend, so a
@@ -127,8 +107,12 @@ would have caught this.
   The doc should match.
 - `Money.toJSON(scale)` is the §3.1 name but collides with the
   `JSON.stringify` `toJSON(key)` hook; stringifying a `Money` directly breaks.
-- Because search now depends on `pricing`, the `workers` HTTP app also mounts
-  the `/pricing` routes, as it already mounts `/search`.
+- Only USD-based `fx_rate` rows exist and nothing derives cross or inverse
+  rates, so an offer priced in THB has no USD, JPY or SGD display price: it
+  shows `displayAmount: null` and no display-currency price filter matches it.
+- Seller prices with 4 dp make a cart `lineTotal` differ from the rendered unit
+  price times quantity, and `buyer_currency_total` (rounded once) can differ by
+  one minor unit from the sum of per-line buyer amounts. Literal to orders.md.
 
 ### 5. Decisions the design leaves open
 
@@ -152,6 +136,28 @@ would have caught this.
   /catalog/categories/:categoryId` body (built as the list shape with direct
   children), an unknown `categoryId` on `GET /catalog/products` (built as an
   empty page), and the `GET /pricing/fx-rates` error table.
+- **Price check on a first checkout.** `cart_item` stores no shown price, so a
+  line submitted without a `confirmedPrices` entry is not revalidated. The
+  buyer app always sends them; the design should either snapshot the shown
+  price or make `confirmedPrices` mandatory.
+- **`PARTIALLY_PLACED` with only skipped items.** kafka-events.md §2.8 says
+  yes, orders.md says only when a group failed. The code follows §2.8.
+- **Checkout edge cases the design does not cover**, built as: a missing FX
+  row fails the whole request with `422`; a `cartItems` id not in the cart is
+  `404`; groups and totals count `ACTIVE` lines only; a line without a live
+  `LIST` row has null `effectivePrice` / `lineTotal` (cart.md shows non-null);
+  the cart reads `seller.seller_profile` for `sellerName`, absent from cart.md's
+  DB mapping. Skipped items and failed groups are not on `GET /orders/:id`, so
+  the confirmation page loses them on reload.
+- **Search facets.** `priceRange.min` / `max` are read as USD and
+  `displayMin` / `displayMax` as the requested currency, as in the example.
+- **Catalog offers**, built as: an offer with no live `LIST` row is omitted; an
+  invalid Bearer token is anonymous rather than `401`; the sale window is
+  `starts_at <= now() < ends_at`; offers are ordered by offer id. Prohibited
+  categories still appear in the public tree because no filter is named.
+- **Seller KYC read**, built as: `priorRejectionReason` is the previous
+  application's reason when the latest one supersedes a rejection; a seller
+  with no profile gets the same `404` as one with no application.
 - search.md says Catalog resolves `category_path` because walking the tree
   would read another module's schema. The indexer already reads `catalog.*`,
   so that rationale is stale.
@@ -194,6 +200,9 @@ The seller routes write `catalog`, `pricing`, `inventory` and `orders` rows
 themselves rather than through each owner's application service, which the
 [sole-writer rule](api-design/seller.md#db-mapping) requires. The soft-delete's
 pending check still joins `orders` tables to `catalog.offer` in one statement.
+The search indexer rebuilds each document by reading `catalog`, `seller`,
+`pricing` and `inventory` directly, rather than merging per-event payload
+fields as search.md § Document composition specifies.
 
 ### 9. Most retention jobs are not built
 
