@@ -272,7 +272,9 @@ Tag: Catalog
 Auth: PUBLIC
 ```
 **Query params**
-- `currency` (ISO 4217, optional — **buyer's display preference currency**; defaults to the caller's `identity.user.preferred_currency` when a Bearer token is supplied and that column is set, otherwise `USD`)
+- `currency` (ISO 4217, optional — **buyer's display preference currency**; defaults to the caller's `identity.user.preferred_currency` when a Bearer token is supplied and that column is set; otherwise — anonymous, or a `NULL` preference — the "Auto" setting ([ADR-0011](../../../decisions/0011-null-preferred-currency-resolves-from-accept-language.md)): the currency of the request's `Accept-Language` locale, or `USD` when there is no header or that currency is not one of `USD`, `THB`, `JPY`, `SGD`)
+
+**Headers:** `Accept-Language` (optional) — read only when `currency` is absent and there is no preference.
 
 **Response 200**
 ```json
@@ -316,7 +318,7 @@ sequenceDiagram
     participant Postgres
 
     Client->>API: GET /catalog/products/:productId/offers?currency=USD
-    Note over API: PUBLIC — optional Bearer token. currency falls back to identity.user.preferred_currency, then USD. Account type and quantity are not used for price resolution
+    Note over API: PUBLIC — optional Bearer token. currency falls back to identity.user.preferred_currency, then the Auto rule (Accept-Language locale's currency, USD when absent or unsupported). Account type and quantity are not used for price resolution
     API->>CatalogService: getProductOffers(productId, { currency })
     CatalogService->>Postgres: SELECT o.id, o.seller_profile_id, o.variant_id, o.native_currency_code,<br/>sp.business_name AS seller_name<br/>FROM catalog.offer o<br/>JOIN seller.seller_profile sp ON sp.id = o.seller_profile_id<br/>WHERE o.product_id = :productId AND o.status = 'ACTIVE'<br/>AND sp.kyc_status = 'APPROVED' AND sp.suspension_status = 'ACTIVE'
     Postgres-->>CatalogService: offers from KYC-approved non-suspended sellers only, each with its single pricing currency

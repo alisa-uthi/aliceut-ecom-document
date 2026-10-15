@@ -42,7 +42,7 @@
 
 **Note:** Guest carts live in browser `localStorage`. `POST /cart/merge` is called on login to reconcile guest items into the server cart.
 
-**Display currency.** The buyer's display currency is `identity.user.preferred_currency`, read server-side from the authenticated user row. It is **not** an access-token claim — the token carries `sub`, `roles`, `email_verified`, `account_type`, `seller_kyc_status` and `seller_suspension_status` only ([auth-jwt-design](../../../conventions/auth-jwt-design.md)). When the column is `NULL` the display currency falls back to `USD`.
+**Display currency.** The buyer's display currency is `identity.user.preferred_currency`, read server-side from the authenticated user row. It is **not** an access-token claim — the token carries `sub`, `roles`, `email_verified`, `account_type`, `seller_kyc_status` and `seller_suspension_status` only ([auth-jwt-design](../../../conventions/auth-jwt-design.md)). A `NULL` column is the "Auto" setting ([ADR-0011](../../../decisions/0011-null-preferred-currency-resolves-from-accept-language.md)): the display currency is then the currency of the request's `Accept-Language` locale, or `USD` when there is no header or that currency is not one of `USD`, `THB`, `JPY`, `SGD`. Checkout resolves it the same way, so the preview renders the currency the order will capture in.
 
 ---
 
@@ -141,7 +141,7 @@ sequenceDiagram
     S->>P: SELECT cart.cart WHERE user_id = :buyer_id
     P-->>S: cart row (lazily created if absent)
     S->>P: SELECT preferred_currency FROM identity.user WHERE id = :buyer_id
-    P-->>S: display currency (NULL falls back to USD) — read server-side, never a JWT claim
+    P-->>S: display currency (NULL is Auto: Accept-Language locale's currency, USD when absent or unsupported) — read server-side, never a JWT claim
     S->>P: SELECT cart.cart_item<br/>JOIN catalog.offer (status, native_currency_code, seller_profile_id)<br/>JOIN pricing.offer_price ON offer_id AND inactive_at IS NULL<br/>LEFT JOIN pricing.fx_rate (base=offer.native_currency_code, quote=display currency)<br/>LEFT JOIN inventory.stock<br/>WHERE cart_id = :cart_id
     Note over S,P: Effective price resolved live — never cached from add-to-cart time. Resolution is by price type + current time only: SALE (NOW() between starts_at and ends_at) → LIST fallback. Account type and quantity are not inputs. offer_price has no currency column#59; effectivePrice.currency is the offer's native_currency_code. Display fields follow the shared contract: echo native when the currencies match (fxRate null, fxStale false), convert when they differ (fxAsOf = as_of, fxStale = now() - as_of > FX_STALE_AFTER_HOURS), displayAmount null only when the pair has no fx_rate row. lineTotal and group displaySubtotal carry the same fxAsOf/fxStale as their constituent effectivePrice rows.
     P-->>S: items with live effectivePrice, availableQty (COALESCE 0), offerStatus
