@@ -126,7 +126,7 @@ Headers: Idempotency-Key: <client-uuid> (required)
 }
 ```
 - `maskedPaymentDetail` is the already-masked display string the mock gateway stores in `payment_attempt.masked_payment_detail`. A full card number is never accepted, and the field name is `maskedPaymentDetail` precisely so that an unmasked PAN cannot reach it or the request log.
-- There is **no `currency` field**. The buyer's display currency is resolved server-side from `identity.user.preferred_currency` at submission time and stored immutably as `fulfillment.buyer_display_currency` on every fulfillment created (US-B-09:212); a later change to the buyer's preference does not alter historical order display. The client cannot choose the capture currency — each fulfillment captures in its seller's `native_currency_code`.
+- There is **no `currency` field**. The buyer's display currency is resolved server-side from `identity.user.preferred_currency` at submission time — a `NULL` preference is the "Auto" setting ([ADR-0011](../../../decisions/0011-null-preferred-currency-resolves-from-accept-language.md)): the currency of the checkout request's `Accept-Language` locale, or `USD` when there is no header or that currency is not one of `USD`, `THB`, `JPY`, `SGD` — and stored immutably as `fulfillment.buyer_display_currency` on every fulfillment created (US-B-09:212); a later change to the buyer's preference does not alter historical order display. The client cannot choose the capture currency — each fulfillment captures in its seller's `native_currency_code`.
 - There is **no `shippingMethodId`**. V1 has mock shipping only (BRD §3.2): there are no shipping methods to choose between, the mock service name recorded in `fulfillment.shipping_method` comes from seeded platform configuration, and `shipping_cost` is a structural zero — see [Shipping and tax in V1](#shipping-and-tax).
 - `confirmedPrices[]` is the wire representation of the buyer's acknowledgement after a `PRICE_CHANGED` response, and is omitted on a first submission. See [Price revalidation](#price-revalidation) below.
 
@@ -297,7 +297,7 @@ sequenceDiagram
         P-->>O: requested items (offer_id, quantity)
 
         O->>P: SELECT preferred_currency FROM identity.user WHERE id = :buyer_id
-        P-->>O: buyer display currency (NULL falls back to USD)
+        P-->>O: buyer display currency (NULL is Auto: Accept-Language locale's currency, USD when absent or unsupported)
         Note over O: Resolved once, here, and stored on every fulfillment as buyer_display_currency —<br/>immutable thereafter (US-B-09:212).
 
         O->>P: SELECT identity.address<br/>WHERE id = :shippingAddressId AND user_id = :buyer_id

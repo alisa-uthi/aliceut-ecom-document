@@ -56,3 +56,4 @@ Copy [`0000-adr-template.md`](0000-adr-template.md) to start one.
 | [0008](0008-api-amounts-round-half-up.md) | API amounts round half-up to the currency's `minor_unit_scale` | Accepted |
 | [0009](0009-seller-profile-get-returns-business-address.md) | `GET /seller/profile` returns the business address | Accepted |
 | [0010](0010-search-sort-tiebreak-is-product-id.md) | Search sort tie-break is `product_id`, not `_id` | Accepted |
+| [0011](0011-null-preferred-currency-resolves-from-accept-language.md) | A null preferred currency resolves from Accept-Language everywhere | Accepted |
