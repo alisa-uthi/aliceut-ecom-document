@@ -190,8 +190,9 @@ export class Money {
   }
 
   // scale is required: a default of 2 emits "1000.00" for JPY, which FR-P-04 forbids.
+  // The mode is explicit, not the decimal.js default (ADR-0008).
   toJSON(scale: number): string {
-    return this.amount.toFixed(scale);
+    return this.amount.toFixed(scale, Decimal.ROUND_HALF_UP);
   }
 
   private assertSameCurrency(other: Money): void {
@@ -204,7 +205,7 @@ export class Money {
 
 ### 3.2 Currency scale cache (DB-sourced)
 
-`minor_unit_scale` drives display rounding and `toFixed()` precision. The authoritative source is `pricing.currency.minor_unit_scale` — **do not hardcode a `CURRENCY_SCALE` constant**. Scale values are ISO 4217 standard and never change between restarts, so a startup-loaded in-memory cache is correct: no per-request DB hit, and admin can add new currencies without a code deploy. Calling `get()` with an absent code is an operations fault, never caller error — `pricing.currency` is unseeded, or the row was added since the last refresh — so `get()` throws `CurrencyScaleUnavailableError` (an `AppError` subclass) rather than returning a default. It maps to `500`, not to the `APP_ERROR_STATUS_MAP` default of `422` (§5.2). A default of 2 is not safe: JPY has `minor_unit_scale = 0`, and `"1000.00"` is the wrong amount for a JPY price (FR-P-04).
+`minor_unit_scale` drives display rounding and `toFixed()` precision. Every API amount is rounded **half-up** (`Decimal.ROUND_HALF_UP`, ties away from zero) to that scale, once, at render time ([ADR-0008](../decisions/0008-api-amounts-round-half-up.md)); never call `Decimal.set` to change the global rounding mode, since the 4-dp storage and event paths rely on its half-up default. The authoritative source is `pricing.currency.minor_unit_scale` — **do not hardcode a `CURRENCY_SCALE` constant**. Scale values are ISO 4217 standard and never change between restarts, so a startup-loaded in-memory cache is correct: no per-request DB hit, and admin can add new currencies without a code deploy. Calling `get()` with an absent code is an operations fault, never caller error — `pricing.currency` is unseeded, or the row was added since the last refresh — so `get()` throws `CurrencyScaleUnavailableError` (an `AppError` subclass) rather than returning a default. It maps to `500`, not to the `APP_ERROR_STATUS_MAP` default of `422` (§5.2). A default of 2 is not safe: JPY has `minor_unit_scale = 0`, and `"1000.00"` is the wrong amount for a JPY price (FR-P-04).
 
 ```typescript
 // libs/pricing/src/infrastructure/currency-scale.cache.ts
