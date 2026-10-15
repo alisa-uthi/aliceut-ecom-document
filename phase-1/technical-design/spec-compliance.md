@@ -59,27 +59,20 @@ Recorded for context; these are closed.
 | A null `preferred_currency` meant USD in catalog and cart but the Accept-Language rule in checkout | [ADR-0011](../../decisions/0011-null-preferred-currency-resolves-from-accept-language.md): pricing's Auto rule everywhere (backend#54) |
 | `GET /seller/kyc` returned a status summary and dropped decided applications; `GET /seller/profile` had no address; `fulfillment.shipped` lacked the §2.5 buyer and seller fields | Code fixed (backend#48, frontend#25); [ADR-0009](../../decisions/0009-seller-profile-get-returns-business-address.md) adds `businessAddress` to the profile response, and the KYC form prefills from it |
 | The buyer register page signed in twice, and a `401` from the refresh call left every app's interceptor waiting forever | Code fixed (frontend#25) |
+| `GET /orders` and `GET /orders/:id` returned the old `OrderDto`, a status filter returned short pages while `hasMore` was true, `:orderId` took only a UUID, and the generated client could not type the `201` of `POST /orders` | Code fixed to orders.md (backend#55, frontend#28): `OrderSummaryDto` with cursor pagination, `OrderDetailDto` (shipping address, totals, lifecycle timestamps), UUID or `ORD-` id with ownership in the query; the `200` schema is a `oneOf` of the replay and placed envelopes, so the client types both. Two modules' `FulfillmentItemDto` shared one schema name, which blanked seller item titles; renamed |
 
 ---
 
 ## Open — API surface
 
-### 1. Order read models
-
-- `GET /orders` and `GET /orders/:id` still return the old `OrderDto`
-  (`sellerProfileId`, `productTitleSnapshot`, ...) rather than orders.md's
-  shape. Only the `201` checkout result was rebuilt.
-- `POST /orders` documents a `200` replay body and a `201` placed body; the
-  generated client types only the first, so the buyer app casts the `201`.
-
-### 2. `product.changed` payloads differ per producer
+### 1. `product.changed` payloads differ per producer
 
 `CREATED` omits `brand` and shapes `variants[]` and `images[]` differently
 from §2.10; `UPDATED` omits `created_at`, `variants[]` and `images[]`.
-`category_path` now agrees everywhere (ADR-0005). A Schema Registry (entry 7)
+`category_path` now agrees everywhere (ADR-0005). A Schema Registry (entry 6)
 would have caught this.
 
-### 3. Session and account gaps found with seller register
+### 2. Session and account gaps found with seller register
 
 - **Refresh cookie.** auth.md and seller.md name it `refreshToken` with
   `SameSite=Strict`; the code sets `refresh_token` with `SameSite=Lax`, on
@@ -96,7 +89,7 @@ would have caught this.
 - **No seller profile page.** `PATCH /seller/profile` and its address have no
   screen in the seller app.
 
-### 4. Money gaps left after CurrencyScaleCache
+### 3. Money gaps left after CurrencyScaleCache
 
 - The `pricing.currency` seed has no `BHD` row, which the §3.2 table lists
   (scale 3, not seller-allowed).
@@ -114,7 +107,7 @@ would have caught this.
   price times quantity, and `buyer_currency_total` (rounded once) can differ by
   one minor unit from the sum of per-line buyer amounts. Literal to orders.md.
 
-### 5. Decisions the design leaves open
+### 4. Decisions the design leaves open
 
 - **Locale to currency.** The design says "the currency matching the locale"
   with no table. backend#38 resolves only the highest-q locale, maps a bare
@@ -158,6 +151,10 @@ would have caught this.
 - **Seller KYC read**, built as: `priorRejectionReason` is the previous
   application's reason when the latest one supersedes a rejection; a seller
   with no profile gets the same `404` as one with no application.
+- **Order detail**, built as: `shippingAddress.phone` is always null because
+  `identity.address` has no phone column; `itemCount` is the sum of line
+  quantities. orders.md's `orderStatus` enum lists `DELIVERED`, which its
+  derived-status table never produces (all delivered is `COMPLETED`).
 - search.md says Catalog resolves `category_path` because walking the tree
   would read another module's schema. The indexer already reads `catalog.*`,
   so that rationale is stale.
@@ -166,7 +163,7 @@ would have caught this.
 
 ## Open — platform conventions
 
-### 6. Only one consumer exists
+### 5. Only one consumer exists
 
 `apps/workers` runs the outbox relay, the schedulers and the search indexer.
 The notification, audit and inventory consumers the design relies on are not
@@ -186,15 +183,15 @@ built, so:
 This is sprint scope rather than a defect, but it is the reason several
 handlers do work the design assigns to a consumer.
 
-### 7. Events are JSON, not Avro
+### 6. Events are JSON, not Avro
 
 [kafka-events.md](../../conventions/kafka-events.md) specifies Avro with the
 Confluent Schema Registry under BACKWARD compatibility. The outbox relay and
 the consumers use `JSON.stringify` / `JSON.parse`. Coherent end to end, but not
 the designed wire format, and the Schema Registry is running unused. A registry
-would have caught the mixed `product.changed` payloads in entry 2.
+would have caught the mixed `product.changed` payloads in entry 1.
 
-### 8. Seller handlers write other modules' schemas directly
+### 7. Seller handlers write other modules' schemas directly
 
 The seller routes write `catalog`, `pricing`, `inventory` and `orders` rows
 themselves rather than through each owner's application service, which the
@@ -204,14 +201,14 @@ The search indexer rebuilds each document by reading `catalog`, `seller`,
 `pricing` and `inventory` directly, rather than merging per-event payload
 fields as search.md § Document composition specifies.
 
-### 9. Most retention jobs are not built
+### 8. Most retention jobs are not built
 
 [cleanup-jobs.md](cleanup-jobs.md) lists more jobs than the five `workers` now
 runs (outbox retention, suspension expiry, suspended-seller auto-refund, FX
 refresh and the orphaned-image sweep). The remaining seven have no
 implementation.
 
-### 10. Tooling the conventions assume is missing
+### 9. Tooling the conventions assume is missing
 
 - No project has a `lint` target, so CI's `nx run-many -t lint` runs nothing
   and the money-field lint rule the conventions require is not enforced.
@@ -227,5 +224,8 @@ implementation.
 - `auth.service.seller-account.spec.ts` timed out once in a full parallel test
   run and passed alone; it may flake in CI.
 - Many endpoints with a request DTO do not declare the `400` they can answer.
+- `@nestjs/swagger` silently merges two DTO classes with the same name into one
+  schema. One collision (`FulfillmentItemDto`) was found and renamed; nothing
+  checks for others.
 - `CheckoutService` sits in `application/` but runs raw SQL through TypeORM's
   `DataSource`, against the Tier 1 layer rule.
