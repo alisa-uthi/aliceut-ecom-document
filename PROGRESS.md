@@ -61,12 +61,14 @@ Daily log of work on this project. Newest entry on top. One entry per active day
 - backend#44 + frontend#19: undesigned `GET /catalog/categories/:categoryId/products` deleted; buyer app on `GET /catalog/products`.
 - frontend#21: apps consume the committed generated `@aliceut/api-client`; hand-written wrappers deleted; CI diffs the client against the backend spec.
 - Client sync secrets `FRONTEND_CLIENT_SYNC_TOKEN` and `BACKEND_SPEC_READ_TOKEN` added; dispatch and sync runs green.
-- `spec-compliance.md`: four entries closed, new findings registered (session/account gaps, money gaps, tooling).
+- document#155 + backend#47 + frontend#23: [ADR-0008](decisions/0008-api-amounts-round-half-up.md) (API amounts round half-up); `POST /auth/register` takes the required `accountType` as auth.md says.
+- `spec-compliance.md`: six entries closed, new findings registered (session/account gaps, money gaps, tooling).
 
 **Decisions:**
 - Seller register collects the NOT NULL profile fields rather than relaxing migration 0007 (ADR-0007), with `403` for suspended/banned links and `account_type='B2C'`.
 - The legacy category-products route is deleted, not designed.
 - The frontend follows the design's generated client.
+- API amounts round half-up (ADR-0008); buyer register keeps `accountType`, the only route to a B2B account.
 
 **Next:**
 - `reindexAllProducts` once after backend#42 deploys.
