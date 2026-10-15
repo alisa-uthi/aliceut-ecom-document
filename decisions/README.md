@@ -52,3 +52,4 @@ Copy [`0000-adr-template.md`](0000-adr-template.md) to start one.
 | [0004](0004-orphaned-product-image-sweep.md) | Orphaned product images are swept by a scheduled job with a grace window | Accepted |
 | [0005](0005-search-category-filter-is-a-slug.md) | The search `category` filter is a category slug | Accepted |
 | [0006](0006-seller-profile-patch-writes-address-columns.md) | `PATCH /seller/profile` writes the business address columns | Accepted |
+| [0007](0007-seller-register-collects-business-details.md) | `POST /seller/register` collects the business details the seller profile requires | Accepted |

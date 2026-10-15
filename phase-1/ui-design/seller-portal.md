@@ -156,6 +156,18 @@ mat-card-content
       mat-hint — If this email already has a buyer account, you'll be asked to sign in to link roles.
     [shared password field]  +  [shared confirm-password field]
 
+    h4 mat-h6 [margin: 24px 0 16px] — Business Details
+    mat-form-field [appearance=outline; fullWidth] — mat-label "Legal Business Name" — formControlName="businessName" (required, maxLength 200)
+    mat-form-field [appearance=outline; fullWidth] — mat-label "Tax ID / Business Registration Number" — formControlName="taxId" (required, maxLength 50, stored as typed)
+    div [formGroupName="businessAddress"]
+      mat-form-field [appearance=outline; fullWidth] — mat-label "Country" — mat-select formControlName="countryCode" (ISO 3166-1 alpha-2, required)
+      mat-form-field [appearance=outline; fullWidth] — mat-label "Business Address Line 1" — formControlName="addressLine1" (required, maxLength 200)
+      mat-form-field [appearance=outline; fullWidth] — mat-label "Business Address Line 2 (optional)" — formControlName="addressLine2" (maxLength 200)
+      div.two-col
+        mat-form-field — mat-label "City" — formControlName="city" (required, maxLength 100)
+        mat-form-field — mat-label "State / Region (optional)" — formControlName="stateRegion" (maxLength 100)
+      mat-form-field — mat-label "Postal Code" — formControlName="postalCode" (required, maxLength 20)
+
     <!-- Existing account detected state -->
     mat-card.info-banner *ngIf="existingAccountDetected" [margin-bottom: 16px]
       mat-icon — info_outline
@@ -171,9 +183,11 @@ mat-card-content
     a mat-button routerLink="/seller/login" — Sign in
 ```
 
-`POST /seller/register` is **public** — it takes no token, because a prospective seller may hold no AliceUT account at all. A new email creates the account; an email that already holds one proves ownership with `existingPassword` in the body, not with a buyer JWT, and the SELLER role is linked to it. An **OAuth-only** buyer account has no local password to prove: the response is `409 PASSWORD_REQUIRED_FOR_LINK`, rendered as an inline banner pointing at the buyer portal's set-password flow (US-B-15), and the form stays where it is.
+`POST /seller/register` is **public** — it takes no token, because a prospective seller may hold no AliceUT account at all. A new email creates the account; an email that already holds one proves ownership with its existing password (the `existingPassword` control, sent as the body's `password`), not with a buyer JWT, and the SELLER role is linked to it.
 
-On success the response opens a SELLER session and the client redirects to `/seller/kyc` for step 2.
+**The business details are part of registration** ([ADR-0007](../../decisions/0007-seller-register-collects-business-details.md)). Registration creates the seller profile, whose name, tax ID and address are required, so the form collects them on both paths, new account and linked account. They are sent as `businessName`, `taxId` and the `businessAddress` object ([seller.md § Register as seller](../technical-design/api-design/seller.md#register-as-seller)). A wrong existing password is `401`, shown in the error banner. A suspended or banned account is `403`, also shown in the banner. An **OAuth-only** buyer account has no local password to prove: the response is `409 PASSWORD_REQUIRED_FOR_LINK`, rendered as an inline banner pointing at the buyer portal's set-password flow (US-B-15), and the form stays where it is.
+
+On success the response (`{ data: { accessToken, sellerProfileId, user, kycStatus, nextStep } }`) opens a SELLER session — the access token is held in memory and the refresh cookie set by the server — and the client redirects to `/seller/kyc` for step 2.
 
 ---
 
