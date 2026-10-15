@@ -1,7 +1,7 @@
 # Spec compliance — known code/spec divergences
 
 **Status:** Living document
-**Updated:** 2026-10-10
+**Updated:** 2026-10-15
 
 The technical design in this directory is canonical. This file is the register
 of places where the code is known **not** to match it yet, so that no mismatch
@@ -15,7 +15,7 @@ history here.
 
 ---
 
-## Resolved 2026-10-08/10
+## Resolved 2026-10-08/15
 
 Recorded for context; these are closed.
 
@@ -39,12 +39,16 @@ Recorded for context; these are closed.
 | `GET`/`PATCH /seller/profile`, `POST /seller/kyc/resubmit` and `POST /profile/me/logo` were missing | Built to the spec (backend#36) |
 | `GET /catalog/products`, `GET /catalog/categories/:categoryId` and `GET /pricing/fx-rates` were missing | Built to the spec (backend#41) |
 | The global `ValidationPipe` answered request validation with `422`, and the exception filter emitted `{code, message, details}` | Code fixed (backend#39): `400` with the api-conventions error shape `{statusCode, error, message, errors[]}`; the business-rule `422`s the spec keeps are unchanged |
-| `POST /seller/kyc` took JSON and published to the uncreated `platform.seller.kyc.submitted`, keyed on the application | Code fixed (backend#40): multipart upload, `seller.kyc.submitted` keyed on the seller profile. It also creates the profile when none exists, which is **interim** (entry 5) |
+| `POST /seller/kyc` took JSON and published to the uncreated `platform.seller.kyc.submitted`, keyed on the application | Code fixed (backend#40): multipart upload, `seller.kyc.submitted` keyed on the seller profile. Its interim create-profile fallback is gone (backend#45) |
 | `admin.service.ts` read the nonexistent `u.first_name` / `u.last_name` in seven queries | Code fixed (backend#40): `u.full_name` |
 | `fulfillment.refunded`, `.cancelled` and `.shipped` were keyed on `fulfillment_id` | Code fixed (backend#40): keyed on `order_id`; refunded and cancelled payloads follow §2.7 / §2.16 |
 | Checkout reservations expired after two days; `order.finalized` carried `buyer_business_logo_url: null`; a null `preferred_currency` checked out in USD | Code fixed (backend#38): 15-minute TTL; logo key presigned; currency resolved from `Accept-Language` |
 | Search's `category` filter was a slug where the design said a `categoryId` UUID, and `category_path` held only the leaf | [ADR-0005](../../decisions/0005-search-category-filter-is-a-slug.md): the filter is a slug, and `category_path` is ancestor-to-leaf slugs in the index and in every `product.changed` (backend#42). `reindexAllProducts` must run once after deploy |
 | The `PATCH /seller/profile` design wrote `seller_profile.submitted_data`, a column that does not exist | [ADR-0006](../../decisions/0006-seller-profile-patch-writes-address-columns.md): the request is `{businessName?, businessAddress?}` on the address columns (backend#42) |
+| API amounts were emitted at storage scale (`"1000.0000"` for JPY), effective-price rounded with `toFixed(4)`, and the supported-currency list was redefined in six places | Code fixed (backend#46): startup-loaded `CurrencyScaleCache` in `pricing` per backend-coding-standards §3.2; every API amount renders at its currency's `minor_unit_scale`, rounded half-up; FX rates keep 8 dp and event payloads 4 dp as kafka-events.md specifies; one `SELLER_PRICE_CURRENCIES` list |
+| The undesigned `GET /catalog/categories/:categoryId/products` duplicated `GET /catalog/products?categoryId=` | Deleted (backend#44); the buyer app moved to `GET /catalog/products` (frontend#19) |
+| `POST /seller/register` created no seller profile, returned only `{userId}`, did not verify the password when linking, emitted the uncatalogued `platform.seller.registered`, and the design's profile insert broke migration 0007's NOT NULL columns | [ADR-0007](../../decisions/0007-seller-register-collects-business-details.md): register collects `businessName`, `taxId` and `businessAddress`; account, profile and session are created in one transaction and the response carries `accessToken` and `sellerProfileId` plus the refresh cookie; `401` / `403` / `409 PASSWORD_REQUIRED_FOR_LINK`; no event (backend#45, frontend#20). `POST /seller/kyc` answers `404` without a profile |
+| The frontend called the backend through hand-written `HttpClient` wrappers; the generated client was gitignored, so the client-sync workflow could never open a PR | Code fixed (frontend#21): `@aliceut/api-client` re-exports the committed `openapi-generator-cli` output, the wrappers are deleted, and frontend CI fails when the committed client differs from the backend spec. Moving onto the spec's shapes fixed buyer register (sent `accountType`), multipart KYC submit, the category tree, search and order field names, and admin enums |
 
 ---
 
@@ -78,45 +82,56 @@ Recorded for context; these are closed.
   spec gap.
 - `fulfillment.shipped` lacks the §2.5 `buyer_*` and `seller_name` fields.
 
-### 2. API amounts are emitted at storage scale
-
-Every monetary field is returned as the driver hands it back — `"99.9900"`,
-four fractional digits, whatever the currency. The design renders amounts at
-the currency's `minor_unit_scale` and specifies a startup-loaded
-`CurrencyScaleCache` in `pricing` as the single source of that scale
-([backend-coding-standards.md §3.2](../../conventions/backend-coding-standards.md)).
-No such cache exists, so nothing formats: a JPY price reads `"1000.0000"`.
-The effective-price conversion also rounds with `toFixed(4)`. The supported
-currency list `USD, THB, JPY, SGD` is redefined in five or more libs; the
-cache is the natural single source for that too.
-
-### 3. Undesigned `GET /catalog/categories/:categoryId/products`
-
-`GET /catalog/products?categoryId=` (backend#41) now covers it. The legacy
-route 404s on an unknown category, returns the detail shape with `variants`
-always `[]` because the query never loads them, uses a raw product id as its
-cursor and clamps `limit` to 50. Delete it, or design it.
-
-### 4. `product.changed` payloads differ per producer
+### 2. `product.changed` payloads differ per producer
 
 `CREATED` omits `brand` and shapes `variants[]` and `images[]` differently
 from §2.10; `UPDATED` omits `created_at`, `variants[]` and `images[]`.
-`category_path` now agrees everywhere (ADR-0005). A Schema Registry (entry 8)
+`category_path` now agrees everywhere (ADR-0005). A Schema Registry (entry 7)
 would have caught this.
 
-### 5. `POST /seller/register` does not follow its design
+### 3. Session and account gaps found with seller register
 
-It creates no `seller_profile`, returns only `{userId}` with no access token,
-`sellerProfileId` or refresh cookie, does not verify the password when linking
-an existing account (no `401` / `PASSWORD_REQUIRED_FOR_LINK`), and emits the
-uncatalogued `platform.seller.registered`. The design's profile insert also
-cannot run as written: it leaves `business_name` and `tax_id` NULL, and
-migration 0007 makes those and the address columns NOT NULL. That
-**spec/schema gap** has to be settled first. Until register is fixed,
-`POST /seller/kyc` creates the profile when none exists (backend#40); that
-branch must be removed in the same change.
+- **Refresh cookie.** auth.md and seller.md name it `refreshToken` with
+  `SameSite=Strict`; the code sets `refresh_token` with `SameSite=Lax`, on
+  login and seller register alike (one shared `REFRESH_COOKIE`).
+- **No rate limiting.** The spec requires 5 attempts per IP per 15 minutes on
+  `POST /seller/register`; the backend has no throttler at all, so auth login
+  and register are unlimited too.
+- **No verification email for sellers.** Seller register creates the account
+  with `emailVerified=false`, but nothing sends a verification email and the
+  design emits no `auth.email_verification_requested` for it.
+- **Sellers registered before backend#45** hold the `SELLER` role with no
+  profile, so `POST /seller/kyc` answers `404`. Calling register again with the
+  password creates the profile (ADR-0007); no data migration was written.
+- **The KYC form re-asks business name, tax id and country.** Prefilling needs
+  `GET /seller/profile` to return the address (entry 1).
+- **Buyer `accountType`.** auth.md and `auth.service.ts` expect `accountType`
+  on `POST /auth/register`, but `RegisterDto` and the OpenAPI document omit it,
+  so it is rejected. The buyer app's B2C/B2B toggle is now ignored.
+- **Frontend refresh interceptor.** In all three apps, a `401` from the refresh
+  call itself leaves the interceptor waiting forever instead of clearing the
+  session.
 
-### 6. Decisions the design leaves open
+### 4. Money gaps left after CurrencyScaleCache
+
+- Search `lowestListPrice` / `lowestSalePrice` stay at storage scale, carry no
+  currency and take a minimum across currencies; the design shape is
+  `lowestOffer {amount, currency}` (entry 1).
+- The `pricing.currency` seed has no `BHD` row, which the §3.2 table lists
+  (scale 3, not seller-allowed).
+- Seller price input accepts 4 dp in any currency, backend and frontend, so a
+  JPY `1000.5` displays as `1001`. Input is not validated against the scale.
+- The §3.2 refresh snippet `setInterval(() => void this.refresh())` crashes
+  Node on a failed reload; the code catches, logs and keeps the loaded scales.
+  The doc should match.
+- `Money.toJSON(scale)` is the §3.1 name but collides with the
+  `JSON.stringify` `toJSON(key)` hook; stringifying a `Money` directly breaks.
+- The rounding mode (half-up) for every API amount is the implementation's
+  choice; §3.2 names none.
+- Because search now depends on `pricing`, the `workers` HTTP app also mounts
+  the `/pricing` routes, as it already mounts `/search`.
+
+### 5. Decisions the design leaves open
 
 - **Locale to currency.** The design says "the currency matching the locale"
   with no table. backend#38 resolves only the highest-q locale, maps a bare
@@ -146,7 +161,7 @@ branch must be removed in the same change.
 
 ## Open — platform conventions
 
-### 7. Only one consumer exists
+### 6. Only one consumer exists
 
 `apps/workers` runs the outbox relay, the schedulers and the search indexer.
 The notification, audit and inventory consumers the design relies on are not
@@ -166,36 +181,43 @@ built, so:
 This is sprint scope rather than a defect, but it is the reason several
 handlers do work the design assigns to a consumer.
 
-### 8. Events are JSON, not Avro
+### 7. Events are JSON, not Avro
 
 [kafka-events.md](../../conventions/kafka-events.md) specifies Avro with the
 Confluent Schema Registry under BACKWARD compatibility. The outbox relay and
 the consumers use `JSON.stringify` / `JSON.parse`. Coherent end to end, but not
 the designed wire format, and the Schema Registry is running unused. A registry
-would have caught the mixed `product.changed` payloads in entry 4.
+would have caught the mixed `product.changed` payloads in entry 2.
 
-### 9. Seller handlers write other modules' schemas directly
+### 8. Seller handlers write other modules' schemas directly
 
 The seller routes write `catalog`, `pricing`, `inventory` and `orders` rows
 themselves rather than through each owner's application service, which the
 [sole-writer rule](api-design/seller.md#db-mapping) requires. The soft-delete's
 pending check still joins `orders` tables to `catalog.offer` in one statement.
 
-### 10. Most retention jobs are not built
+### 9. Most retention jobs are not built
 
 [cleanup-jobs.md](cleanup-jobs.md) lists more jobs than the five `workers` now
 runs (outbox retention, suspension expiry, suspended-seller auto-refund, FX
 refresh and the orphaned-image sweep). The remaining seven have no
 implementation.
 
-### 11. Tooling the conventions assume is missing
+### 10. Tooling the conventions assume is missing
 
 - No project has a `lint` target, so CI's `nx run-many -t lint` runs nothing
   and the money-field lint rule the conventions require is not enforced.
 - The pre-merge checklist requires a Supertest test per endpoint; the backend
   has none.
-- About 50 nullable string DTO fields are emitted as `type: object` in the
-  OpenAPI document (NestJS union reflection), mostly in seller and admin.
+- About 50 nullable string and date DTO fields are emitted as `type: object` in
+  the OpenAPI document (NestJS union reflection), mostly in seller and admin
+  (`readAt`, `suspendedUntil`, `shippedAt`, `decidedAt`, `nextCursor`, ...), so
+  the generated client types them `object | null` and the apps cast. The fix is
+  an explicit `type: String` on each `@ApiProperty`.
+- The frontend `typecheck` target fails on tsconfig settings
+  (`declarationMap` / `rootDir`) and CI does not run it.
+- `auth.service.seller-account.spec.ts` timed out once in a full parallel test
+  run and passed alone; it may flake in CI.
 - Many endpoints with a request DTO do not declare the `400` they can answer.
 - `CheckoutService` sits in `application/` but runs raw SQL through TypeORM's
   `DataSource`, against the Tier 1 layer rule.

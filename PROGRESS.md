@@ -31,6 +31,7 @@ Daily log of work on this project. Newest entry on top. One entry per active day
 > **Note on `phase-1/audits/` paths below.** That directory is gone: its two files — `2026-09-22-wave0-decisions.md` (decision records D-01…D-14) and `2026-09-22-alignment-audit-fix-plan.md` — were committed on 2026-09-22 and deleted again on 2026-09-24 by commit `c5767b8`. A `phase-1/audits/README.md` was never committed at any point, so entries below that describe creating one describe work that did not land. Every `phase-1/audits/…` path in the dated entries records what was worked from at the time; none of them resolve today. The decisions themselves are recorded inline in the documents they bind — `BRD.md` §12 and its amendment list, and `CLAUDE.md` Core Rules — and in the git history of commits `4f24166`, `61bbda4`, `f0db299` and `c5767b8`.
 
 **Index**
+- [2026-10-15](#2026-10-15) — Spec-compliance wave 3: seller register to ADR-0007, CurrencyScaleCache, legacy category route deleted, frontend on the generated client, client sync pipeline live.
 - [2026-10-10](#2026-10-10) — Spec-compliance wave 2: missing endpoints, validation 400, KYC to design, checkout fixes, ADR-0005/0006 with their code.
 - [2026-10-09](#2026-10-09) — Seller and Admin API surface brought to the design: every 2xx response modelled, cursor pagination, and the defects that read exposed.
 - [2026-09-30 (later)](#2026-09-30b) — Phase 1 decomposed into 136 tasks, imported to GitHub Issues + Project 3; per-phase seed CSV, validator and task template.
@@ -49,6 +50,27 @@ Daily log of work on this project. Newest entry on top. One entry per active day
 - [2026-08-29](#2026-08-29) — Requirements deep-dive: order lifecycle, buyer stories, auth portals, BA revalidation.
 - [2026-08-22](#2026-08-22) — Phase 1 technical-design kickoff; architecture overview + ERD.
 - [2026-08-19](#2026-08-19) — Requirements freeze (BRD v1.2 signed off) + repo scaffolding.
+
+<a id="2026-10-15"></a>
+## 2026-10-15
+**Focus:** spec-compliance wave 3, run as four parallel agents.
+
+**Done:**
+- document#153 + backend#45 + frontend#20: [ADR-0007](decisions/0007-seller-register-collects-business-details.md) — `POST /seller/register` collects business details, creates account, profile and session in one transaction; KYC create-profile fallback removed.
+- backend#46: `CurrencyScaleCache` in `pricing`; API amounts render at `minor_unit_scale` (half-up); one supported-currency list.
+- backend#44 + frontend#19: undesigned `GET /catalog/categories/:categoryId/products` deleted; buyer app on `GET /catalog/products`.
+- frontend#21: apps consume the committed generated `@aliceut/api-client`; hand-written wrappers deleted; CI diffs the client against the backend spec.
+- Client sync secrets `FRONTEND_CLIENT_SYNC_TOKEN` and `BACKEND_SPEC_READ_TOKEN` added; dispatch and sync runs green.
+- `spec-compliance.md`: four entries closed, new findings registered (session/account gaps, money gaps, tooling).
+
+**Decisions:**
+- Seller register collects the NOT NULL profile fields rather than relaxing migration 0007 (ADR-0007), with `403` for suspended/banned links and `account_type='B2C'`.
+- The legacy category-products route is deleted, not designed.
+- The frontend follows the design's generated client.
+
+**Next:**
+- `reindexAllProducts` once after backend#42 deploys.
+- Tracker entry 5 decisions; entries 1 (response models) and 7 (Avro) as their own waves.
 
 <a id="2026-10-10"></a>
 ## 2026-10-10
