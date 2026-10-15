@@ -63,7 +63,7 @@ Guard names are the ones defined in [api-conventions.md § Auth Guard Legend](..
 |----------|-----------|----------------|
 | `POST /seller/register` | Postgres | `identity.user` (insert, or add SELLER role to an existing row), `seller.seller_profile` (insert, every `NOT NULL` column from the request — [ADR-0007](../../../decisions/0007-seller-register-collects-business-details.md)), `identity.refresh_session` (insert). No outbox row |
 | `POST /seller/kyc` | Postgres | `seller.kyc_application` (insert), `platform.outbox_event` (`seller.kyc.submitted`) |
-| `GET /seller/profile` | Postgres | `seller.seller_profile` |
+| `GET /seller/profile` | Postgres | `seller.seller_profile` (incl. the address columns `address_line_1`, `address_line_2`, `city`, `state_region`, `postal_code`, `country_code` — [ADR-0009](../../../decisions/0009-seller-profile-get-returns-business-address.md)) |
 | `PATCH /seller/profile` | Postgres | `seller.seller_profile` (`business_name` and the address columns only — [ADR-0006](../../../decisions/0006-seller-profile-patch-writes-address-columns.md)), `platform.outbox_event` (`seller.profile_changed`, only when `business_name` changed) |
 | `GET /seller/kyc` | Postgres | `seller.kyc_application` |
 | `POST /seller/kyc/resubmit` | Postgres | `seller.kyc_application` (insert new), `platform.outbox_event` (`seller.kyc.submitted` with `is_resubmission: true`) |
@@ -386,6 +386,14 @@ Auth: SELLER
   "data": {
     "id": "uuid",
     "businessName": "string | null",
+    "businessAddress": {
+      "addressLine1": "string",
+      "addressLine2": "string | null",
+      "city": "string",
+      "stateRegion": "string | null",
+      "postalCode": "string",
+      "countryCode": "ISO 3166-1 alpha-2, e.g. TH"
+    },
     "kycStatus": "PENDING_KYC | APPROVED | REJECTED",
     "suspensionStatus": "ACTIVE | SUSPENDED",
     "suspendedUntil": "ISO8601 | null",
@@ -395,6 +403,8 @@ Auth: SELLER
   }
 }
 ```
+
+`businessAddress` is the address of record, read from the `seller.seller_profile` columns that [`PATCH /seller/profile`](#update-seller-profile) writes, with the same field names and shape as the `PATCH` request ([ADR-0009](../../../decisions/0009-seller-profile-get-returns-business-address.md)). It is always present: register fills every `NOT NULL` address column ([ADR-0007](../../../decisions/0007-seller-register-collects-business-details.md)). `taxId` is not returned. It is not editable here.
 
 `suspendedUntil` and `suspensionReason` are what the locked seller dashboard renders: the reason, and the date the suspension lifts (US-S-02:42, US-A-05:107). A `null` `suspendedUntil` while `suspensionStatus = 'SUSPENDED'` means the suspension is permanent.
 
@@ -415,9 +425,9 @@ sequenceDiagram
     G-->>A: authorized (claims only — no DB read)
 
     A->>P: SELECT seller.seller_profile WHERE id = :sellerProfileId
-    P-->>A: seller_profile row (incl. suspended_until, suspension_reason)
+    P-->>A: seller_profile row (incl. the address columns, suspended_until, suspension_reason)
 
-    A-->>C: 200 OK { data: { id, businessName, kycStatus, suspensionStatus, suspendedUntil, suspensionReason, rejectionReason, createdAt } }
+    A-->>C: 200 OK { data: { id, businessName, businessAddress, kycStatus, suspensionStatus, suspendedUntil, suspensionReason, rejectionReason, createdAt } }
 ```
 
 ---
@@ -554,7 +564,7 @@ sequenceDiagram
     KR->>KO: UPDATE SET publication_status = 'PUBLISHED'
     Note right of KO: search.seller-profile-changed sets seller_name on every offers[] entry whose seller_profile_id matches, by _update_by_query
 
-    A-->>C: 200 OK { data: { id, businessName, kycStatus, suspensionStatus, suspendedUntil, suspensionReason, rejectionReason, createdAt } }
+    A-->>C: 200 OK { data: { id, businessName, businessAddress, kycStatus, suspensionStatus, suspendedUntil, suspensionReason, rejectionReason, createdAt } }
 ```
 
 ---
