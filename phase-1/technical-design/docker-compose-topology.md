@@ -68,6 +68,7 @@ The three `./config/` paths resolve inside the infra repository itself, not a si
 | `kafka` | `apache/kafka:3.8.0` | `29092:29092` | Kafka broker (KRaft mode); `kafka:9092` in-network, `localhost:29092` from the host |
 | `kafka-init` | `apache/kafka:3.8.0` | — | One-shot topic provisioning: creates every event topic in [kafka-events.md § 1](./kafka-events.md#topic-summary), one DLQ per consumer group, and `email.outbound.dlq`, each with its documented retention, partition count and replication factor |
 | `schema-registry` | `confluentinc/cp-schema-registry:7.7.0` | `8081:8081` | Confluent Schema Registry (Community) |
+| `schema-init` | `node:22.12.0-alpine` | — | One-shot subject registration: runs the backend's `tools/avro/register-schemas.js` against every `libs/contracts/avro/<topic>.avsc`, registering each `<topic>-value` subject at `BACKWARD` ([ADR-0012](../../decisions/0012-avro-subjects-registered-by-ci-and-schema-init.md)) |
 | `kafka-ui` | `provectus/kafka-ui:v0.7.2` | `8080:8080` | Kafka management UI |
 | `minio` | `minio/minio:RELEASE.2024-11-07T00-52-20Z` | `9000:9000`, `9001:9001` | S3-compatible object storage (product images, KYC docs, user assets) |
 | `minio-init` | `minio/mc:latest` | — | One-shot bucket creation init container — the one unpinned tag here, see below |
@@ -90,7 +91,7 @@ The last four are the observability stack specified by [conventions/observabilit
 ```
 aliceut_frontend   buyer-nginx, seller-nginx, admin-nginx (no backend access)
 aliceut_backend    api, workers, postgres, mongodb, elasticsearch, kafka, kafka-init,
-                   schema-registry, kafka-ui, minio, minio-init, redis, mailpit,
+                   schema-registry, schema-init, kafka-ui, minio, minio-init, redis, mailpit,
                    alloy, loki, prometheus, grafana
 ```
 
@@ -552,6 +553,8 @@ services:
         condition: service_healthy
       kafka-init:
         condition: service_completed_successfully
+      schema-init:
+        condition: service_completed_successfully
     healthcheck:
       # Path is /api/v1/health, not /health: the endpoint sits under the global
       # prefix and has no unversioned alias (api-design/health.md).
@@ -786,6 +789,27 @@ services:
       timeout: 10s
       retries: 10
       start_period: 30s
+
+  # One-shot: registers every libs/contracts/avro/<topic>.avsc as its
+  # <topic>-value subject (BACKWARD) before workers publishes or consumes.
+  # It runs the backend's own CI registration script from the sibling repo,
+  # so local compose registers exactly what CI registers (ADR-0012).
+  schema-init:
+    image: node:22.12.0-alpine
+    container_name: aliceut_schema_init
+    restart: "no"
+    depends_on:
+      schema-registry:
+        condition: service_healthy
+    networks:
+      - aliceut_backend
+    environment:
+      SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      AVRO_SCHEMA_DIR: /avro
+    volumes:
+      - ../aliceut-ecom-backend/libs/contracts/avro:/avro:ro
+      - ../aliceut-ecom-backend/tools/avro/register-schemas.js:/register-schemas.js:ro
+    entrypoint: ["node", "/register-schemas.js"]
 
   # ── MinIO (object storage) ──────────────────────────────
 
@@ -1112,7 +1136,8 @@ redis ────────────────────────�
 minio ──► minio-init ─────────┤
 mailpit ──────────────────────┤──► workers
                               │
-schema-registry ──────────────┘
+schema-registry ──────────────┤
+schema-registry ──► schema-init ┘
 
 loki ──► alloy
 loki ──┐
@@ -1120,11 +1145,13 @@ loki ──┐
 prometheus ──┘
 ```
 
-`api` waits for postgres, mongodb, elasticsearch, kafka, schema-registry, redis and minio to report `service_healthy`, and for `minio-init` and `kafka-init` to report `service_completed_successfully` — the application's MinIO service account and the three buckets must exist before the first upload request, and every Kafka topic must exist with its own retention before the relay publishes to one or a consumer subscribes to one. `workers` waits for postgres, mongodb, kafka, schema-registry, elasticsearch and mailpit, plus the same `kafka-init` completion. nginx containers wait for `api` to be healthy.
+`api` waits for postgres, mongodb, elasticsearch, kafka, schema-registry, redis and minio to report `service_healthy`, and for `minio-init` and `kafka-init` to report `service_completed_successfully` — the application's MinIO service account and the three buckets must exist before the first upload request, and every Kafka topic must exist with its own retention before the relay publishes to one or a consumer subscribes to one. `workers` waits for postgres, mongodb, kafka, schema-registry, elasticsearch and mailpit, plus the same `kafka-init` completion and `schema-init`'s: the relay looks up each topic's schema id and never registers one, so a subject missing from the registry would fail every publish to that topic until it existed. nginx containers wait for `api` to be healthy.
 
 **`kafka-init` runs once and is idempotent.** It creates every event topic in [kafka-events.md § 1](./kafka-events.md#topic-summary) and one dead-letter topic per consumer group [§ 4](./kafka-events.md#dlq-topics), plus `email.outbound.dlq` — the one dead-letter topic that is not a consumer group's, holding emails whose SMTP delivery failed three times — with `--if-not-exists`, one partition and replication factor 1 each, at 7-day retention — except the three `auth.*` topics and the three DLQs fed only by them, which are created at 24 hours because those payloads carry a raw single-use credential token.
 
 **The `AUTH_DLQ` list is why the DLQ loop is two loops.** A dead-lettered message carries the original envelope and payload ([conventions/kafka-events.md § DLQ](../../conventions/kafka-events.md#dlq-topology)), so a `notification.password-reset` failure parks a live `reset_token` in `notification.password-reset.dlq`. Provisioned from `KAFKA_TOPIC_RETENTION_MS` with the rest, that token would sit in the broker log for seven days — on the one path where the notification never reached the user and an operator is therefore going to open the topic and read it, which is the exposure the 24-hour `auth.*` retention exists to close. The rule is a DLQ takes the **longest** of its source topics' retentions ([kafka-events.md § 3](./kafka-events.md#topic-retention)); `notification.email-verification`, `notification.password-reset` and `notification.password-changed` each subscribe to exactly one 24-hour topic, so for them the longest is 24 hours. `platform.audit.dlq` stays at seven days because that group also consumes 7-day topics and a genuine maximum is what the rule asks for. Broker auto-creation is off (§6), so this container is the only thing that creates a topic: with auto-creation on, the first producer to reach an unprovisioned `auth.*` topic would have created it at the broker default of 7 days and held live password-reset tokens in the log for seven times the intended window, with nothing in the topology to notice. Running to completion before `api` and `workers` start also keeps it clear of the migrations.
+
+**`schema-init` runs once and is idempotent** ([ADR-0012](../../decisions/0012-avro-subjects-registered-by-ci-and-schema-init.md)). It runs the same script CI runs ([conventions/kafka-events.md § 2](../../conventions/kafka-events.md#schema-registry)): per subject it sets `BACKWARD`, skips a schema already registered, tests a changed one against the latest version and refuses it if incompatible, then registers it. The schemas and the script are bind-mounted read-only from `../aliceut-ecom-backend`, so the stack registers exactly the files the running build was compiled against, and the script needs nothing beyond Node itself. Nothing else writes to the registry — neither `api` nor `workers` registers a schema — so a stack started without this container publishes nothing. Only `workers` waits on it: `api` writes outbox rows and never talks to the registry.
 
 The observability stack is a second, independent root: `alloy` and `grafana` wait on `loki`, and `grafana` additionally on `prometheus`. Nothing in the application graph waits on any of them, and that is deliberate — a collector outage must not stop the API from booting. The dependency runs the other way: Alloy discovers containers through the Docker API, so it picks up services that started before it without needing to be told about them.
 
