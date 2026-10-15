@@ -654,7 +654,7 @@ Auth: SELLER_ACTIVE
 ```json
 {
   "productId": "uuid",
-  "variantId": "uuid | null",
+  "variantId": "uuid | null — optional; omit to let Catalog create or reuse a default variant (SKU DEFAULT, ADR-0013)",
   "nativeCurrencyCode": "USD | THB | JPY | SGD",
   "prices": [{
     "amount": "99.99",
@@ -668,6 +668,8 @@ Auth: SELLER_ACTIVE
 }
 ```
 
+**Every offer references a variant** ([ADR-0013](../../../decisions/0013-offer-requires-variant.md)). `variantId` is optional in the request: when omitted, Catalog finds or creates a default variant for the product (SKU `DEFAULT`, attributes `{}`). The response always carries a non-null `variantId`.
+
 **One currency per offer.** `nativeCurrencyCode` is the offer's pricing currency and every price row inherits it — which is why the individual price entries carry no `currencyCode`. A seller who wants to sell the same product in a second currency creates a second offer. This is what makes an effective price unambiguous on the PDP and makes the per-seller/per-currency checkout grouping well-defined.
 
 **No `status` field, and no `DRAFT`.** A listing goes live on successful submit; the offer is created `ACTIVE` (US-S-10:190), or `FLAGGED` when the content trips the soft moderation tier — [see below](#offer-create-screening). Either way the status is the server's to decide and the request body carries no way to ask for one. `offer_status` is `ACTIVE | INACTIVE | REMOVED | FLAGGED` — a save-as-draft workflow is deferred, so accepting a `DRAFT` value here would create rows in a state no other endpoint, guard or consumer handles.
@@ -680,7 +682,7 @@ At least one `LIST` price is required (US-S-03:53).
   "data": {
     "id": "uuid",
     "productId": "uuid",
-    "variantId": "uuid | null",
+    "variantId": "uuid",
     "nativeCurrencyCode": "USD",
     "status": "ACTIVE",
     "prices": [{
@@ -696,7 +698,7 @@ At least one `LIST` price is required (US-S-03:53).
   }
 }
 ```
-Every amount is a string, and each carries the `currencyCode` it is denominated in — the offer's native currency. Nothing here is converted.
+`variantId` is always non-null in the response ([ADR-0013](../../../decisions/0013-offer-requires-variant.md)). Every amount is a string, and each carries the `currencyCode` it is denominated in — the offer's native currency. Nothing here is converted.
 
 Side effects: `offer.changed` event, `inventory.changed` event via outbox; on a soft-tier screening hit also a `moderation_case` row and a `listing.flagged` event.  
 **Errors:** 400 validation or no LIST price, 404 product not found, 409 offer already exists for this product+variant, 422 prohibited category, 422 currency not in the seller-priceable set, 422 hard-blocklist (`BLOCK`) hit
@@ -821,7 +823,7 @@ Default sort `created_at DESC`; sort key `(created_at, id)`.
     "id": "uuid",
     "productId": "uuid",
     "productTitle": "string",
-    "variantId": "uuid | null",
+    "variantId": "uuid",
     "nativeCurrencyCode": "USD",
     "status": "ACTIVE | INACTIVE | REMOVED | FLAGGED",
     "statusChangedReason": "SUSPENSION | ADMIN_REMOVAL | SELLER_DEACTIVATED | SELLER_MANUAL | AUTO_MODERATION | null",

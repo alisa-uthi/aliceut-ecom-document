@@ -280,7 +280,7 @@ Storing only `token_hash` is a **PostgreSQL storage rule**, and it applies equal
 | `id` | `UUID` | PK; `DEFAULT uuidv7()` |
 | `seller_profile_id` | `UUID` | Required FK → `seller.seller_profile(id)` |
 | `product_id` | `UUID` | Required FK → `catalog.product(id)` |
-| `variant_id` | `UUID` | Nullable FK → `catalog.product_variant(id)` when a product has variants |
+| `variant_id` | `UUID` | Required FK → `catalog.product_variant(id)`. Every offer references a variant. When a seller creates an offer without supplying a `variantId`, Catalog finds or creates a default variant for the product (SKU `DEFAULT`, attributes `{}`). See [ADR-0013](../../decisions/0013-offer-requires-variant.md). |
 | `native_currency_code` | `CHAR(3)` | Required FK → `pricing.currency(code)`; the seller's pricing currency for this offer. Restricted to currencies where `pricing.currency.is_seller_price_allowed = true` (V1: `USD`, `THB`, `JPY`, `SGD`). Immutable in practice: a seller wanting a second currency creates a second offer. |
 | `status` | `offer_status` | Required: `ACTIVE`, `INACTIVE`, `REMOVED`, or `FLAGGED`. A new listing is created `ACTIVE` — all listings go live on successful submit (US-S-10), so there is no draft state in V1. `FLAGGED` means the offer has an open `admin.moderation_case`. |
 | `status_changed_reason` | `TEXT` | Nullable; tracks why status last changed. Values: `SUSPENSION`, `ADMIN_REMOVAL`, `SELLER_DEACTIVATED`, `SELLER_MANUAL`, `AUTO_MODERATION`. Required to distinguish suspension-deactivated offers from other inactive offers on reinstatement (US-A-05b, US-P-18). |
@@ -304,7 +304,7 @@ Status transitions, each paired with the `status_changed_reason` it records:
 
 `REMOVED` is terminal: a seller cannot reactivate a removed listing and must create a new compliant one (US-S-10).
 
-`offer.variant_id`, when present, must belong to `offer.product_id`; enforce this in the application transaction and with a composite database constraint introduced by the database-migration design named in this document's scope.
+`offer.variant_id` must belong to `offer.product_id`; enforce this in the application transaction and with a composite database constraint introduced by the database-migration design named in this document's scope. ([ADR-0013](../../decisions/0013-offer-requires-variant.md))
 
 <a id="schema-pricing"></a>
 ### `pricing`

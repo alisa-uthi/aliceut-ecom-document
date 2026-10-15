@@ -58,3 +58,4 @@ Copy [`0000-adr-template.md`](0000-adr-template.md) to start one.
 | [0010](0010-search-sort-tiebreak-is-product-id.md) | Search sort tie-break is `product_id`, not `_id` | Accepted |
 | [0011](0011-null-preferred-currency-resolves-from-accept-language.md) | A null preferred currency resolves from Accept-Language everywhere | Accepted |
 | [0012](0012-avro-subjects-registered-by-ci-and-schema-init.md) | Avro subjects are registered by a CI job and, locally, by a `schema-init` one-shot | Accepted |
+| [0013](0013-offer-requires-variant.md) | Every offer must reference a variant; omitting variantId creates a default variant | Accepted |
