@@ -61,6 +61,7 @@ Recorded for context; these are closed.
 | The buyer register page signed in twice, and a `401` from the refresh call left every app's interceptor waiting forever | Code fixed (frontend#25) |
 | `GET /orders` and `GET /orders/:id` returned the old `OrderDto`, a status filter returned short pages while `hasMore` was true, `:orderId` took only a UUID, and the generated client could not type the `201` of `POST /orders` | Code fixed to orders.md (backend#55, frontend#28): `OrderSummaryDto` with cursor pagination, `OrderDetailDto` (shipping address, totals, lifecycle timestamps), UUID or `ORD-` id with ownership in the query; the `200` schema is a `oneOf` of the replay and placed envelopes, so the client types both. Two modules' `FulfillmentItemDto` shared one schema name, which blanked seller item titles; renamed |
 | Events were camelCase JSON envelopes and the Schema Registry ran unused; `product.changed` `CREATED` and `UPDATED` each omitted §2.10 fields, and `offer.changed`, `inventory.changed`, `listing.flagged` and the auth and fulfillment payloads differed from their schemas | Code fixed to kafka-events.md (backend#56, infra#4): the 29 catalog schemas are `libs/contracts/avro/*.avsc` with generated types; the relay publishes the §1 snake_case envelope in Confluent wire format and consumers decode through the registry; `OutboxService.writeEvent` is typed per topic and every producer spec encodes its payloads against the `.avsc`. [ADR-0012](../../decisions/0012-avro-subjects-registered-by-ci-and-schema-init.md): one script registers the subjects, from CI against an ephemeral registry and from a compose `schema-init` one-shot before `workers` |
+| A seller soft delete and an admin `REMOVE` emitted no `offer.changed` `REMOVED`; admin and seller producers minted a fresh `correlation_id`; `createProduct` dropped `brand`; `fulfillment.delivered`, `order.completed`, `inventory.reservation_expired` and `keyword_blocklist.changed` had no producer; `inventory.low_stock` sent `''` for an offer without a variant | Code fixed (backend#57–#63, frontend#29, #30). Every api-side producer carries the request's `X-Correlation-ID`. `workers` runs the mock delivery scheduler (SHIPPED with `estimated_delivery_at <= now()`, every `DELIVERY_MOCK_INTERVAL_MS`), the `orders.delivery-tracker` consumer, whose completion check locks the order row, and `expire-stock-reservations`, which releases `reserved_qty` only and skips a row checkout touched. Blocklist writes emit `keyword_blocklist.changed` with the acting admin; an update maps to `ADDED`, or `REMOVED` on deactivation, since the enum has no `UPDATED`. [ADR-0013](../../decisions/0013-offer-requires-variant.md): every offer references a variant; an offer created without one gets the product's `DEFAULT` variant, existing offers were backfilled and `variant_id` is NOT NULL. `offer.changed` keeps `variant_id` nullable for messages already on the topic. Avro built-as rules from backend#56: DLQ records are JSON with `envelope_encoding` `json`, or `base64` for undecodable bytes; a payload that fails its schema marks the outbox row `FAILED` at once; a new offer's `inventory.changed` uses `MANUAL_UPDATE` with the opening `on_hand_qty` as `delta`; `seller.suspension_amended` sends `''` for a null reason |
 
 ---
 
@@ -157,10 +158,10 @@ Recorded for context; these are closed.
 
 ## Open — platform conventions
 
-### 4. Only one consumer exists
+### 4. Most consumers are not built
 
-`apps/workers` runs the outbox relay, the schedulers and the search indexer.
-The notification, audit and inventory consumers the design relies on are not
+`apps/workers` runs the outbox relay, the schedulers, the search indexer and
+the `orders.delivery-tracker` consumer. The notification, audit and inventory consumers the design relies on are not
 built, so:
 
 - `pii.accessed` rows accumulate in the outbox with nothing writing
@@ -177,30 +178,7 @@ built, so:
 This is sprint scope rather than a defect, but it is the reason several
 handlers do work the design assigns to a consumer.
 
-### 5. Event producer gaps found with Avro
-
-- A seller soft delete emits only `listing.soft_deleted`; §2.11 says it also
-  emits `offer.changed` `REMOVED`. An admin `REMOVE` decision emits no
-  `offer.changed` `REMOVED` either.
-- The admin and seller-order producers set `correlation_id` to a fresh
-  uuidv7 instead of the request's `X-Correlation-ID`, which §1 requires.
-- `createProduct` never stores `brand`, so `product.changed` `CREATED`
-  always carries `brand: null`.
-- `fulfillment.delivered`, `order.completed`,
-  `inventory.reservation_expired` and `keyword_blocklist.changed` have a
-  schema and no producer.
-- Built as: DLQ records are JSON (conventions §5 names no encoding) with an
-  `envelope_encoding` of `json`, or `base64` for bytes that did not decode. A
-  payload that does not match its schema marks the outbox row `FAILED` at once,
-  since no retry changes it. `inventory.changed` for a newly created offer uses
-  `change_reason` `MANUAL_UPDATE` with the opening `on_hand_qty` as `delta`,
-  because §2.12 has no creation symbol. `seller.suspension_amended` sends `''`
-  when the stored reason is null.
-- Open: `inventory.low_stock` `sku_label` / `sku_id` are non-null in §2.13 and
-  sent as `''` for an offer without a variant. Either they become nullable or
-  every offer must have a variant.
-
-### 6. Seller handlers write other modules' schemas directly
+### 5. Seller handlers write other modules' schemas directly
 
 The seller routes write `catalog`, `pricing`, `inventory` and `orders` rows
 themselves rather than through each owner's application service, which the
@@ -212,16 +190,21 @@ fields as search.md § Document composition specifies. The `product.changed`
 and `offer.changed` payload builders (backend#56) read `seller.seller_profile`
 and `pricing.offer_price` / `fx_rate` with SQL inside the producing
 transaction, not through the owners' application services, which conventions
-§4.2 requires; those services read outside the transaction.
+§4.2 requires; those services read outside the transaction. The same holds
+for the wave-5 producers: the mock delivery scheduler and the order-completion
+check read `identity."user"` for `buyer_email` / `buyer_name` (as the
+suspended-seller auto-refund already did), because `orders.order` keeps no buyer
+snapshot, and `expire-stock-reservations` joins `catalog.offer` for
+`product_id`, which no `inventory` table carries.
 
-### 7. Most retention jobs are not built
+### 6. Most retention jobs are not built
 
 [cleanup-jobs.md](cleanup-jobs.md) lists more jobs than the five `workers` now
 runs (outbox retention, suspension expiry, suspended-seller auto-refund, FX
-refresh and the orphaned-image sweep). The remaining seven have no
-implementation.
+refresh, the orphaned-image sweep and `expire-stock-reservations`). The
+remaining six have no implementation.
 
-### 8. Tooling the conventions assume is missing
+### 7. Tooling the conventions assume is missing
 
 - No project has a `lint` target, so CI's `nx run-many -t lint` runs nothing
   and the money-field lint rule the conventions require is not enforced.
