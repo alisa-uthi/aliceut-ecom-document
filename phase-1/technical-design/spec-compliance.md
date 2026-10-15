@@ -49,6 +49,8 @@ Recorded for context; these are closed.
 | The undesigned `GET /catalog/categories/:categoryId/products` duplicated `GET /catalog/products?categoryId=` | Deleted (backend#44); the buyer app moved to `GET /catalog/products` (frontend#19) |
 | `POST /seller/register` created no seller profile, returned only `{userId}`, did not verify the password when linking, emitted the uncatalogued `platform.seller.registered`, and the design's profile insert broke migration 0007's NOT NULL columns | [ADR-0007](../../decisions/0007-seller-register-collects-business-details.md): register collects `businessName`, `taxId` and `businessAddress`; account, profile and session are created in one transaction and the response carries `accessToken` and `sellerProfileId` plus the refresh cookie; `401` / `403` / `409 PASSWORD_REQUIRED_FOR_LINK`; no event (backend#45, frontend#20). `POST /seller/kyc` answers `404` without a profile |
 | The frontend called the backend through hand-written `HttpClient` wrappers; the generated client was gitignored, so the client-sync workflow could never open a PR | Code fixed (frontend#21): `@aliceut/api-client` re-exports the committed `openapi-generator-cli` output, the wrappers are deleted, and frontend CI fails when the committed client differs from the backend spec. Moving onto the spec's shapes fixed buyer register (sent `accountType`), multipart KYC submit, the category tree, search and order field names, and admin enums |
+| `POST /auth/register` rejected `accountType` with `400` and hardcoded `B2C`, so no buyer could become B2B | Code fixed to auth.md (backend#47, frontend#23): required `accountType` `B2C \| B2B`, stored and carried in the token; the buyer register toggle sends it |
+| The rounding mode for API amounts was unspecified | [ADR-0008](../../decisions/0008-api-amounts-round-half-up.md): half-up, stated in backend-coding-standards §3.1/§3.2 (implemented by backend#46) |
 
 ---
 
@@ -105,9 +107,8 @@ would have caught this.
   password creates the profile (ADR-0007); no data migration was written.
 - **The KYC form re-asks business name, tax id and country.** Prefilling needs
   `GET /seller/profile` to return the address (entry 1).
-- **Buyer `accountType`.** auth.md and `auth.service.ts` expect `accountType`
-  on `POST /auth/register`, but `RegisterDto` and the OpenAPI document omit it,
-  so it is rejected. The buyer app's B2C/B2B toggle is now ignored.
+- **Buyer register signs in twice.** The buyer register page calls `login()`
+  right after `register()`, although register already opens a session.
 - **Frontend refresh interceptor.** In all three apps, a `401` from the refresh
   call itself leaves the interceptor waiting forever instead of clearing the
   session.
@@ -126,8 +127,6 @@ would have caught this.
   The doc should match.
 - `Money.toJSON(scale)` is the §3.1 name but collides with the
   `JSON.stringify` `toJSON(key)` hook; stringifying a `Money` directly breaks.
-- The rounding mode (half-up) for every API amount is the implementation's
-  choice; §3.2 names none.
 - Because search now depends on `pricing`, the `workers` HTTP app also mounts
   the `/pricing` routes, as it already mounts `/search`.
 
