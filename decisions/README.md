@@ -60,3 +60,4 @@ Copy [`0000-adr-template.md`](0000-adr-template.md) to start one.
 | [0012](0012-avro-subjects-registered-by-ci-and-schema-init.md) | Avro subjects are registered by a CI job and, locally, by a `schema-init` one-shot | Accepted |
 | [0013](0013-offer-requires-variant.md) | Every offer must reference a variant; omitting variantId creates a default variant | Accepted |
 | [0014](0014-migration-name-suffix-is-the-sequence.md) | A migration's `name` ends in a 13-digit form of its sequence, and every CREATE TABLE is guarded | Accepted |
+| [0015](0015-seller-register-sends-verification-email.md) | `POST /seller/register` sends the verification email | Accepted |

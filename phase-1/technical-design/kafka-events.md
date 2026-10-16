@@ -1485,7 +1485,8 @@ This is the one topic with **no `platform.audit` consumer**: the FX table is a p
           { "name": "email",              "type": "string" },
           { "name": "full_name",          "type": "string", "doc": "identity.user.full_name — ET-18 greets with it. Carried because the notification consumer may not read identity.user, which is the same reason the token below travels in the payload" },
           { "name": "verification_token", "type": "string", "doc": "Raw single-use token. Carried deliberately: the notification consumer cannot build the verification link without it, and reading identity.email_verification_token from the notifications module would be a cross-schema read. Single-use with a short TTL, the topic retains 24h (§3), and the audit consumer masks this key before insert (§5)" },
-          { "name": "expires_at",         "type": "string", "doc": "ISO 8601" }
+          { "name": "expires_at",         "type": "string", "doc": "ISO 8601" },
+          { "name": "portal",             "type": "string", "default": "BUYER", "doc": "\"BUYER\" | \"SELLER\" (ADR-0015). Selects ET-18's link and variant — BUYER gets the buyer app's /verify-email, SELLER the seller app's /seller/verify-email — and is carried for the same reason as portal in §2.23: the notification consumer may not read identity.user. The default keeps the change BACKWARD compatible, so a message written before the field existed decodes as BUYER" }
         ]
       }
     }
@@ -1497,10 +1498,10 @@ This is the one topic with **no `platform.audit` consumer**: the FX table is a p
 
 | Consumer group | Pattern | Side effects |
 |---------------|---------|--------------|
-| `notification.email-verification` | `notification.*` | Sends ET-18 verification email to user, building the link from `verification_token` in the payload. |
+| `notification.email-verification` | `notification.*` | Sends ET-18 verification email to user, building the link from `verification_token` and choosing the buyer or seller variant from `portal` in the payload. |
 | `platform.audit` | `platform.audit` | Writes `audit_logs` (action=`EMAIL_VERIFICATION_REQUESTED`, entity_type=`USER`, actor_id=user_id). `verification_token` is masked to `"***"` before insert ([§5](#audit-masking)). |
 
-**One producer document for all three `auth.*` topics.** Every outbox row on this topic and on §2.23 and §2.24 is written by the identity module in [api-design/auth.md](api-design/auth.md#endpoint-index): registration and resend-verification for this one, forgot-password for §2.23, reset-password and change-password for §2.24 — five inserts, and each publishes the full field list its payload declares. `full_name` is on all three because ET-18, ET-19 and ET-20 greet with it and the notification consumer may not read `identity.user`; on the two password-change paths it comes back from the `UPDATE identity.user … RETURNING email, full_name` that made the change, so no extra read is needed. None of these fields is nullable, which is deliberate and is why the producer list matters: an omitted one fails Avro serialization in the relay rather than arriving null at a consumer.
+**Two producer documents for the three `auth.*` topics.** Every outbox row on §2.23 and §2.24 is written by the identity module in [api-design/auth.md](api-design/auth.md#endpoint-index): forgot-password for §2.23, reset-password and change-password for §2.24. This topic has three producers: registration and resend-verification in auth.md, and the new-account path of [`POST /seller/register`](api-design/seller.md#register-as-seller) ([ADR-0015](../../decisions/0015-seller-register-sends-verification-email.md)). Registration writes `portal = 'BUYER'`, seller register `'SELLER'`, and resend `'BUYER'` when the account holds the `BUYER` role, otherwise `'SELLER'`. That is six inserts, and each publishes the full field list its payload declares. `full_name` is on all three because ET-18, ET-19 and ET-20 greet with it and the notification consumer may not read `identity.user`; on the two password-change paths it comes back from the `UPDATE identity.user … RETURNING email, full_name` that made the change, so no extra read is needed. None of these fields is nullable, which is deliberate and is why the producer list matters: an omitted one fails Avro serialization in the relay rather than arriving null at a consumer.
 
 ---
 

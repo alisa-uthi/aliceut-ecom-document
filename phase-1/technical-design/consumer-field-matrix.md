@@ -167,7 +167,7 @@ Recipient identity above; this is the rest of each template. A variable rendered
 | ET-15 | `product_title`, `sku_label`, `sku_id`, `on_hand`, `reserved`, `available`, `low_stock_threshold`, `seller.full_name` | `payload.product_title`, `.sku_label`, `.sku_id`, `.on_hand_qty`, `.reserved_qty`, `.available_qty`, `.low_stock_threshold`, `.seller_name` |
 | ET-16 | `seller_name`, `cancelled_at`, `cancellation_reason`, `item.*`, totals | `payload.seller_name`, `.cancelled_at`, `.reason`, `.items[]`, `.buyer_currency_total` |
 | ET-17 | `seller.full_name`, `order_id`, `placed_at`, `ship_by`, `item.*`, `fulfillment.grand_total_display`, `offer_currency` | `payload.seller_name`, `.display_id`, `.placed_at`, `.ship_by`, `.items[]`, `.total_amount`, `.currency_code` |
-| ET-18 | `buyer.full_name`, `verification_link` | `payload.full_name`, `payload.verification_token` |
+| ET-18 | `buyer.full_name` / `seller.full_name`, `verification_link` | `payload.full_name`, `payload.verification_token`; `payload.portal` selects the link (`BUYER` → `/verify-email`, `SELLER` → `/seller/verify-email`) and the buyer or seller variant ([ADR-0015](../../decisions/0015-seller-register-sends-verification-email.md)) |
 | ET-19 | `buyer.full_name`, `reset_link` | `payload.full_name`, `payload.reset_token` |
 | ET-20 | `buyer.full_name`, `changed_at`, `change_method` | `payload.full_name`, `.changed_at`, `.changed_method` |
 | ET-21 | `seller.business_name`, `seller.full_name`, `submitted_at`, `application_id`, `is_resubmission`, `prior_rejection_date` | `payload.business_name`, `.seller_name`, `.submitted_at`, `.kyc_application_id`, `.is_resubmission`, `.prior_rejection_date` |
