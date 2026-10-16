@@ -210,6 +210,12 @@ export const appRoutes: Routes = [
     loadComponent: () => import('./features/auth/seller-reset-password/seller-reset-password.component'),
     // Public — handles ?token=; a signed-in seller may also be redeeming a link
   },
+  {
+    path: 'seller/verify-email',
+    loadComponent: () => import('./features/auth/seller-verify-email/seller-verify-email.component'),
+    // Public — handles ?token= from ET-18's seller variant (ADR-0015). No guestGuard:
+    // the seller is often signed in, and success then goes to /seller/dashboard.
+  },
   // Authenticated seller routes (with sidenav shell)
   {
     path: 'seller',

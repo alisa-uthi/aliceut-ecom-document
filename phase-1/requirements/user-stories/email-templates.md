@@ -73,9 +73,11 @@ Available to every template. A template's own **Variables** table lists only wha
 
 ## ET-18 — Email Verification (auth.email_verification_requested)
 
-**Trigger:** Buyer registers with email/password (US-B-01) — fires immediately on account creation  
-**To:** buyer  
+**Trigger:** Buyer registers with email/password (US-B-01), or a seller registers with a new account (US-S-01, `POST /seller/register`) — fires immediately on account creation. Also fires on resend-verification  
+**To:** buyer or seller — `payload.portal` picks the variant ([ADR-0015](../../../decisions/0015-seller-register-sends-verification-email.md))  
 **Subject:** `Verify your email address — AliceUT`
+
+**Buyer variant** (`portal = BUYER`)
 
 ```
 Hi {{buyer.full_name}},
@@ -102,11 +104,37 @@ If you didn't create an account, you can ignore this email.
 AliceUT
 ```
 
+**Seller variant** (`portal = SELLER`)
+
+```
+Hi {{seller.full_name}},
+
+Thanks for registering as a seller on AliceUT. Please verify your
+email address so we can reach you about your application and orders.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  [VERIFY EMAIL ADDRESS]
+  {{verification_link}}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+This link expires in {{ttl_hours}} hours and can only be used once.
+
+Verifying is not required to submit your KYC application.
+
+If you didn't register, you can ignore this email.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+AliceUT
+```
+
 **Variables**
 
 | Variable | Description |
 |---|---|
-| `verification_link` | Single-use verification URL with embedded token; TTL 24 h |
+| `verification_link` | Single-use verification URL with embedded token; TTL 24 h. Buyer: `${BUYER_APP_URL}/verify-email?token=<raw>`. Seller: `${SELLER_APP_URL}/seller/verify-email?token=<raw>` |
 | `ttl_hours` | Human-readable TTL label: `24` |
 
 ---

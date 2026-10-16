@@ -28,9 +28,11 @@ Component contracts are owned by [conventions/design-system.md § 8](../../conve
 - [Screen 11 — Seller Forgot Password](#screen-11-seller-forgot-password)
 - [Screen 12 — Seller Reset Password](#screen-12-seller-reset-password)
 - [Screen 13 — Seller Notifications](#screen-13-seller-notifications)
+- [Screen 14 — Seller Verify Email](#screen-14-seller-verify-email)
+- [Screen 15 — Business Profile](#screen-15-seller-profile)
 - [Appendix — Seller Notification Types](#appendix-seller-notifications)
 
-**Not a screen on this portal.** The notification bell in the toolbar is the shared `NotificationBellComponent`, whose contract is [design-system.md § 8.7](../../conventions/design-system.md#8-shared-component-library-libsui) and whose Phase-1 bindings are [shared-components.md § 4.1](shared-components.md#41-notificationbell); the types it renders are the appendix table below. `/seller/profile` is a route this portal serves — it is the redirect target of `sellerNotSuspendedGuard` and the one screen that states a suspension's reason and end date — and it has **no wireframe here yet**.
+**Not a screen on this portal.** The notification bell in the toolbar is the shared `NotificationBellComponent`, whose contract is [design-system.md § 8.7](../../conventions/design-system.md#8-shared-component-library-libsui) and whose Phase-1 bindings are [shared-components.md § 4.1](shared-components.md#41-notificationbell); the types it renders are the appendix table below. `/seller/profile` — the redirect target of `sellerNotSuspendedGuard` and the one screen that states a suspension's reason and end date — is [Screen 15](#screen-15-seller-profile).
 
 <a id="shell-layout"></a>
 ## Shell Layout
@@ -101,8 +103,17 @@ mat-sidenav-container [fullscreen]
           p mat-body-2 — Your application was rejected: {{ rejectionReason }}
           button mat-flat-button color="primary" routerLink="/seller/kyc" — Update and Resubmit
 
+      <!-- Email verification banner — informational, gates nothing (ADR-0015) -->
+      mat-card.info-banner *ngIf="!emailVerified" [margin-bottom: 16px]
+        mat-icon — mark_email_unread
+        span — Please verify your email address. We sent a link to {{ email }}.
+        button mat-button color="primary" (click)="resendVerification()" [disabled]="resendState === 'sending'" — Resend email
+        span mat-caption *ngIf="resendState === 'sent'" — Sent. Check your inbox.
+
       router-outlet
 ```
+
+**Verification banner.** `emailVerified` is the access token's `email_verified` claim. "Resend email" calls `POST /auth/resend-verification` (JWT, 3 per hour per user): `202` shows the "Sent" caption, `409` means the account was verified elsewhere and the shell refreshes the session so the banner drops, `429` shows "Too many requests — try again later." Nothing on the portal is gated on verification, KYC included ([ADR-0015](../../decisions/0015-seller-register-sends-verification-email.md)). An account that also holds `BUYER` gets the buyer variant of ET-18; either link verifies the same account.
 
 **Shell data.** `notifications` is the first page of `GET /notifications?limit=20`, `unreadCount` is `GET /notifications/unread-count`, and `pendingOrderCount` on the Orders nav item is the pending count from `GET /seller/dashboard/summary` — which is `SELLER_ACTIVE`-only, so the badge is absent for an unapproved or suspended seller. The bell polls on page focus and on a 60 s interval; there is no WebSocket in V1.
 
@@ -1182,6 +1193,75 @@ The layout, the client-side composition of each row's two lines, the cursor-pagi
 - Paging is the **"Load more"** variant, ending in the "End of list" caption.
 - `EmptyState` copy: `icon="notifications_none"`, `title="No notifications"`, `message="Order and listing alerts will appear here."`
 - `titleFor(n)` / `bodyFor(n)` / `typeIcon(n.type)` resolve against the [appendix](#appendix-seller-notifications) table below.
+
+---
+
+<a id="screen-14-seller-verify-email"></a>
+## Screen 14 — Seller Verify Email
+
+**Route:** `/seller/verify-email?token=`  
+**Auth:** Public; reads `?token=` on component init. No `guestGuard`: the seller is often signed in  
+**Component:** `SellerVerifyEmailComponent`
+
+The link in ET-18's seller variant opens this screen ([ADR-0015](../../decisions/0015-seller-register-sends-verification-email.md)). It uses the auth card shell ([shared-components.md § 8.1](shared-components.md#8-auth-screen-pattern)), portal mark `mat-icon mark_email_read`, title "Verify your email". Four states, switched on `verifyState`:
+
+```
+mat-card-content
+  mat-spinner *ngIf="verifyState === 'loading'"
+
+  div *ngIf="verifyState === 'success'" [text-align: center]
+    mat-icon [font-size: 48px; color: success] — check_circle_outline
+    p mat-body-2 — Email verified. Redirecting…
+
+  div *ngIf="verifyState === 'alreadyVerified'" [text-align: center]
+    p mat-body-2 — This email is already verified.
+    a mat-flat-button color="primary" [routerLink]="isLoggedIn ? '/seller/dashboard' : '/seller/login'" — Continue
+
+  div *ngIf="verifyState === 'invalid'" [text-align: center]
+    mat-icon [font-size: 48px; color: warn] — link_off
+    p mat-body-2 — This verification link has expired or has already been used.
+    button mat-flat-button color="primary" *ngIf="isLoggedIn" (click)="resendVerification()" — Resend verification email
+    ng-container *ngIf="!isLoggedIn"
+      p mat-body-2 — Sign in to send yourself a new link.
+      a mat-flat-button color="primary" routerLink="/seller/login" — Sign in
+```
+
+On mount it calls `POST /auth/verify-email { token }`, which is public and portal-agnostic. `200` → `success`, then `/seller/dashboard` when a session exists (after a session refresh, so the `email_verified` claim and the shell banner update), otherwise `/seller/login?verified=true`. `409` → `alreadyVerified`. `400`, or no `token` in the URL → `invalid`. The resend button is offered only with a session, because `POST /auth/resend-verification` is JWT-guarded.
+
+---
+
+<a id="screen-15-seller-profile"></a>
+## Screen 15 — Business Profile
+
+**Route:** `/seller/profile`  
+**Guard:** *(shell only)* — readable while suspended ([navigation-routing.md § 5](navigation-routing.md#auth-guard-matrix))  
+**Component:** `SellerProfileComponent`
+
+```
+h1 mat-h4 — Business Profile
+
+mat-card [margin-bottom: 24px]
+  mat-card-title — Account status
+  <aliceut-status-badge statusType="kyc" [status]="profile.kycStatus">
+  <aliceut-status-badge statusType="seller" [status]="profile.suspensionStatus">
+  p mat-body-2 *ngIf="profile.suspensionStatus === 'SUSPENDED'" — Reason: {{ profile.suspensionReason }}
+  p mat-body-2 *ngIf="profile.suspensionStatus === 'SUSPENDED'" — {{ profile.suspendedUntil ? ('Suspended until ' + (profile.suspendedUntil | date:'mediumDate')) : 'Suspension: Permanent' }}
+  p mat-body-2 *ngIf="profile.kycStatus === 'REJECTED'" — Rejection reason: {{ profile.rejectionReason }}
+
+form [formGroup]="profileForm" (ngSubmit)="save()"
+  mat-form-field — Business name (formControlName="businessName", required, max 200)
+  fieldset — Business address
+    mat-form-field — Address line 1 (required, max 200)
+    mat-form-field — Address line 2 (optional, max 200)
+    mat-form-field — City (required, max 100)
+    mat-form-field — State / region (optional, max 100)
+    mat-form-field — Postal code (required, max 20)
+    mat-select — Country (ISO 3166-1 alpha-2, required)
+  button mat-flat-button color="primary" type="submit" [disabled]="isSuspended || profileForm.pristine || profileForm.invalid" — Save changes
+  p mat-caption *ngIf="isSuspended" — Editing is paused while your account is suspended.
+```
+
+`GET /seller/profile` fills the status card and the form, including `businessAddress` ([ADR-0009](../../decisions/0009-seller-profile-get-returns-business-address.md)). Save sends `PATCH /seller/profile` with only the changed fields; a cleared optional address line goes as `null`. The response is the updated profile and replaces the form value. `400` maps field errors onto the controls; `403` means the seller was suspended mid-edit, and the screen reloads the profile. Tax ID is not shown or editable here: it is not returned, and it changes only through [KYC resubmission](#screen-3-kyc-application).
 
 ---
 

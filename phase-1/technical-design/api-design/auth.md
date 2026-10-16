@@ -180,7 +180,7 @@ sequenceDiagram
     IS->>PG: INSERT identity.user (email, password_hash, full_name, roles=['BUYER'], email_verified=false, account_type, status='ACTIVE')
     IS->>PG: INSERT identity.email_verification_token (user_id, token_hash, expires_at=NOW()+24h)
     IS->>PG: INSERT identity.refresh_session (user_id, token_hash=session_token_hash, expires_at=NOW()+7d, device_metadata)
-    IS->>PG: INSERT platform.outbox_event (aggregate_type='identity.user', aggregate_id=user_id, key=user_id, topic='auth.email_verification_requested', event_type='auth.email_verification_requested', event_version=1, correlation_id, occurred_at=NOW(), created_at=NOW(), updated_at=NOW(), payload={user_id, email, full_name, verification_token, expires_at})
+    IS->>PG: INSERT platform.outbox_event (aggregate_type='identity.user', aggregate_id=user_id, key=user_id, topic='auth.email_verification_requested', event_type='auth.email_verification_requested', event_version=1, correlation_id, occurred_at=NOW(), created_at=NOW(), updated_at=NOW(), payload={user_id, email, full_name, verification_token, expires_at, portal='BUYER'})
     Note over IS,PG: payload carries the raw single-use token — the notification consumer builds the email link from it&#59; the audit consumer masks it before writing MongoDB
     Note over IS,PG: full_name is the value just written to identity.user — ET-18 greets with it and the notification consumer may not read identity.user (kafka-events § 2.22)
     IS->>PG: COMMIT
@@ -516,6 +516,15 @@ Rate limit: 3 per hour per authenticated user
 **Response 202** `{ "data": { "message": "Verification email queued" } }`  
 **Errors:** 409 already verified, 429 rate limited
 
+The buyer and seller portals both call this route, and it takes no body. The event's `portal` is derived from the account, not the caller ([ADR-0015](../../../decisions/0015-seller-register-sends-verification-email.md)): `BUYER` if `identity.user.roles` contains `BUYER`, otherwise `SELLER`. An account holding both gets the buyer link. Either link verifies the same account.
+
+| `portal` | Link in ET-18 |
+|---|---|
+| `BUYER` | `${BUYER_APP_URL}/verify-email?token=<raw>` |
+| `SELLER` | `${SELLER_APP_URL}/seller/verify-email?token=<raw>` |
+
+[`POST /seller/register`](seller.md#register-as-seller) also emits this topic, with `portal = 'SELLER'`, for a new account.
+
 #### Sequence
 
 ```mermaid
@@ -557,8 +566,8 @@ sequenceDiagram
     IS->>PG: BEGIN TRANSACTION
     IS->>PG: DELETE identity.email_verification_token WHERE user_id = $1
     IS->>PG: INSERT identity.email_verification_token (user_id, token_hash, expires_at=NOW()+24h)
-    IS->>PG: INSERT platform.outbox_event (aggregate_type='identity.user', aggregate_id=user_id, key=user_id, topic='auth.email_verification_requested', event_type='auth.email_verification_requested', event_version=1, correlation_id, occurred_at=NOW(), created_at=NOW(), updated_at=NOW(), payload={user_id, email, full_name, verification_token, expires_at})
-    Note over IS,PG: email and full_name come from the identity.user row read above — the same payload shape as registration, because both feed ET-18
+    IS->>PG: INSERT platform.outbox_event (aggregate_type='identity.user', aggregate_id=user_id, key=user_id, topic='auth.email_verification_requested', event_type='auth.email_verification_requested', event_version=1, correlation_id, occurred_at=NOW(), created_at=NOW(), updated_at=NOW(), payload={user_id, email, full_name, verification_token, expires_at, portal})
+    Note over IS,PG: email and full_name come from the identity.user row read above — the same payload shape as registration, because both feed ET-18. portal = 'BUYER' if user.roles contains BUYER, otherwise 'SELLER' (ADR-0015)
     IS->>PG: COMMIT
 
     IS-->>A: success

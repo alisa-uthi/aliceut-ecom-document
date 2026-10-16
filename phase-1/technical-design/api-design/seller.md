@@ -61,7 +61,7 @@ Guard names are the ones defined in [api-conventions.md § Auth Guard Legend](..
 
 | Endpoint | Primary DB | Tables / Notes |
 |----------|-----------|----------------|
-| `POST /seller/register` | Postgres | `identity.user` (insert, or add SELLER role to an existing row), `seller.seller_profile` (insert, every `NOT NULL` column from the request — [ADR-0007](../../../decisions/0007-seller-register-collects-business-details.md)), `identity.refresh_session` (insert). No outbox row |
+| `POST /seller/register` | Postgres | `identity.user` (insert, or add SELLER role to an existing row), `seller.seller_profile` (insert, every `NOT NULL` column from the request — [ADR-0007](../../../decisions/0007-seller-register-collects-business-details.md)), `identity.refresh_session` (insert). New account only: `identity.email_verification_token` (insert), `platform.outbox_event` (`auth.email_verification_requested`, `portal = 'SELLER'` — [ADR-0015](../../../decisions/0015-seller-register-sends-verification-email.md)) |
 | `POST /seller/kyc` | Postgres | `seller.kyc_application` (insert), `platform.outbox_event` (`seller.kyc.submitted`) |
 | `GET /seller/profile` | Postgres | `seller.seller_profile` (incl. the address columns `address_line_1`, `address_line_2`, `city`, `state_region`, `postal_code`, `country_code` — [ADR-0009](../../../decisions/0009-seller-profile-get-returns-business-address.md)) |
 | `PATCH /seller/profile` | Postgres | `seller.seller_profile` (`business_name` and the address columns only — [ADR-0006](../../../decisions/0006-seller-profile-patch-writes-address-columns.md)), `platform.outbox_event` (`seller.profile_changed`, only when `business_name` changed) |
@@ -201,7 +201,7 @@ Any other key, at either level, is `400`. Phone and registration number are not 
 
 The response opens a SELLER session, because step 2 needs one. `roles` carries every role the account holds — an existing buyer that just linked SELLER returns `["BUYER","SELLER"]`. The refresh cookie is the one [`POST /auth/login`](auth.md#login-local) sets — same name, attributes and path — so [`POST /auth/refresh`](auth.md#refresh-token) rotates it like any other session.
 
-**No event.** Registration writes no outbox row: the [event catalogue](../kafka-events.md) has no registration topic, and nothing downstream acts on one. The first seller event is `seller.kyc.submitted`, from step 2.
+**A new account gets the verification email** ([ADR-0015](../../../decisions/0015-seller-register-sends-verification-email.md)). On the email-unknown path the same transaction inserts `identity.email_verification_token` (24 h TTL, as in [buyer registration](auth.md#registration)) and a `platform.outbox_event` row on `auth.email_verification_requested` with `portal = 'SELLER'`, so ET-18 goes out as its seller variant. The linking path writes neither: the account already exists and keeps its own verification state. Verification gates nothing on the seller portal, KYC included. There is still no registration topic: the first seller event is `seller.kyc.submitted`, from step 2.
 
 **Errors:** 400 validation, 401 password does not match the existing account, 403 the existing account is suspended or banned, 409 `PASSWORD_REQUIRED_FOR_LINK`, 409 the account already holds a seller profile
 
@@ -213,6 +213,8 @@ sequenceDiagram
     participant A as API (NestJS)
     participant SS as SellerService
     participant P as Postgres
+    participant KO as Kafka Outbox
+    participant KR as Kafka Relay
 
     C->>A: POST /seller/register { email, password, fullName, businessName, taxId, businessAddress }
     Note over A: PUBLIC — no JWT, no BUYER role, no email-verification gate
@@ -234,6 +236,10 @@ sequenceDiagram
     alt email unknown — create a seller account
         SS->>SS: argon2id.hash(password)
         SS->>P: INSERT identity.user (email, password_hash, full_name, roles=['SELLER'], email_verified=false, account_type='B2C', status='ACTIVE')
+        SS->>SS: crypto.randomBytes(32) → raw_token — SHA-256(raw_token) → token_hash
+        SS->>P: INSERT identity.email_verification_token (user_id, token_hash, expires_at=NOW()+24h)
+        SS->>KO: INSERT platform.outbox_event (topic='auth.email_verification_requested', aggregate_type='identity.user', aggregate_id=user_id, key=user_id, payload={user_id, email, full_name, verification_token, expires_at, portal='SELLER'})
+        Note over P,KO: new account only (ADR-0015) — portal='SELLER' makes the notification consumer send the seller variant of ET-18 with the /seller/verify-email link
     else email known AND password_hash IS NULL (OAuth-only)
         SS-->>A: ConflictException(PASSWORD_REQUIRED_FOR_LINK)
         A-->>C: 409 Conflict { statusCode: 409, error: "PASSWORD_REQUIRED_FOR_LINK", message: "Set a password in your account settings before registering as a seller." }
@@ -259,9 +265,15 @@ sequenceDiagram
     SS->>P: INSERT seller.seller_profile (user_id, business_name, tax_id, address_line_1, address_line_2, city, state_region, postal_code, country_code, kyc_status='PENDING_KYC', suspension_status='ACTIVE')
     SS->>P: INSERT identity.refresh_session (user_id, token_hash, expires_at=NOW()+7d)
     SS->>SS: Sign JWT accessToken (sub, roles, email_verified, seller_profile_id, seller_kyc_status='PENDING_KYC', seller_suspension_status='ACTIVE')
-    Note over P: COMMIT — no platform.outbox_event row
+    Note over P: COMMIT — one platform.outbox_event row (auth.email_verification_requested) on the new-account path, none on the linking path
     SS-->>A: { accessToken, refreshToken, sellerProfileId, user }
     A-->>C: 201 Created { data: { accessToken, sellerProfileId, user, kycStatus: "PENDING_KYC", nextStep: "SUBMIT_KYC" } } + Set-Cookie: refresh cookie (as POST /auth/login, Path=/api/v1/auth)
+
+    Note right of KR: async — post-commit, new-account path only
+    KR->>KO: SELECT WHERE publication_status = 'PENDING'
+    KR->>KR: serialize Avro + publish to auth.email_verification_requested topic
+    KR->>KO: UPDATE SET publication_status = 'PUBLISHED'
+    Note right of KO: notification.email-verification consumer sends ET-18 (seller variant)
 ```
 
 ---
