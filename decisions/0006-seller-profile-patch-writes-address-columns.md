@@ -13,7 +13,7 @@ contact, phone", and its sequence wrote
 `UPDATE seller.seller_profile SET business_name=?, submitted_data=?`.
 
 `seller.seller_profile` has no `submitted_data` column — not in the ERD and not
-in migration `0007_seller_schema`. `submitted_data` is a column of
+in migration `0008_seller_schema`. `submitted_data` is a column of
 `seller.kyc_application`: the JSONB a seller typed at application time,
 immutable once decided. What `seller_profile` does carry is the business address
 of record as typed columns — `address_line_1`, `address_line_2`, `city`,

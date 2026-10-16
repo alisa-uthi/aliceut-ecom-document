@@ -1,7 +1,7 @@
 # Spec compliance — known code/spec divergences
 
 **Status:** Living document
-**Updated:** 2026-10-15
+**Updated:** 2026-10-16
 
 The technical design in this directory is canonical. This file is the register
 of places where the code is known **not** to match it yet, so that no mismatch
@@ -15,7 +15,7 @@ history here.
 
 ---
 
-## Resolved 2026-10-08/15
+## Resolved 2026-10-08/16
 
 Recorded for context; these are closed.
 
@@ -47,7 +47,7 @@ Recorded for context; these are closed.
 | The `PATCH /seller/profile` design wrote `seller_profile.submitted_data`, a column that does not exist | [ADR-0006](../../decisions/0006-seller-profile-patch-writes-address-columns.md): the request is `{businessName?, businessAddress?}` on the address columns (backend#42) |
 | API amounts were emitted at storage scale (`"1000.0000"` for JPY), effective-price rounded with `toFixed(4)`, and the supported-currency list was redefined in six places | Code fixed (backend#46): startup-loaded `CurrencyScaleCache` in `pricing` per backend-coding-standards §3.2; every API amount renders at its currency's `minor_unit_scale`, rounded half-up; FX rates keep 8 dp and event payloads 4 dp as kafka-events.md specifies; one `SELLER_PRICE_CURRENCIES` list |
 | The undesigned `GET /catalog/categories/:categoryId/products` duplicated `GET /catalog/products?categoryId=` | Deleted (backend#44); the buyer app moved to `GET /catalog/products` (frontend#19) |
-| `POST /seller/register` created no seller profile, returned only `{userId}`, did not verify the password when linking, emitted the uncatalogued `platform.seller.registered`, and the design's profile insert broke migration 0007's NOT NULL columns | [ADR-0007](../../decisions/0007-seller-register-collects-business-details.md): register collects `businessName`, `taxId` and `businessAddress`; account, profile and session are created in one transaction and the response carries `accessToken` and `sellerProfileId` plus the refresh cookie; `401` / `403` / `409 PASSWORD_REQUIRED_FOR_LINK`; no event (backend#45, frontend#20). `POST /seller/kyc` answers `404` without a profile |
+| `POST /seller/register` created no seller profile, returned only `{userId}`, did not verify the password when linking, emitted the uncatalogued `platform.seller.registered`, and the design's profile insert broke migration 0008_seller_schema's NOT NULL columns (0007 before 2026-10-16) | [ADR-0007](../../decisions/0007-seller-register-collects-business-details.md): register collects `businessName`, `taxId` and `businessAddress`; account, profile and session are created in one transaction and the response carries `accessToken` and `sellerProfileId` plus the refresh cookie; `401` / `403` / `409 PASSWORD_REQUIRED_FOR_LINK`; no event (backend#45, frontend#20). `POST /seller/kyc` answers `404` without a profile |
 | The frontend called the backend through hand-written `HttpClient` wrappers; the generated client was gitignored, so the client-sync workflow could never open a PR | Code fixed (frontend#21): `@aliceut/api-client` re-exports the committed `openapi-generator-cli` output, the wrappers are deleted, and frontend CI fails when the committed client differs from the backend spec. Moving onto the spec's shapes fixed buyer register (sent `accountType`), multipart KYC submit, the category tree, search and order field names, and admin enums |
 | `POST /auth/register` rejected `accountType` with `400` and hardcoded `B2C`, so no buyer could become B2B | Code fixed to auth.md (backend#47, frontend#23): required `accountType` `B2C \| B2B`, stored and carried in the token; the buyer register toggle sends it |
 | The rounding mode for API amounts was unspecified | [ADR-0008](../../decisions/0008-api-amounts-round-half-up.md): half-up, stated in backend-coding-standards §3.1/§3.2 (implemented by backend#46) |
@@ -63,6 +63,7 @@ Recorded for context; these are closed.
 | Events were camelCase JSON envelopes and the Schema Registry ran unused; `product.changed` `CREATED` and `UPDATED` each omitted §2.10 fields, and `offer.changed`, `inventory.changed`, `listing.flagged` and the auth and fulfillment payloads differed from their schemas | Code fixed to kafka-events.md (backend#56, infra#4): the 29 catalog schemas are `libs/contracts/avro/*.avsc` with generated types; the relay publishes the §1 snake_case envelope in Confluent wire format and consumers decode through the registry; `OutboxService.writeEvent` is typed per topic and every producer spec encodes its payloads against the `.avsc`. [ADR-0012](../../decisions/0012-avro-subjects-registered-by-ci-and-schema-init.md): one script registers the subjects, from CI against an ephemeral registry and from a compose `schema-init` one-shot before `workers` |
 | A seller soft delete and an admin `REMOVE` emitted no `offer.changed` `REMOVED`; admin and seller producers minted a fresh `correlation_id`; `createProduct` dropped `brand`; `fulfillment.delivered`, `order.completed`, `inventory.reservation_expired` and `keyword_blocklist.changed` had no producer; `inventory.low_stock` sent `''` for an offer without a variant | Code fixed (backend#57–#63, frontend#29, #30). Every api-side producer carries the request's `X-Correlation-ID`. `workers` runs the mock delivery scheduler (SHIPPED with `estimated_delivery_at <= now()`, every `DELIVERY_MOCK_INTERVAL_MS`), the `orders.delivery-tracker` consumer, whose completion check locks the order row, and `expire-stock-reservations`, which releases `reserved_qty` only and skips a row checkout touched. Blocklist writes emit `keyword_blocklist.changed` with the acting admin; an update maps to `ADDED`, or `REMOVED` on deactivation, since the enum has no `UPDATED`. [ADR-0013](../../decisions/0013-offer-requires-variant.md): every offer references a variant; an offer created without one gets the product's `DEFAULT` variant, existing offers were backfilled and `variant_id` is NOT NULL. `offer.changed` keeps `variant_id` nullable for messages already on the topic. Avro built-as rules from backend#56: DLQ records are JSON with `envelope_encoding` `json`, or `base64` for undecodable bytes; a payload that fails its schema marks the outbox row `FAILED` at once; a new offer's `inventory.changed` uses `MANUAL_UPDATE` with the opening `on_hand_qty` as `delta`; `seller.suspension_amended` sends `''` for a null reason |
 | The notification, audit and inventory consumers were not built: no email or in-app notification was sent, `pii.accessed` and `inventory.changed` reached no MongoDB document, and seller refund, cancel and the suspended-seller auto-refund released reservations inline | Built (backend#64–#66, infra#5). The four `inventory.*` groups move stock through `InventoryApplicationService`, every reservation write scoped to the fulfillment's `ACTIVE` rows, quantities taken from the reservation rows; the inline releases are gone, and a release that would drive `reserved_qty` negative fails its CHECK and dead-letters rather than clamping. `platform.audit` routes every catalogued topic except `fx_rate.updated` and `seller.profile_changed` into `audit_logs` / `activity_events` / `pii_access_logs`, masked, idempotent on `event_id`; only `workers` holds a MongoDB client, and `MONGODB_URI` must name a database. The 21 `notification.*` groups send through nodemailer and write in-app rows idempotent on `(recipient_user_id, source_event_id)`; email is at-least-once (no send marker in the ERD), retried 1+3 times and then written to `email.outbound.dlq` with ET-18/ET-19 bodies redacted; the 23:00 UTC digest sends ET-09 under the advisory lock; migration 0018 adds `seller_email` / `seller_name` to `pending_listing_removal_digest`; templates are code, not `notifications.email_template` rows |
+| Migrations did not run on an empty database: 0001–0005 and 0003b carried later TypeORM timestamps than 0006–0018, 0003b and 0008 both created `identity."user"`, and seller (0007) referenced the user table before identity (0008) created it | [ADR-0014](../../decisions/0014-migration-name-suffix-is-the-sequence.md) (backend#67): every `name` ends in `179000000{seq}`; 0003b deleted; identity is `0007_identity_schema`, seller `0008_seller_schema`; every `CREATE TABLE` is `IF NOT EXISTS`; CI's `migrations` job applies, reverts and re-applies the sequence on an empty Postgres. Existing databases are rebuilt, not carried over |
 
 ---
 
@@ -212,16 +213,7 @@ remaining six have no implementation.
 - `CheckoutService` sits in `application/` but runs raw SQL through TypeORM's
   `DataSource`, against the Tier 1 layer rule.
 
-### 7. Migrations do not run on a fresh database
-
-Migrations 0001–0005 and 0003b carry `1790…` timestamps in their TypeORM
-names, later than 0006–0018 (`1728…`), so `pnpm run migration:run` on an empty
-database runs 0006 first and fails (`schema "inventory" does not exist`). 0003b
-and 0008 both create `identity."user"`. Renaming changes the names already
-recorded in any existing `migrations` table, so the fix needs a decision on
-how deployed databases are carried over.
-
-### 8. Design documents out of step with the built consumers
+### 7. Design documents out of step with the built consumers
 
 - data-model-erd.md's `pending_listing_removal_digest` lacks `seller_email` and
   `seller_name`, which kafka-events.md §2.14 and the matrix require (migration

@@ -14,7 +14,7 @@ address at all. The business details were to arrive one step later with
 `POST /seller/kyc`, whose sequence `UPDATE`s `business_name` and `tax_id` on a
 profile it assumes exists.
 
-The schema refuses that insert. Migration `0007_seller_schema` — and the ERD
+The schema refuses that insert. Migration `0008_seller_schema` — and the ERD
 (`seller.seller_profile`: `business_name` required, `tax_id` required, first
 address line required) — makes `business_name`, `tax_id`, `address_line_1`,
 `city`, `postal_code` and `country_code` `NOT NULL`. The designed register
