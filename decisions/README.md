@@ -61,3 +61,6 @@ Copy [`0000-adr-template.md`](0000-adr-template.md) to start one.
 | [0013](0013-offer-requires-variant.md) | Every offer must reference a variant; omitting variantId creates a default variant | Accepted |
 | [0014](0014-migration-name-suffix-is-the-sequence.md) | A migration's `name` ends in a 13-digit form of its sequence, and every CREATE TABLE is guarded | Accepted |
 | [0015](0015-seller-register-sends-verification-email.md) | `POST /seller/register` sends the verification email | Accepted |
+| [0016](0016-fx-pairs-derived-from-usd-quotes.md) | Every seller-currency FX pair is derived from one USD-based quote | Accepted |
+| [0017](0017-seller-price-input-respects-minor-unit-scale.md) | A seller price may not have more decimals than its currency's `minor_unit_scale` | Accepted |
+| [0018](0018-money-renders-through-towire.md) | `Money` renders through `toWire(scale)`, not `toJSON(scale)` | Accepted |

@@ -1,6 +1,6 @@
 # ADR-0008: API amounts round half-up to the currency's `minor_unit_scale`
 
-**Status:** Accepted
+**Status:** Accepted (method renamed `toWire` by [ADR-0018](0018-money-renders-through-towire.md))
 **Date:** 2026-10-15
 **Affects:** `conventions/backend-coding-standards.md` (§ 3.1 Money value object, § 3.2 Currency scale cache)
 **Implemented by:** aliceut-ecom-backend#46

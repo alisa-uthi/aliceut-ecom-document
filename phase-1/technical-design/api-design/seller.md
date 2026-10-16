@@ -688,6 +688,8 @@ Auth: SELLER_ACTIVE
 
 At least one `LIST` price is required (US-S-03:53).
 
+**An amount carries at most the currency's `minor_unit_scale` fractional digits**, counted in the submitted string — JPY `"1000"`, USD `"9.99"`; JPY `"1000.5"` and `"1000.00"` are `400` ([ADR-0017](../../../decisions/0017-seller-price-input-respects-minor-unit-scale.md)). The same rule applies to every price a seller submits.
+
 **Response 201**
 ```json
 {
@@ -713,7 +715,7 @@ At least one `LIST` price is required (US-S-03:53).
 `variantId` is always non-null in the response ([ADR-0013](../../../decisions/0013-offer-requires-variant.md)). Every amount is a string, and each carries the `currencyCode` it is denominated in — the offer's native currency. Nothing here is converted.
 
 Side effects: `offer.changed` event, `inventory.changed` event via outbox; on a soft-tier screening hit also a `moderation_case` row and a `listing.flagged` event.  
-**Errors:** 400 validation or no LIST price, 404 product not found, 409 offer already exists for this product+variant, 422 prohibited category, 422 currency not in the seller-priceable set, 422 hard-blocklist (`BLOCK`) hit
+**Errors:** 400 validation or no LIST price, 400 an `amount` with more fractional digits than `nativeCurrencyCode`'s `minor_unit_scale` ([ADR-0017](../../../decisions/0017-seller-price-input-respects-minor-unit-scale.md)), 404 product not found, 409 offer already exists for this product+variant, 422 prohibited category, 422 currency not in the seller-priceable set, 422 hard-blocklist (`BLOCK`) hit
 
 <a id="offer-create-screening"></a>
 **This is where the two prohibited-content tiers produce a listing.** The offer is the listing: it is what a buyer sees, what search indexes, and what `admin.moderation_case.offer_id` points at. The content being screened is the product's stored `title` and `description` — the seller authored it at [`POST /seller/products`](#two-tier-moderation-guard), or another seller did on a shared product — so the screen runs again here rather than trusting the earlier pass, because the blocklist may have gained a term since.
@@ -1021,7 +1023,7 @@ Auth: SELLER_ACTIVE
 A `PUT` therefore **updates the addressed row in place** and creates one only where none exists — it does not upsert over a uniqueness key that ignores the time bounds, which is what made a second `SALE` row impossible and let a duplicate `LIST` overwrite the live price without a word.
 
 **Response 200** — the written price row (`data`-wrapped), with `currencyCode` echoed from the offer  
-**Errors:** 404 offer not found or not owned by the caller, 409 duplicate active `LIST`, 409 overlapping `SALE` window, 422 `SALE` without valid time bounds, 422 unknown `priceType` (`LIST` and `SALE` are the V1 price types)
+**Errors:** 400 an `amount` with more fractional digits than the offer currency's `minor_unit_scale` ([ADR-0017](../../../decisions/0017-seller-price-input-respects-minor-unit-scale.md)), 404 offer not found or not owned by the caller, 409 duplicate active `LIST`, 409 overlapping `SALE` window, 422 `SALE` without valid time bounds, 422 unknown `priceType` (`LIST` and `SALE` are the V1 price types)
 
 Price changes take effect immediately and do **not** affect in-flight orders: a `PENDING` fulfillment carries the unit price snapshotted at checkout (FR-P-03). The seller portal shows that warning on save (US-S-04b:93).
 

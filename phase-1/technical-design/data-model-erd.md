@@ -359,6 +359,8 @@ The V1 `SALE` row already supports a seller's time-bounded, no-code discount. Co
 
 Primary key: `(base_currency_code, quote_currency_code)`. This table is display-only and never reprices an order.
 
+**Every ordered pair of seller-price currencies has a row** — twelve in V1 ([ADR-0016](../../decisions/0016-fx-pairs-derived-from-usd-quotes.md)). A refresh makes one provider call with base `USD`: `USD → Q` is the provider's rate, `B → USD` is `1 / (USD → B)`, and `B → Q` is `(USD → Q) / (USD → B)`, each computed in `decimal.js` from the unrounded provider values and rounded once to 8 dp, half-up. Every row of a refresh carries the provider response's `as_of` and `provider`; a currency the provider omits is skipped with every pair involving it.
+
 The table holds **exactly one row per currency pair and keeps no history**. Refresh is an upsert in place — `INSERT … ON CONFLICT (base_currency_code, quote_currency_code) DO UPDATE SET rate, as_of, provider, updated_at` — so the table is fixed-size and has nothing to prune. There is no insert-per-poll and no `fetched_at` column.
 
 Staleness is a read-time concern, not a stored state: when `now() - as_of` exceeds the configured `FX_STALE_AFTER_HOURS` window (a whole number of hours, default `24`) the API still returns the cached rate, marked as stale, and the UI presents it as an indicative rate. Historical order amounts never read this table — every converted amount a buyer has already been shown is snapshotted on `orders.fulfillment` and `orders.fulfillment_item` at capture (FR-P-03).
