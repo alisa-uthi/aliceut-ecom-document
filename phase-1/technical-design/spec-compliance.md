@@ -66,29 +66,12 @@ Recorded for context; these are closed.
 | Migrations did not run on an empty database: 0001–0005 and 0003b carried later TypeORM timestamps than 0006–0018, 0003b and 0008 both created `identity."user"`, and seller (0007) referenced the user table before identity (0008) created it | [ADR-0014](../../decisions/0014-migration-name-suffix-is-the-sequence.md) (backend#67): every `name` ends in `179000000{seq}`; 0003b deleted; identity is `0007_identity_schema`, seller `0008_seller_schema`; every `CREATE TABLE` is `IF NOT EXISTS`; CI's `migrations` job applies, reverts and re-applies the sequence on an empty Postgres. Existing databases are rebuilt, not carried over |
 | The refresh cookie was `refresh_token` with `SameSite=Lax`; nothing was rate limited; seller register created an unverified account and sent no verification email; the seller app had no profile page | Code fixed (backend#68, frontend#31): the cookie is `refreshToken`, `SameSite=Strict`, cleared with the same attributes; `@nestjs/throttler` applies auth-jwt-design §5 and seller.md's register limit through a Redis store shared by every `api` replica, with `429 TOO_MANY_REQUESTS`, `X-RateLimit-*` and `Retry-After`; health is unthrottled. [ADR-0015](../../decisions/0015-seller-register-sends-verification-email.md): a new seller account gets ET-18's seller variant, `auth.email_verification_requested` carries `portal` (default `BUYER`), and the seller app serves `/verify-email`, an unverified banner with resend, and `/profile` (read-only while suspended, as seller.md requires). Sellers holding `SELLER` without a profile were not migrated: every database was rebuilt under ADR-0014, so none remain |
 
+| `pricing.currency` had no `BHD` row; seller prices took 4 dp in any currency, so a JPY `1000.5` showed as `1001`; `Money.toJSON(scale)` collided with the `JSON.stringify` hook; the §3.2 refresh snippet crashed on a failed reload; only USD-based `fx_rate` rows existed, so a THB, JPY or SGD offer had no display price in another currency | Code fixed (backend#69, frontend#32, #33): migration 0019 seeds `BHD` (scale 3, not seller-priceable). [ADR-0016](../../decisions/0016-fx-pairs-derived-from-usd-quotes.md): one USD provider call fills all twelve seller-currency pairs (inverse and cross rates, 8 dp half-up, one `as_of`) and emits one `fx_rate.updated` per base. [ADR-0017](../../decisions/0017-seller-price-input-respects-minor-unit-scale.md): a seller price with more fractional digits than its currency's `minor_unit_scale` is `400` on create offer and the price `PUT`, and the seller forms check it first. [ADR-0018](../../decisions/0018-money-renders-through-towire.md): `Money.toWire(scale)`, and `toJSON()` throws. A cart `lineTotal` or `buyer_currency_total` that differs by one minor unit from the rendered parts stays as orders.md specifies (user decision: round once) |
 ---
 
 ## Open — API surface
 
-### 1. Money gaps left after CurrencyScaleCache
-
-- The `pricing.currency` seed has no `BHD` row, which the §3.2 table lists
-  (scale 3, not seller-allowed).
-- Seller price input accepts 4 dp in any currency, backend and frontend, so a
-  JPY `1000.5` displays as `1001`. Input is not validated against the scale.
-- The §3.2 refresh snippet `setInterval(() => void this.refresh())` crashes
-  Node on a failed reload; the code catches, logs and keeps the loaded scales.
-  The doc should match.
-- `Money.toJSON(scale)` is the §3.1 name but collides with the
-  `JSON.stringify` `toJSON(key)` hook; stringifying a `Money` directly breaks.
-- Only USD-based `fx_rate` rows exist and nothing derives cross or inverse
-  rates, so an offer priced in THB has no USD, JPY or SGD display price: it
-  shows `displayAmount: null` and no display-currency price filter matches it.
-- Seller prices with 4 dp make a cart `lineTotal` differ from the rendered unit
-  price times quantity, and `buyer_currency_total` (rounded once) can differ by
-  one minor unit from the sum of per-line buyer amounts. Literal to orders.md.
-
-### 2. Decisions the design leaves open
+### 1. Decisions the design leaves open
 
 - **Locale to currency.** The design says "the currency matching the locale"
   with no table. backend#38 resolves only the highest-q locale, maps a bare
@@ -144,7 +127,7 @@ Recorded for context; these are closed.
 
 ## Open — platform conventions
 
-### 3. Seller handlers write other modules' schemas directly
+### 2. Seller handlers write other modules' schemas directly
 
 The seller routes write `catalog`, `pricing`, `inventory` and `orders` rows
 themselves rather than through each owner's application service, which the
@@ -166,16 +149,18 @@ snapshot, and `expire-stock-reservations` joins `catalog.offer` for
 `SPEC GAP` in code). The fix for both is to carry `product_id` on the
 `fulfillment.*` items, and `offer_id` too on `fulfillment.refunded` items,
 which lack it — so consumer-field-matrix §6's refunded row cannot be filled
-from the payload as written.
+from the payload as written. The indexer also rebuilds every product on each
+`fx_rate.updated`; ADR-0016 emits four per refresh, so an hourly refresh runs
+four full update-only reindexes where one would do (correct, wasteful).
 
-### 4. Most retention jobs are not built
+### 3. Most retention jobs are not built
 
 [cleanup-jobs.md](cleanup-jobs.md) lists more jobs than the five `workers` now
 runs (outbox retention, suspension expiry, suspended-seller auto-refund, FX
 refresh, the orphaned-image sweep and `expire-stock-reservations`). The
 remaining six have no implementation.
 
-### 5. Tooling the conventions assume is missing
+### 4. Tooling the conventions assume is missing
 
 - No project has a `lint` target, so CI's `nx run-many -t lint` runs nothing
   and the money-field lint rule the conventions require is not enforced.
@@ -196,8 +181,11 @@ remaining six have no implementation.
   checks for others.
 - `CheckoutService` sits in `application/` but runs raw SQL through TypeORM's
   `DataSource`, against the Tier 1 layer rule.
+- `apps/workers-e2e/jest.config.cts` needs `@swc/jest`, which is not
+  installed; CI skips e2e targets, and a local `nx run-many -t test` must
+  exclude `workers-e2e`.
 
-### 6. Design documents out of step with the built consumers
+### 5. Design documents out of step with the built consumers
 
 - data-model-erd.md's `pending_listing_removal_digest` lacks `seller_email` and
   `seller_name`, which kafka-events.md §2.14 and the matrix require (migration

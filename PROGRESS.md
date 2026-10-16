@@ -53,6 +53,20 @@ Daily log of work on this project. Newest entry on top. One entry per active day
 - [2026-08-19](#2026-08-19) — Requirements freeze (BRD v1.2 signed off) + repo scaffolding.
 
 <a id="2026-10-16"></a>
+## 2026-10-16 (money gaps)
+**Focus:** Spec-compliance entry 1 (money gaps).
+
+**Done:**
+- backend#69: migration 0019 seeds BHD; FX scheduler fills all 12 seller-currency pairs from one USD quote and emits one `fx_rate.updated` per base; seller price scale `400` on create offer and price `PUT`; `Money.toWire`, `toJSON()` throws.
+- frontend#32 seller price forms validate the scale; #33 client regen.
+- ADR-0016/0017/0018; entry 1 moved to Resolved, open entries renumbered 1–5.
+
+**Decisions:**
+- FX cross/inverse rates are derived from USD; seller prices over scale are rejected; line totals keep the round-once rule.
+
+**Next:**
+- Entry 1 (design decisions). Indexer runs 4 full reindexes per FX refresh (tracked in entry 2).
+
 ## 2026-10-16
 **Focus:** Fresh-database migrations (spec-compliance entry 7).
 

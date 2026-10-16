@@ -1362,6 +1362,8 @@ The sweep is the **one** place that scopes on `order_id` rather than `fulfillmen
 | Producer | Pricing module (`PricingApplicationService.refreshRates()`, invoked by the FX-refresh scheduler in the `workers` service via `@nestjs/schedule`; interval env-configurable, US-P-19) |
 | Event version | 1 |
 
+**One event per base currency per refresh**, written in the refresh transaction, each listing that base's refreshed quotes. Non-USD bases carry derived rates ([ADR-0016](../../decisions/0016-fx-pairs-derived-from-usd-quotes.md), [ERD `pricing.fx_rate`](data-model-erd.md#table-pricing-fx-rate)).
+
 **Avro schema**
 ```json
 {

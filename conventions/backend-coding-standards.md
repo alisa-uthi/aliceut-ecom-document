@@ -191,7 +191,8 @@ export class Money {
 
   // scale is required: a default of 2 emits "1000.00" for JPY, which FR-P-04 forbids.
   // The mode is explicit, not the decimal.js default (ADR-0008).
-  toJSON(scale: number): string {
+  // Not named toJSON: JSON.stringify would call it with the property key (ADR-0018).
+  toWire(scale: number): string {
     return this.amount.toFixed(scale, Decimal.ROUND_HALF_UP);
   }
 
@@ -209,13 +210,14 @@ export class Money {
 
 ```typescript
 // libs/pricing/src/infrastructure/currency-scale.cache.ts
-import { Injectable, OnApplicationBootstrap, OnApplicationShutdown } from '@nestjs/common';
+import { Injectable, Logger, OnApplicationBootstrap, OnApplicationShutdown } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 
 const TTL_MS = 24 * 60 * 60 * 1000; // 1 day
 
 @Injectable()
 export class CurrencyScaleCache implements OnApplicationBootstrap, OnApplicationShutdown {
+  private readonly logger = new Logger(CurrencyScaleCache.name);
   private readonly scales = new Map<string, number>();
   private refreshTimer: NodeJS.Timeout | undefined;
 
@@ -223,7 +225,11 @@ export class CurrencyScaleCache implements OnApplicationBootstrap, OnApplication
 
   async onApplicationBootstrap(): Promise<void> {
     await this.refresh();
-    this.refreshTimer = setInterval(() => void this.refresh(), TTL_MS);
+    // A failed reload keeps the scales already loaded; an uncaught rejection here
+    // would crash the process (ADR-0018).
+    this.refreshTimer = setInterval(() => {
+      this.refresh().catch((err) => this.logger.error('currency scale reload failed', err));
+    }, TTL_MS);
   }
 
   onApplicationShutdown(): void {
@@ -302,7 +308,7 @@ const storageValue: string = total.amount.toFixed(4);
 // Inside PricingModule: inject CurrencyScaleCache directly (sole owner).
 // From any other module: inject PricingApplicationService and call .getCurrencyScale() (see §3.2).
 const scale = this.pricingApplicationService.getCurrencyScale(total.currency);
-const jsonValue: string = total.toJSON(scale); // '1000' for JPY, '9.99' for USD
+const jsonValue: string = total.toWire(scale); // '1000' for JPY, '9.99' for USD
 ```
 
 **Never:**
@@ -357,6 +363,8 @@ export class CreateOfferDto {
   saleStartAt?: string | undefined;
 }
 ```
+
+`@IsNumberString()` checks the shape only. A **seller-submitted price** also may not carry more fractional digits than its currency's `minor_unit_scale` (count the digits in the submitted string; JPY `"1000.5"` and `"1000.00"` fail). The scale depends on the offer's currency, so the check runs in the service through `PricingApplicationService.getCurrencyScale()` once the currency is known, and fails with `400` naming the field ([ADR-0017](../decisions/0017-seller-price-input-respects-minor-unit-scale.md)).
 
 ### 4.3 Nested DTOs
 
