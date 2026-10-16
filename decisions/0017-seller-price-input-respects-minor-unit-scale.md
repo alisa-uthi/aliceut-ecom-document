@@ -3,7 +3,7 @@
 **Status:** Accepted
 **Date:** 2026-10-16
 **Affects:** `phase-1/technical-design/api-design/seller.md` (Create offer, Add/update offer price, Update offer), `conventions/backend-coding-standards.md` (§ 4.2)
-**Implemented by:** aliceut-ecom-backend (fix/e1-money), aliceut-ecom-frontend (fix/e1-money-price-scale)
+**Implemented by:** aliceut-ecom-backend#69, aliceut-ecom-frontend#32
 
 ## Context
 

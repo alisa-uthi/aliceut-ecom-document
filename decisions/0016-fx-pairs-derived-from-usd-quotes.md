@@ -3,7 +3,7 @@
 **Status:** Accepted
 **Date:** 2026-10-16
 **Affects:** `phase-1/technical-design/data-model-erd.md` (`pricing.fx_rate`), `phase-1/technical-design/kafka-events.md` (§ 2.20 `fx_rate.updated`)
-**Implemented by:** aliceut-ecom-backend (fix/e1-money)
+**Implemented by:** aliceut-ecom-backend#69
 
 ## Context
 
