@@ -77,6 +77,8 @@ import { join } from 'node:path';
 const sql = (file: string) => readFileSync(join(__dirname, file), 'utf8');
 
 export class CreateUsers0002 implements MigrationInterface {
+  name = '0002_create_users_1790000000002';
+
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(sql('0002_create_users.up.sql'));
   }
@@ -87,7 +89,7 @@ export class CreateUsers0002 implements MigrationInterface {
 }
 ```
 
-The class name ends in the same 4-digit sequence as its files. TypeORM orders migrations by the trailing number in the class name, so the sequence in §5 is also the execution order. **That ordering rule is asserted from TypeORM's documented behaviour, not from anything in this repository** — verify it against the installed version when the first migration is written, because a mismatch would reorder the whole sequence silently rather than fail.
+The class name ends in the same 4-digit sequence as its files, and the class sets `name` to `{seq}_{description}_179000000{seq}` ([ADR-0014](../decisions/0014-migration-name-suffix-is-the-sequence.md)). TypeORM 0.3 orders migrations by the **last 13 characters of `name`** (falling back to the class name), parsed as a JavaScript timestamp, and throws when they do not parse. The `179000000{seq}` suffix is a fixed 13-digit form of the sequence, so the sequence in §5 is also the execution order. A hand-picked timestamp reorders the sequence silently — it did once, which is why CI's `migrations` job applies the whole sequence to an empty database, reverts all of it and applies it again.
 
 ### State table per phase
 
@@ -288,9 +290,10 @@ Three files per migration, sharing one stem:
 {seq}_{description}.down.sql
 ```
 
-- `seq` — zero-padded 4-digit integer, unique and sequential within the phase directory.
+- `seq` — zero-padded 4-digit integer, unique and sequential within the phase directory. No letter suffixes (`0003b`).
 - `description` — snake_case, describes what this migration does.
-- Class name — PascalCase of `description`, suffixed with `seq` (`0002_create_users.ts` → `CreateUsers0002`). TypeORM reads the trailing digits as the ordering key, so the class suffix and the filename prefix must agree. As in §2, the ordering key is asserted TypeORM behaviour and is worth confirming once against the installed version; the filename order is what a reader trusts, and the two must not be allowed to disagree.
+- Class name — PascalCase of `description`, suffixed with `seq` (`0002_create_users.ts` → `CreateUsers0002`).
+- `name` — `{seq}_{description}_179000000{seq}` (`'0002_create_users_1790000000002'`). TypeORM's ordering key is the last 13 digits of `name` (§2), so this suffix and the filename prefix must agree; the filename order is what a reader trusts, and the two must not be allowed to disagree.
 
 ### SQL rules
 
@@ -298,6 +301,7 @@ Three files per migration, sharing one stem:
 |------|-----------|
 | `CREATE INDEX CONCURRENTLY` on existing tables | Avoids write lock |
 | `DROP TABLE / DROP INDEX` always with `IF EXISTS` | Makes `down.sql` idempotent |
+| `CREATE TABLE` always with `IF NOT EXISTS` | Re-applying after a partial run does not fail ([ADR-0014](../decisions/0014-migration-name-suffix-is-the-sequence.md)). One table is created by exactly one migration; the guard does not license a second |
 | New columns must be nullable or have a `DEFAULT` | `NOT NULL` without default rewrites all rows |
 | Schema changes and data backfills in separate numbered migrations | Shorter transactions, independent rollback |
 | Never edit a file already applied to staging or prod | Use a new numbered migration instead |

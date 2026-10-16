@@ -154,7 +154,7 @@ Rate limit: 5 attempts per IP per 15 min
 }
 ```
 
-**The business details are required on every path** ([ADR-0007](../../../decisions/0007-seller-register-collects-business-details.md)). Both the new-account and the linking path insert `seller.seller_profile`, and migration `0007_seller_schema` makes its name, tax ID and address columns `NOT NULL`. Each field lands in its own column. `businessAddress` has the same fields as the object [`PATCH /seller/profile`](#update-seller-profile) takes ([ADR-0006](../../../decisions/0006-seller-profile-patch-writes-address-columns.md)), but here the four required ones must be present:
+**The business details are required on every path** ([ADR-0007](../../../decisions/0007-seller-register-collects-business-details.md)). Both the new-account and the linking path insert `seller.seller_profile`, and migration `0008_seller_schema` makes its name, tax ID and address columns `NOT NULL`. Each field lands in its own column. `businessAddress` has the same fields as the object [`PATCH /seller/profile`](#update-seller-profile) takes ([ADR-0006](../../../decisions/0006-seller-profile-patch-writes-address-columns.md)), but here the four required ones must be present:
 
 | Field | `seller.seller_profile` column | Rule |
 |---|---|---|

@@ -31,6 +31,7 @@ Daily log of work on this project. Newest entry on top. One entry per active day
 > **Note on `phase-1/audits/` paths below.** That directory is gone: its two files — `2026-09-22-wave0-decisions.md` (decision records D-01…D-14) and `2026-09-22-alignment-audit-fix-plan.md` — were committed on 2026-09-22 and deleted again on 2026-09-24 by commit `c5767b8`. A `phase-1/audits/README.md` was never committed at any point, so entries below that describe creating one describe work that did not land. Every `phase-1/audits/…` path in the dated entries records what was worked from at the time; none of them resolve today. The decisions themselves are recorded inline in the documents they bind — `BRD.md` §12 and its amendment list, and `CLAUDE.md` Core Rules — and in the git history of commits `4f24166`, `61bbda4`, `f0db299` and `c5767b8`.
 
 **Index**
+- [2026-10-16](#2026-10-16) — Phase-1 migrations run on an empty database (ADR-0014), with a CI job that proves it.
 - [2026-10-15](#2026-10-15) — Spec-compliance wave 3: seller register to ADR-0007, CurrencyScaleCache, legacy category route deleted, frontend on the generated client, client sync pipeline live.
 - [2026-10-10](#2026-10-10) — Spec-compliance wave 2: missing endpoints, validation 400, KYC to design, checkout fixes, ADR-0005/0006 with their code.
 - [2026-10-09](#2026-10-09) — Seller and Admin API surface brought to the design: every 2xx response modelled, cursor pagination, and the defects that read exposed.
@@ -50,6 +51,21 @@ Daily log of work on this project. Newest entry on top. One entry per active day
 - [2026-08-29](#2026-08-29) — Requirements deep-dive: order lifecycle, buyer stories, auth portals, BA revalidation.
 - [2026-08-22](#2026-08-22) — Phase 1 technical-design kickoff; architecture overview + ERD.
 - [2026-08-19](#2026-08-19) — Requirements freeze (BRD v1.2 signed off) + repo scaffolding.
+
+<a id="2026-10-16"></a>
+## 2026-10-16
+**Focus:** Fresh-database migrations (spec-compliance entry 7).
+
+**Done:**
+- backend#67: every migration `name` ends in `179000000{seq}`; 0003b deleted; identity is 0007, seller 0008; every `CREATE TABLE` is `IF NOT EXISTS`; `db-migrate.yml` fixed (wrong datasource path, npm).
+- New CI `migrations` job: apply, revert all, re-apply on an empty Postgres.
+- ADR-0014; `database-migrations.md` §2/§5 corrected (TypeORM orders by the last 13 chars of `name`, not the class suffix); entry 7 moved to Resolved.
+
+**Decisions:**
+- Existing databases are dropped and rebuilt, not carried over.
+
+**Next:**
+- Rebuild local DBs: `docker compose down -v`.
 
 <a id="2026-10-15"></a>
 ## 2026-10-15
