@@ -64,29 +64,13 @@ Recorded for context; these are closed.
 | A seller soft delete and an admin `REMOVE` emitted no `offer.changed` `REMOVED`; admin and seller producers minted a fresh `correlation_id`; `createProduct` dropped `brand`; `fulfillment.delivered`, `order.completed`, `inventory.reservation_expired` and `keyword_blocklist.changed` had no producer; `inventory.low_stock` sent `''` for an offer without a variant | Code fixed (backend#57–#63, frontend#29, #30). Every api-side producer carries the request's `X-Correlation-ID`. `workers` runs the mock delivery scheduler (SHIPPED with `estimated_delivery_at <= now()`, every `DELIVERY_MOCK_INTERVAL_MS`), the `orders.delivery-tracker` consumer, whose completion check locks the order row, and `expire-stock-reservations`, which releases `reserved_qty` only and skips a row checkout touched. Blocklist writes emit `keyword_blocklist.changed` with the acting admin; an update maps to `ADDED`, or `REMOVED` on deactivation, since the enum has no `UPDATED`. [ADR-0013](../../decisions/0013-offer-requires-variant.md): every offer references a variant; an offer created without one gets the product's `DEFAULT` variant, existing offers were backfilled and `variant_id` is NOT NULL. `offer.changed` keeps `variant_id` nullable for messages already on the topic. Avro built-as rules from backend#56: DLQ records are JSON with `envelope_encoding` `json`, or `base64` for undecodable bytes; a payload that fails its schema marks the outbox row `FAILED` at once; a new offer's `inventory.changed` uses `MANUAL_UPDATE` with the opening `on_hand_qty` as `delta`; `seller.suspension_amended` sends `''` for a null reason |
 | The notification, audit and inventory consumers were not built: no email or in-app notification was sent, `pii.accessed` and `inventory.changed` reached no MongoDB document, and seller refund, cancel and the suspended-seller auto-refund released reservations inline | Built (backend#64–#66, infra#5). The four `inventory.*` groups move stock through `InventoryApplicationService`, every reservation write scoped to the fulfillment's `ACTIVE` rows, quantities taken from the reservation rows; the inline releases are gone, and a release that would drive `reserved_qty` negative fails its CHECK and dead-letters rather than clamping. `platform.audit` routes every catalogued topic except `fx_rate.updated` and `seller.profile_changed` into `audit_logs` / `activity_events` / `pii_access_logs`, masked, idempotent on `event_id`; only `workers` holds a MongoDB client, and `MONGODB_URI` must name a database. The 21 `notification.*` groups send through nodemailer and write in-app rows idempotent on `(recipient_user_id, source_event_id)`; email is at-least-once (no send marker in the ERD), retried 1+3 times and then written to `email.outbound.dlq` with ET-18/ET-19 bodies redacted; the 23:00 UTC digest sends ET-09 under the advisory lock; migration 0018 adds `seller_email` / `seller_name` to `pending_listing_removal_digest`; templates are code, not `notifications.email_template` rows |
 | Migrations did not run on an empty database: 0001–0005 and 0003b carried later TypeORM timestamps than 0006–0018, 0003b and 0008 both created `identity."user"`, and seller (0007) referenced the user table before identity (0008) created it | [ADR-0014](../../decisions/0014-migration-name-suffix-is-the-sequence.md) (backend#67): every `name` ends in `179000000{seq}`; 0003b deleted; identity is `0007_identity_schema`, seller `0008_seller_schema`; every `CREATE TABLE` is `IF NOT EXISTS`; CI's `migrations` job applies, reverts and re-applies the sequence on an empty Postgres. Existing databases are rebuilt, not carried over |
+| The refresh cookie was `refresh_token` with `SameSite=Lax`; nothing was rate limited; seller register created an unverified account and sent no verification email; the seller app had no profile page | Code fixed (backend#68, frontend#31): the cookie is `refreshToken`, `SameSite=Strict`, cleared with the same attributes; `@nestjs/throttler` applies auth-jwt-design §5 and seller.md's register limit through a Redis store shared by every `api` replica, with `429 TOO_MANY_REQUESTS`, `X-RateLimit-*` and `Retry-After`; health is unthrottled. [ADR-0015](../../decisions/0015-seller-register-sends-verification-email.md): a new seller account gets ET-18's seller variant, `auth.email_verification_requested` carries `portal` (default `BUYER`), and the seller app serves `/verify-email`, an unverified banner with resend, and `/profile` (read-only while suspended, as seller.md requires). Sellers holding `SELLER` without a profile were not migrated: every database was rebuilt under ADR-0014, so none remain |
 
 ---
 
 ## Open — API surface
 
-### 1. Session and account gaps found with seller register
-
-- **Refresh cookie.** auth.md and seller.md name it `refreshToken` with
-  `SameSite=Strict`; the code sets `refresh_token` with `SameSite=Lax`, on
-  login and seller register alike (one shared `REFRESH_COOKIE`).
-- **No rate limiting.** The spec requires 5 attempts per IP per 15 minutes on
-  `POST /seller/register`; the backend has no throttler at all, so auth login
-  and register are unlimited too.
-- **No verification email for sellers.** Seller register creates the account
-  with `emailVerified=false`, but nothing sends a verification email and the
-  design emits no `auth.email_verification_requested` for it.
-- **Sellers registered before backend#45** hold the `SELLER` role with no
-  profile, so `POST /seller/kyc` answers `404`. Calling register again with the
-  password creates the profile (ADR-0007); no data migration was written.
-- **No seller profile page.** `PATCH /seller/profile` and its address have no
-  screen in the seller app.
-
-### 2. Money gaps left after CurrencyScaleCache
+### 1. Money gaps left after CurrencyScaleCache
 
 - The `pricing.currency` seed has no `BHD` row, which the §3.2 table lists
   (scale 3, not seller-allowed).
@@ -104,7 +88,7 @@ Recorded for context; these are closed.
   price times quantity, and `buyer_currency_total` (rounded once) can differ by
   one minor unit from the sum of per-line buyer amounts. Literal to orders.md.
 
-### 3. Decisions the design leaves open
+### 2. Decisions the design leaves open
 
 - **Locale to currency.** The design says "the currency matching the locale"
   with no table. backend#38 resolves only the highest-q locale, maps a bare
@@ -160,7 +144,7 @@ Recorded for context; these are closed.
 
 ## Open — platform conventions
 
-### 4. Seller handlers write other modules' schemas directly
+### 3. Seller handlers write other modules' schemas directly
 
 The seller routes write `catalog`, `pricing`, `inventory` and `orders` rows
 themselves rather than through each owner's application service, which the
@@ -184,14 +168,14 @@ snapshot, and `expire-stock-reservations` joins `catalog.offer` for
 which lack it — so consumer-field-matrix §6's refunded row cannot be filled
 from the payload as written.
 
-### 5. Most retention jobs are not built
+### 4. Most retention jobs are not built
 
 [cleanup-jobs.md](cleanup-jobs.md) lists more jobs than the five `workers` now
 runs (outbox retention, suspension expiry, suspended-seller auto-refund, FX
 refresh, the orphaned-image sweep and `expire-stock-reservations`). The
 remaining six have no implementation.
 
-### 6. Tooling the conventions assume is missing
+### 5. Tooling the conventions assume is missing
 
 - No project has a `lint` target, so CI's `nx run-many -t lint` runs nothing
   and the money-field lint rule the conventions require is not enforced.
@@ -213,7 +197,7 @@ remaining six have no implementation.
 - `CheckoutService` sits in `application/` but runs raw SQL through TypeORM's
   `DataSource`, against the Tier 1 layer rule.
 
-### 7. Design documents out of step with the built consumers
+### 6. Design documents out of step with the built consumers
 
 - data-model-erd.md's `pending_listing_removal_digest` lacks `seller_email` and
   `seller_name`, which kafka-events.md §2.14 and the matrix require (migration
@@ -231,7 +215,9 @@ remaining six have no implementation.
   the matrix has no seller row for either. Built per the matrix.
 - Templates and auth.md link to `${SELLER_APP_URL}/seller/...` and
   `${ADMIN_APP_URL}/admin/...`; the seller and admin apps serve those routes at
-  root.
+  root. The seller app redirects `/seller/verify-email` and
+  `/seller/reset-password` (frontend#31); other seller links and every admin
+  link still miss.
 - Matrix §5 gives `inventory.changed` `UNKNOWN` the seller as actor;
   data-model-mongodb.md says `SYSTEM`. Built as `SYSTEM`.
 - `audit_logs.actor_id` is "the acting user", but the matrix maps it to
