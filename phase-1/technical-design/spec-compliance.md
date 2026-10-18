@@ -1,7 +1,7 @@
 # Spec compliance — known code/spec divergences
 
 **Status:** Living document
-**Updated:** 2026-10-16
+**Updated:** 2026-10-18
 
 The technical design in this directory is canonical. This file is the register
 of places where the code is known **not** to match it yet, so that no mismatch
@@ -15,7 +15,7 @@ history here.
 
 ---
 
-## Resolved 2026-10-08/16
+## Resolved 2026-10-08/18
 
 Recorded for context; these are closed.
 
@@ -65,40 +65,18 @@ Recorded for context; these are closed.
 | The notification, audit and inventory consumers were not built: no email or in-app notification was sent, `pii.accessed` and `inventory.changed` reached no MongoDB document, and seller refund, cancel and the suspended-seller auto-refund released reservations inline | Built (backend#64–#66, infra#5). The four `inventory.*` groups move stock through `InventoryApplicationService`, every reservation write scoped to the fulfillment's `ACTIVE` rows, quantities taken from the reservation rows; the inline releases are gone, and a release that would drive `reserved_qty` negative fails its CHECK and dead-letters rather than clamping. `platform.audit` routes every catalogued topic except `fx_rate.updated` and `seller.profile_changed` into `audit_logs` / `activity_events` / `pii_access_logs`, masked, idempotent on `event_id`; only `workers` holds a MongoDB client, and `MONGODB_URI` must name a database. The 21 `notification.*` groups send through nodemailer and write in-app rows idempotent on `(recipient_user_id, source_event_id)`; email is at-least-once (no send marker in the ERD), retried 1+3 times and then written to `email.outbound.dlq` with ET-18/ET-19 bodies redacted; the 23:00 UTC digest sends ET-09 under the advisory lock; migration 0018 adds `seller_email` / `seller_name` to `pending_listing_removal_digest`; templates are code, not `notifications.email_template` rows |
 | Migrations did not run on an empty database: 0001–0005 and 0003b carried later TypeORM timestamps than 0006–0018, 0003b and 0008 both created `identity."user"`, and seller (0007) referenced the user table before identity (0008) created it | [ADR-0014](../../decisions/0014-migration-name-suffix-is-the-sequence.md) (backend#67): every `name` ends in `179000000{seq}`; 0003b deleted; identity is `0007_identity_schema`, seller `0008_seller_schema`; every `CREATE TABLE` is `IF NOT EXISTS`; CI's `migrations` job applies, reverts and re-applies the sequence on an empty Postgres. Existing databases are rebuilt, not carried over |
 | The refresh cookie was `refresh_token` with `SameSite=Lax`; nothing was rate limited; seller register created an unverified account and sent no verification email; the seller app had no profile page | Code fixed (backend#68, frontend#31): the cookie is `refreshToken`, `SameSite=Strict`, cleared with the same attributes; `@nestjs/throttler` applies auth-jwt-design §5 and seller.md's register limit through a Redis store shared by every `api` replica, with `429 TOO_MANY_REQUESTS`, `X-RateLimit-*` and `Retry-After`; health is unthrottled. [ADR-0015](../../decisions/0015-seller-register-sends-verification-email.md): a new seller account gets ET-18's seller variant, `auth.email_verification_requested` carries `portal` (default `BUYER`), and the seller app serves `/verify-email`, an unverified banner with resend, and `/profile` (read-only while suspended, as seller.md requires). Sellers holding `SELLER` without a profile were not migrated: every database was rebuilt under ADR-0014, so none remain |
-
 | `pricing.currency` had no `BHD` row; seller prices took 4 dp in any currency, so a JPY `1000.5` showed as `1001`; `Money.toJSON(scale)` collided with the `JSON.stringify` hook; the §3.2 refresh snippet crashed on a failed reload; only USD-based `fx_rate` rows existed, so a THB, JPY or SGD offer had no display price in another currency | Code fixed (backend#69, frontend#32, #33): migration 0019 seeds `BHD` (scale 3, not seller-priceable). [ADR-0016](../../decisions/0016-fx-pairs-derived-from-usd-quotes.md): one USD provider call fills all twelve seller-currency pairs (inverse and cross rates, 8 dp half-up, one `as_of`) and emits one `fx_rate.updated` per base. [ADR-0017](../../decisions/0017-seller-price-input-respects-minor-unit-scale.md): a seller price with more fractional digits than its currency's `minor_unit_scale` is `400` on create offer and the price `PUT`, and the seller forms check it first. [ADR-0018](../../decisions/0018-money-renders-through-towire.md): `Money.toWire(scale)`, and `toJSON()` throws. A cart `lineTotal` or `buyer_currency_total` that differs by one minor unit from the rendered parts stays as orders.md specifies (user decision: round once) |
+| Locale to currency had no table; a refund `reason` was stored nowhere; `POST /seller/kyc` answered `409` for a `REJECTED` application; `placement_outcome` disagreed between orders.md and kafka-events.md; duplicate SKU had no status; the first checkout was not price-checked; the order e-mail logo URL expired after an hour | Decided 2026-10-18. [ADR-0019](../../decisions/0019-locale-currency-table-partial-placement-duplicate-sku.md): locale table, `PARTIALLY_PLACED` on skipped lines, duplicate SKU `422` (ratified, no code change). [ADR-0020](../../decisions/0020-confirmed-prices-mandatory-on-checkout.md) (backend#71, #76, frontend#36, #37): `confirmedPrices` mandatory. [ADR-0021](../../decisions/0021-submit-kyc-accepts-a-rejected-seller.md) (backend#70): a rejected seller posts a new application. [ADR-0022](../../decisions/0022-refund-reason-travels-on-the-refunded-event.md) (backend#72, #74): refund reason on the event. [ADR-0023](../../decisions/0023-event-logos-carry-an-object-key-the-consumer-presigns.md) (backend#75, infra#7): the event carries the logo key, the consumer presigns at send time, 7-day TTL |
 ---
 
 ## Open — API surface
 
 ### 1. Decisions the design leaves open
 
-- **Locale to currency.** The design says "the currency matching the locale"
-  with no table. backend#38 resolves only the highest-q locale, maps a bare
-  language to its likely region (`th` to THB, `ja` to JPY, `en` to USD), and
-  falls back to USD.
-- **Event logo URL lifetime.** `order.finalized` carries a presigned logo URL
-  valid for one hour, so an email built or opened later shows a dead image.
-  Either event URLs get a longer TTL or the consumer presigns from a key in
-  the payload.
-- **Refund reason.** A refund requires a `reason` so the buyer is told why,
-  but the §2.7 `fulfillment.refunded` schema has no field for it, so it is
-  stored nowhere.
-- **`POST /seller/kyc` with a `REJECTED` application.** backend#40 answers
-  `409` pointing to `/seller/kyc/resubmit`; the sequence lists only
-  `PENDING`, `UNDER_REVIEW` and `APPROVED` for the `409`.
-- **Duplicate SKU within one product** is a `422`; seller.md does not list it,
-  and it reads as request validation (`400`).
 - **Response details not spelled out:** the `GET
   /catalog/categories/:categoryId` body (built as the list shape with direct
   children), an unknown `categoryId` on `GET /catalog/products` (built as an
   empty page), and the `GET /pricing/fx-rates` error table.
-- **Price check on a first checkout.** `cart_item` stores no shown price, so a
-  line submitted without a `confirmedPrices` entry is not revalidated. The
-  buyer app always sends them; the design should either snapshot the shown
-  price or make `confirmedPrices` mandatory.
-- **`PARTIALLY_PLACED` with only skipped items.** kafka-events.md §2.8 says
-  yes, orders.md says only when a group failed. The code follows §2.8.
 - **Checkout edge cases the design does not cover**, built as: a missing FX
   row fails the whole request with `422`; a `cartItems` id not in the cart is
   `404`; groups and totals count `ACTIVE` lines only; a line without a live
@@ -106,6 +84,8 @@ Recorded for context; these are closed.
   the cart reads `seller.seller_profile` for `sellerName`, absent from cart.md's
   DB mapping. Skipped items and failed groups are not on `GET /orders/:id`, so
   the confirmation page loses them on reload.
+- **`POST /seller/kyc` and `POST /seller/kyc/resubmit` now overlap** ([ADR-0021](../../decisions/0021-submit-kyc-accepts-a-rejected-seller.md)): both insert a new application after a rejection through one code path. Keeping or deprecating `/resubmit` is undecided.
+- **Order e-mail logo links in V1.** The consumer presigns for `MINIO_PUBLIC_ENDPOINT` ([ADR-0023](../../decisions/0023-event-logos-carry-an-object-key-the-consumer-presigns.md)), default `http://localhost:9000`, which resolves only on the developer's machine, and the link dies 7 days after the e-mail is sent. V2 needs a real public origin. Events already on the topic carry only the deprecated URL field, so their e-mail renders no logo.
 - **Search facets.** `priceRange.min` / `max` are read as USD and
   `displayMin` / `displayMax` as the requested currency, as in the example.
 - **Catalog offers**, built as: an offer with no live `LIST` row is omitted; an
@@ -181,6 +161,11 @@ remaining six have no implementation.
   checks for others.
 - `CheckoutService` sits in `application/` but runs raw SQL through TypeORM's
   `DataSource`, against the Tier 1 layer rule.
+- `identity:test` and a seller-app test timed out once under a full parallel run and passed on rerun; both may flake in CI.
+- The sibling-catalog avsc test only matches a document checkout at current `main`; run from a worktree it needs `ALICEUT_DOCUMENT_DIR` pointed at one.
+- The frontend `api-client` CI check fails on `main` whenever the backend spec moves and the sync PR is not merged yet (it went red at `5ae133a`). There is no Java on every developer machine, so the generator cannot always be run locally.
+- The refund-reason tests assert SQL substrings and mocked parameters, not a stored row; there is no integration test that issues a refund and reads `refund_reason` back.
+- Migration `0020_fulfillment_refund_reason` adds its `CHECK` without `NOT VALID`, which scans `orders.fulfillment` under a table lock. Harmless on rebuilt databases; use `NOT VALID` plus `VALIDATE CONSTRAINT` in a later migration on a populated one.
 - `apps/workers-e2e/jest.config.cts` needs `@swc/jest`, which is not
   installed; CI skips e2e targets, and a local `nx run-many -t test` must
   exclude `workers-e2e`.
