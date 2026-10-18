@@ -116,6 +116,8 @@ cd aliceut-ecom-backend && npm ci && cd ..
 cd aliceut-ecom-frontend && npm ci && cd ..
 
 # Copy CLAUDE.md templates so Claude Code loads project conventions automatically
+# Workspace CLAUDE.md: start Claude Code from this parent folder and it loads the document repo's CLAUDE.md
+cp aliceut-ecom-document/guidelines/templates/workspace-CLAUDE.md CLAUDE.md
 cp aliceut-ecom-document/guidelines/templates/backend-CLAUDE.md  aliceut-ecom-backend/CLAUDE.md
 cp aliceut-ecom-document/guidelines/templates/frontend-CLAUDE.md aliceut-ecom-frontend/CLAUDE.md
 ```
