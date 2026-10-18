@@ -389,7 +389,7 @@ MinIO (`MINIO_ENDPOINT`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`) stores binary o
 |--------|---------|--------|
 | `product-images` | Product and variant images (JPEG/PNG/WebP, max 5 MB each) | Public read, authenticated write |
 | `kyc-documents` | KYC submission scans (PDF/JPEG, max 10 MB each) | Private; seller write, admin read |
-| `user-assets` | Business logos and user profile images | Private; user read/write for own assets |
+| `user-assets` | Business logos (`logos/` prefix) | `logos/` anonymously readable (ADR-0023); everything else private |
 
 ### Rules
 
@@ -397,7 +397,7 @@ MinIO (`MINIO_ENDPOINT`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`) stores binary o
 - **Presigned URL TTL:** 
   - Product images — 1 hour (long, public bucket, CDN-cacheable). 
   - KYC documents — 15 minutes (short, private, one-time download). 
-  - User assets — 1 hour.
+  - User assets — business logos are not presigned: they are public, stable URLs built from `MINIO_PUBLIC_BASE_URL` ([ADR-0023](../decisions/0023-business-logos-are-served-from-a-public-path.md)). Any future non-logo user asset stays private and presigned for 1 hour.
 - **Virus scan on upload:** all KYC documents must pass a ClamAV scan before being made accessible. Block the upload API response until the scan completes (synchronous in V1).
 - **Filename policy:** generate a UUIDv7 filename server-side. Never trust the client-supplied filename — it is stored only in a metadata column alongside the object key.
 

@@ -151,7 +151,7 @@ Weapons, drugs, adult content. Checked at listing time via taxonomy flag and key
 | Redis | Caching, session storage, and single-use short-lived tokens | Use for short-lived or high-speed data. Set appropriate TTLs. Never a source of truth. Avoid storing sensitive data unnecessarily. The instance holding single-use tokens runs `noeviction` — eviction can silently drop a token mid-flow; an eviction-enabled cache instance must be separate. Monitor memory usage. |
 | Elasticsearch | Search documents and facets | Written from Kafka consumers only; never from the API request path |
 | Kafka | Durable domain-event transport | At-least-once delivery; consumers idempotent; BACKWARD-compatible Avro schemas |
-| MinIO | Binary assets (images, documents, user files) | Three buckets: `product-images` (public read), `kyc-documents` (private, presigned GET), `user-assets` (private) |
+| MinIO | Binary assets (images, documents, user files) | Three buckets: `product-images` (public read), `kyc-documents` (private, presigned GET), `user-assets` (private; the `logos/` prefix is public read, ADR-0023) |
 
 PostgreSQL uses one schema per module. The owning module is the sole writer; others use its application interface or subscribe to its events.
 

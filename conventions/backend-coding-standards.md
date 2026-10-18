@@ -546,6 +546,7 @@ export class AppModule {}
 | `MINIO_ENDPOINT` | ✓ | — | MinIO host |
 | `MINIO_ACCESS_KEY` | ✓ | — | |
 | `MINIO_SECRET_KEY` | ✓ | — | |
+| `MINIO_PUBLIC_BASE_URL` | ✓ | — | Externally reachable MinIO base (default `http://localhost:9000`); business logo URLs are built from it (ADR-0023). Never the in-network `minio:9000` |
 | `AES_ENCRYPTION_KEY` | ✓ | — | 32-byte hex key for KYC document AES-256 encryption in MinIO `kyc-documents` bucket |
 | `JWT_SECRET` | ✓ | — | Min 32 bytes; generated per environment |
 | `JWT_ACCESS_TTL_SECONDS` | ✓ | — | Default 900 (15 min) |

@@ -192,6 +192,9 @@ FACEBOOK_CALLBACK_URL=http://localhost:3000/api/v1/auth/facebook/callback
 
 # ── MinIO (object storage) ───────────────────────────────
 MINIO_ENDPOINT=http://minio:9000
+# Browser/mail-client reachable base of MinIO, NOT the in-network minio:9000. Business logo URLs in
+# emails and API responses are built from it (ADR-0023). V1 local dev: the published port 9000.
+MINIO_PUBLIC_BASE_URL=http://localhost:9000
 MINIO_ROOT_USER=minio_admin
 MINIO_ROOT_PASSWORD=change_me_minio
 MINIO_ACCESS_KEY=aliceut_app
@@ -439,6 +442,7 @@ services:
       SCHEMA_REGISTRY_URL: http://schema-registry:8081
       REDIS_URL: redis://redis:6379
       MINIO_ENDPOINT: http://minio:9000
+      MINIO_PUBLIC_BASE_URL: ${MINIO_PUBLIC_BASE_URL:-http://localhost:9000}
       # Written by checkout when it inserts the idempotency row and sets expires_at;
       # the cleanup job in workers only honours the column it finds. The value has to
       # be on both services or nothing sets a TTL for the job to act on.
@@ -854,6 +858,7 @@ services:
         mc mb --ignore-existing local/kyc-documents;
         mc mb --ignore-existing local/user-assets;
         mc anonymous set download local/product-images;
+        mc anonymous set download local/user-assets/logos;
         if ! mc admin user info local $${MINIO_ACCESS_KEY} > /dev/null 2>&1; then
           mc admin user add local $${MINIO_ACCESS_KEY} $${MINIO_SECRET_KEY};
         fi;
@@ -1328,6 +1333,6 @@ No antivirus or scanner sidecar runs in V1. A seller can upload a file that is a
 - **[DESIGN DECISION]** Workers expose a minimal health endpoint at `GET /api/v1/health` on `PORT_WORKERS` (default 3001) for the compose health check. This is a lightweight HTTP server in the worker process, carrying that route and `METRICS_PATH` and nothing else; §12's outbox-lag condition reads from both, and its DLQ condition from neither — no gauge reports DLQ depth in V1. The port is not published to the host; the healthcheck runs inside the container. The path carries the global prefix because the endpoint has no unversioned alias ([api-design/health.md](./api-design/health.md)) — a probe on `/health` would 404 and leave the container permanently unhealthy, which is the same silent-failure class as a healthcheck invoking a binary the image does not ship.
 - **[DESIGN DECISION]** The Elasticsearch `products` index is created by the Search module during `workers` boot, not by an init container (§9). There is no twentieth service. The index has one writer and one moment it is needed, so the code that writes it is the right owner; `minio-init` exists because buckets must precede every process, which is a different shape of problem.
 - **[DESIGN DECISION]** Grafana's anonymous role is `Viewer`, not `Admin`. Anonymous access itself stays enabled — opening a dashboard without a login is the point of a development stack — but an anonymous `Admin` on a published port can edit datasources, and a Grafana datasource is a credentialed connection to Loki and Prometheus. That makes `Admin` a path to repointing where the platform's logs are read from, not merely dashboard vandalism. Editing is what `GF_SECURITY_ADMIN_PASSWORD` is for. Do not restore `Admin` as a convenience.
-- **[DESIGN DECISION]** Object storage uses MinIO (`minio/minio:RELEASE.2024-11-07T00-52-20Z`). Three buckets: `product-images` (public read, served via presigned URLs or direct path), `kyc-documents` (private; NestJS generates short-lived presigned GET URLs on demand), `user-assets` (business logos; private). `minio-init` is a one-shot service that creates the three buckets and the `MINIO_ACCESS_KEY` service account with the `readwrite` policy; it is idempotent, so re-running compose on an existing volume is a no-op. The application authenticates with that service account, never with the root credentials — the root credentials exist only for `minio-init` and the console. `api` waits on `service_completed_successfully` so no upload can precede the account.
+- **[DESIGN DECISION]** Object storage uses MinIO (`minio/minio:RELEASE.2024-11-07T00-52-20Z`). Three buckets: `product-images` (public read, served via presigned URLs or direct path), `kyc-documents` (private; NestJS generates short-lived presigned GET URLs on demand), `user-assets` (private except the `logos/` prefix, which is anonymously readable by [ADR-0023](../../decisions/0023-business-logos-are-served-from-a-public-path.md); `minio-init` runs `mc anonymous set download local/user-assets/logos`, so the grant covers that prefix only). `MINIO_PUBLIC_BASE_URL` is the externally reachable MinIO base the API uses to build logo URLs; it is never `http://minio:9000`, which a recipient's mail client cannot resolve. `minio-init` is a one-shot service that creates the three buckets and the `MINIO_ACCESS_KEY` service account with the `readwrite` policy; it is idempotent, so re-running compose on an existing volume is a no-op. The application authenticates with that service account, never with the root credentials — the root credentials exist only for `minio-init` and the console. `api` waits on `service_completed_successfully` so no upload can precede the account.
 - **[DESIGN DECISION]** Schema Registry uses Community License (`confluentinc/cp-schema-registry:7.7.0`). No commercial license key required. Does not use Schema Linking, exporters, or RBAC security plugin.
 - **[DESIGN DECISION]** Redis (`redis:7-alpine`) is ephemeral — no persistent volume. JWT revocation keys (`auth:revoke_before:{userId}`) carry a 960 s TTL (15-min JWT lifetime + 60 s buffer). If Redis restarts in development, the worst-case window for a revoked token is at most 15 minutes until the access JWT expires naturally. Persistent storage is not justified for this TTL. `maxmemory 256mb` bounds growth, with `maxmemory-policy noeviction` — this instance also holds the 60-second single-use OAuth authorization code, which must never be evicted; an eviction-enabled cache belongs on a separate instance. Only `api` depends on Redis; `workers` processes Kafka events and does not validate JWTs.
