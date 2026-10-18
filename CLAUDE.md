@@ -47,6 +47,34 @@ Numeric `phase-N/` prefix sorts by delivery order. `conventions/` holds stable c
 
 Solo developer, learning/portfolio project, no deadline — quality over speed.
 
+## Required Reading
+
+**Process guidelines — loaded in full every session (imports):**
+
+@guidelines/claude-code-subagents.md
+@guidelines/development-flow.md
+@guidelines/git-workflow.md
+@guidelines/testing-guidelines.md
+
+These bind every session, including the lead and every agent it spawns. In particular `claude-code-subagents.md`: route implementation to the agent in its routing map (`voltagent-core-dev:backend-developer`, `frontend-developer`, `voltagent-infra:docker-expert`, `devops-engineer`), and run `voltagent-qa-sec:code-reviewer` + `voltagent-qa-sec:performance-engineer` on every non-trivial diff before merge. A "merge on green" authorization does not waive the review gate. Put the relevant guideline rules into any agent prompt you write — agents do not inherit this file.
+
+**Conventions — read the file in full BEFORE touching the area it covers** (not imported, ~220 KB; do not skim the index and proceed):
+
+| Touching | Read first |
+|---|---|
+| Any HTTP endpoint, DTO, error shape, pagination | `conventions/api-conventions.md` |
+| Auth, JWT, sessions, guards | `conventions/auth-jwt-design.md` |
+| Any backend module, handler, service, repository | `conventions/backend-module-architecture.md`, `conventions/backend-coding-standards.md` |
+| Any frontend component, service, route | `conventions/frontend-coding-standards.md`, `conventions/design-system.md` |
+| Migrations, schema | `conventions/database-migrations.md` |
+| Kafka events, outbox, consumers | `conventions/kafka-events.md` |
+| Logging, metrics, tracing, health | `conventions/observability.md` |
+| Retention, soft delete, cleanup | `conventions/data-lifecycle.md` |
+
+Before spawning agents for a wave, the lead reads the rows that apply to the wave and names the files in each agent prompt.
+
+When an ADR changes behavior, edit the spec text itself (user stories, API docs, ERD, event catalog, UI design, conventions) in the same pass; the ADR alone is not enough.
+
 ## Authoritative Reference
 
 `architecture-overview.md` is the project-level architecture and evolution reference. `phase-1/requirements/BRD.md` is the single source of truth for Phase 1 scope, stack, and resolved decisions. Always read both before proposing Phase 1 architecture, entities, or scope changes. §12 records the decisions currently in force: follow them by default rather than reopening them ad hoc, and when one genuinely needs to change, amend the BRD in the same pass so every document that cites it stays aligned.
