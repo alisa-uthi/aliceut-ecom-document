@@ -514,6 +514,7 @@ One fulfillment per seller/currency group within a checkout. Carries the per-sel
 | `placed_at` | `TIMESTAMPTZ` | Required fulfillment creation time |
 | `shipped_at`, `delivered_at`, `refunded_at` | `TIMESTAMPTZ` | Nullable state-transition timestamps |
 | `cancelled_at` | `TIMESTAMPTZ` | Nullable; set when fulfillment transitions to `CANCELLED`. |
+| `refund_reason` | `TEXT` | Nullable; `CHECK (char_length(refund_reason) <= 500)`. The seller's reason from `POST /seller/orders/:fulfillmentId/refund`, written in the same statement that sets `status = 'REFUNDED'` and published as `reason` on `fulfillment.refunded` ([ADR-0022](../../decisions/0022-refund-reason-travels-on-the-refunded-event.md)). Null for a fulfillment that was not refunded by a seller (including the auto-refund monitor's, US-P-16). Added by the `fulfillment_refund_reason` migration. |
 | `created_at`, `updated_at` | `TIMESTAMPTZ` | Required audit timestamps |
 
 `shipping_cost` and `tax_total` are structural zeroes in V1. Real shipping is out of scope (BRD §3.2) and Phase 1 defines no tax engine, no tax-rate table, and no jurisdiction model, so both columns are seeded from platform configuration and always capture `0.0000`. The columns exist so that adding real shipping or tax in a later phase is a change of the value written, not a reshaping of the schema and the API around it. Nothing in this design computes a tax figure, and no document may describe a tax calculation that has no configuration behind it.

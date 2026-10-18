@@ -389,6 +389,11 @@ Sold by: {{seller_name}}
 Refunded at: {{refunded_at}}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+{{#if refund_reason}}SELLER'S REASON
+
+  {{refund_reason}}
+
+{{/if}}
 REFUNDED ITEMS
 
   ┌─────────────────────────────────────────────────┐
@@ -417,6 +422,7 @@ AliceUT
 | Variable | Description |
 |---|---|
 | `refunded_at` | When the refund was processed |
+| `refund_reason` | The seller's reason for the refund (`payload.reason`, ADR-0022); the block is omitted when null |
 | `fulfillment.grand_total_display` | Total refund amount in buyer's preferred currency |
 
 ---

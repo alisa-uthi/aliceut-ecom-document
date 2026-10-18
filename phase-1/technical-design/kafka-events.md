@@ -493,6 +493,7 @@ The scheduler sets `orders.fulfillment.status = DELIVERED` and writes the outbox
           { "name": "seller_name",               "type": "string" },
           { "name": "buyer_display_currency",    "type": "string", "doc": "ISO 4217 — snapshot of orders.fulfillment.buyer_display_currency; display only, never used for refund arithmetic" },
           { "name": "buyer_currency_total",      "type": "string", "doc": "NUMERIC(19,4) as string; snapshot of orders.fulfillment.buyer_currency_total — the refunded total expressed in buyer_display_currency" },
+          { "name": "reason",                    "type": ["null","string"], "default": null, "doc": "The seller's refund reason (max 500 chars), as submitted to POST /seller/orders/:fulfillmentId/refund and stored in orders.fulfillment.refund_reason — ET-04 shows it to the buyer. Null on events published before this field existed; the seller endpoint always supplies one (ADR-0022)" },
           {
             "name": "items",
             "type": {
@@ -518,11 +519,13 @@ The scheduler sets `orders.fulfillment.status = DELIVERED` and writes the outbox
 }
 ```
 
+**`reason` is additive.** It is a `["null","string"]` union with `default: null`, so the change is `BACKWARD`-compatible and `event_version` stays 1 ([ADR-0022](../../decisions/0022-refund-reason-travels-on-the-refunded-event.md)). It is not on `fulfillment.refund_suspended_seller` ([§2.17](#217-fulfillmentrefund_suspended_seller)): the auto-refund has no seller-typed reason.
+
 **Consumer groups**
 
 | Consumer group | Pattern | Side effects |
 |---------------|---------|--------------|
-| `notification.fulfillment-refunded` | `notification.*` | Sends ET-04 email. Creates in-app notification (type `REFUND_ISSUED`). |
+| `notification.fulfillment-refunded` | `notification.*` | Sends ET-04 email, which shows `payload.reason` to the buyer when present. Creates in-app notification (type `REFUND_ISSUED`). |
 | `inventory.fulfillment-refunded` | `inventory.*` | The **single writer** of `inventory.stock` and `inventory.stock_reservation` on refund. Restores stock **only when `prior_status = PENDING`**; a refund of a SHIPPED fulfillment restores nothing, because the goods have left the seller and their reservations were consumed at shipment. It sets this fulfillment's `ACTIVE` reservations to `RELEASED` and subtracts their quantities from `reserved_qty` — scoped `WHERE fulfillment_id = :fulfillment_id`, never `WHERE order_id = ?`, so a multi-seller checkout restores one seller's stock at a time. Writes the `inventory.changed` outbox row (`change_reason = REFUND_RESTORE`) in the same transaction as the stock adjustment. Idempotent on `event_id`: a redelivered `fulfillment.refunded` must not restore twice. This group also consumes `fulfillment.refund_suspended_seller` ([§2.17](#217-fulfillmentrefund_suspended_seller)), where the rule is identical — one group across two topics, which is why the group total in [§4](#dlq-topics) counts one group here and not two. |
 | `platform.audit` | `platform.audit` | Writes `activity_events` (entity_type=`FULFILLMENT`, entity_id=fulfillment_id, actor_role=`SYSTEM`). |
 
