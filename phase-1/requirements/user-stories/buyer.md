@@ -237,7 +237,7 @@ The first persisted Fulfillment state is `PENDING`; a cart is not an order state
 | Value | Meaning |
 |---|---|
 | `FULLY_PLACED` | All seller/currency groups created as `PENDING` fulfillments. |
-| `PARTIALLY_PLACED` | ≥ 1 group failed inventory reservation; remaining fulfillments placed. Buyer emailed. Failed cart items retained. |
+| `PARTIALLY_PLACED` | ≥ 1 group failed inventory reservation, or ≥ 1 line was skipped, while ≥ 1 group placed (ADR-0019); remaining fulfillments placed. Buyer emailed. Failed cart items retained. |
 
 **Fulfillment states**
 
@@ -358,6 +358,6 @@ Priority: Should — trace: FR-B-01
   Upload constraints: JPEG, PNG, or WebP only; max 2 MB; max dimensions 800×800 px (resized server-side if larger).
   Stored in MinIO using the same upload flow as product images.
   Displayed on order confirmations and email invoices (ET-01).
-- Buyer can set preferred display currency: USD, THB, JPY, SGD, or Auto (default). "Auto" resolves to the currency matching the browser's `Accept-Language` locale at render time; if the resolved currency is not in the supported set, falls back to USD. The setting drives all price display, FX estimates (US-P-02), and the aggregate total in order emails (ET-01). Preference stored server-side; survives logout.
+- Buyer can set preferred display currency: USD, THB, JPY, SGD, or Auto (default). "Auto" resolves to the currency matching the browser's `Accept-Language` locale at render time; if the resolved currency is not in the supported set, falls back to USD. The locale table is in profile.md § `preferredCurrency` semantics (ADR-0019). The setting drives all price display, FX estimates (US-P-02), and the aggregate total in order emails (ET-01). Preference stored server-side; survives logout.
 - Email address is read-only on the profile page (tied to auth identity). Email change is deferred (requires re-verification flow, out of V1 scope).
 - Profile accessible from Account → Profile. Page displays: display name, email (read-only with "Email change — coming soon" label), preferred display currency selector, account type badge (Consumer / Business), and member since date.
