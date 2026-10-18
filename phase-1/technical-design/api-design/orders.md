@@ -128,7 +128,7 @@ Headers: Idempotency-Key: <client-uuid> (required)
 - `maskedPaymentDetail` is the already-masked display string the mock gateway stores in `payment_attempt.masked_payment_detail`. A full card number is never accepted, and the field name is `maskedPaymentDetail` precisely so that an unmasked PAN cannot reach it or the request log.
 - There is **no `currency` field**. The buyer's display currency is resolved server-side from `identity.user.preferred_currency` at submission time — a `NULL` preference is the "Auto" setting ([ADR-0011](../../../decisions/0011-null-preferred-currency-resolves-from-accept-language.md)): the currency of the checkout request's `Accept-Language` locale, or `USD` when there is no header or that currency is not one of `USD`, `THB`, `JPY`, `SGD` — and stored immutably as `fulfillment.buyer_display_currency` on every fulfillment created (US-B-09:212); a later change to the buyer's preference does not alter historical order display. The client cannot choose the capture currency — each fulfillment captures in its seller's `native_currency_code`.
 - There is **no `shippingMethodId`**. V1 has mock shipping only (BRD §3.2): there are no shipping methods to choose between, the mock service name recorded in `fulfillment.shipping_method` comes from seeded platform configuration, and `shipping_cost` is a structural zero — see [Shipping and tax in V1](#shipping-and-tax).
-- `confirmedPrices[]` is the wire representation of the buyer's acknowledgement after a `PRICE_CHANGED` response, and is omitted on a first submission. See [Price revalidation](#price-revalidation) below.
+- `confirmedPrices[]` is **required** on every submission, the first included ([ADR-0020](../../../decisions/0020-confirmed-prices-mandatory-on-checkout.md)): one `{ offerId, amount, currency }` per `cartItems` line, the unit price the buyer was shown. After a `PRICE_CHANGED` response it carries the acknowledged amounts. See [Price revalidation](#price-revalidation) below.
 
 **Response 201**
 ```json
@@ -209,7 +209,7 @@ Headers: Idempotency-Key: <client-uuid> (required)
 Real shipping is out of V1 scope (BRD §3.2) and Phase 1 defines no tax engine, no tax-rate table and no jurisdiction model, so nothing in this design computes either figure. The fields — and, at fulfillment level, their columns — exist so that a later phase changes the value written at capture rather than the shape of the snapshot, the response, and every client bound to them; the zero tax still satisfies FR-P-03 immutability, because what is captured is captured. `fulfillment.total_amount` is therefore the item subtotal in V1, but it is stored as its own column and read as-is, never re-derived by adding the parts back up.
 
 **Errors:**
-- 400 invalid body
+- 400 invalid body, including a `cartItems` line with no `confirmedPrices` entry (`errors[]` names `confirmedPrices` and the offer), an empty or absent `confirmedPrices`, and two entries for one `offerId` ([ADR-0020](../../../decisions/0020-confirmed-prices-mandatory-on-checkout.md))
 - 409 `Idempotency-Key` reused with a **different** body. A replay with the *same* body is not an error — see [Idempotency](#idempotency-replay).
 - 409 price changed — see [Price revalidation](#price-revalidation):
   ```json
@@ -226,9 +226,9 @@ Real shipping is out of V1 scope (BRD §3.2) and Phase 1 defines no tax engine, 
 **Idempotency.** `Idempotency-Key` is required. Replaying a key whose checkout already completed returns **HTTP 200** with the order's current state — the same body `GET /orders/:id` would serve, re-read at replay time rather than served from a stored response body — and creates nothing (US-B-09:209). Because the read is fresh, a replay can legitimately return a *later* state than the original response did: an order whose fulfillments have since moved to `SHIPPED` replays as `SHIPPED`. `409` is reserved for the genuine conflict: the same key presented with a different `request_hash`. `orders.idempotency_key` has **no `status` column** and no `PROCESSING`/`COMPLETED` lifecycle; the row is inserted inside the checkout transaction with its `request_hash`, `order_id` is filled in once the order row exists, and the unique constraint on `(buyer_id, key)` is what serialises concurrent duplicate submissions — a losing concurrent insert waits on the lock and then reads the winner's order.
 
 <a id="price-revalidation"></a>
-**Price revalidation.** Immediately before the order is created, the effective price of every valid line is re-resolved. If any line's price differs from the price the buyer was shown by more than `CHECKOUT_PRICE_TOLERANCE` (env-configurable, e.g. ±0.01 in the offer's currency), the submission is halted with `409 PRICE_CHANGED` listing each changed item with its `shownAmount` and `newAmount`, and **no order is created**. The buyer confirms the new prices and the client re-submits with the same `Idempotency-Key` plus `confirmedPrices[]` carrying the acknowledged amount and currency per offer.
+**Price revalidation.** Immediately before the order is created, the effective price of every valid line is re-resolved. Every submission carries the price the buyer was shown for every `cartItems` line in `confirmedPrices[]` ([ADR-0020](../../../decisions/0020-confirmed-prices-mandatory-on-checkout.md)); a line without an entry is `400`, never charged unchecked. If any line's price differs from that shown price by more than `CHECKOUT_PRICE_TOLERANCE` (env-configurable, e.g. ±0.01 in the offer's currency), the submission is halted with `409 PRICE_CHANGED` listing each changed item with its `shownAmount` and `newAmount`, and **no order is created**. The buyer confirms the new prices and the client re-submits with the same `Idempotency-Key` and `confirmedPrices[]` carrying the acknowledged amount and currency per offer.
 
-The confirmation is checked against a fresh resolution, not against itself: if a price moved **again** between the confirmation and the re-submission, the re-submission is rejected with another `409 PRICE_CHANGED` and the buyer must confirm again. There is no bound on how many times this can repeat and no "confirm once, accept anything" path — an order is never created at a price the buyer has not seen and confirmed (US-B-09:210-211). A `confirmedPrices[]` entry that matches no re-resolved line, or that is absent for a line whose price moved, is treated as unconfirmed.
+The confirmation is checked against a fresh resolution, not against itself: if a price moved **again** between the confirmation and the re-submission, the re-submission is rejected with another `409 PRICE_CHANGED` and the buyer must confirm again. There is no bound on how many times this can repeat and no "confirm once, accept anything" path — an order is never created at a price the buyer has not seen and confirmed (US-B-09:210-211). An entry that matches no `cartItems` line is ignored: it confirms nothing and is not an error. Two entries for the same `offerId` are `400`.
 
 #### Sequence
 
@@ -237,7 +237,7 @@ The checkout is a **single PostgreSQL transaction** touching 9+ tables. Order co
 **Key invariants enforced inside the transaction:**
 - Cart data is never trusted for price or stock — offer status, effective price, and available stock are rechecked with row-level locks.
 - The order row is created **first**, as the container. Each seller/currency group is then processed independently: reserve stock (TTL 15 min) → snapshot prices → insert the fulfillment at `PENDING` → clear **only that group's** cart items. A group's four steps succeed or fail together (US-B-09:198-204).
-- `PRICE_CHANGED` aborts the entire transaction and returns HTTP 409; no order row survives. The client re-submits with `confirmedPrices[]`.
+- `PRICE_CHANGED` aborts the entire transaction and returns HTTP 409; no order row survives. The client re-submits with `confirmedPrices[]` updated to the acknowledged amounts.
 - `OUT_OF_STOCK` and `OFFER_UNAVAILABLE` produce group-level failures in `failedGroups` and leave that group's cart items in place; remaining groups are placed (`PARTIALLY_PLACED`, as is a checkout that skipped a line, [ADR-0019](../../../decisions/0019-locale-currency-table-partial-placement-duplicate-sku.md)). Every group failing is a `422`, not an order.
 - `FulfillmentItem` snapshots (`unit_price`, `currency_code`, `tax`, `buyer_currency_unit_price`, `buyer_currency_tax`, `fx_rate_used_at_capture`) are immutable after insert and are **never re-derived** from live `pricing.offer_price` or `pricing.fx_rate` rows (FR-P-03). `fx_rate_used_at_capture` is `NOT NULL` — `1.00000000` when no conversion applied.
 - `display_id` on the order and the fulfillment, and `tracking_number`, come from their Postgres sequences as column defaults. `tracking_number` is assigned at `PENDING` creation and never regenerated at the `SHIPPED` transition.
@@ -254,7 +254,7 @@ sequenceDiagram
 
     Note over G: JwtBuyerGuard + EmailVerifiedGuard
 
-    C->>A: POST /orders<br/>Idempotency-Key: uuid<br/>{ shippingAddressId, paymentMethod, maskedPaymentDetail,<br/>  cartItems[], confirmedPrices[] }
+    C->>A: POST /orders<br/>Idempotency-Key: uuid<br/>{ shippingAddressId, paymentMethod, maskedPaymentDetail,<br/>  cartItems[], confirmedPrices[] (required, one per line) }
     activate A
     A->>G: validate JWT + BUYER role
     alt not authenticated or not BUYER
@@ -323,11 +323,11 @@ sequenceDiagram
             Note over O,P: No currency predicate — offer_price has no currency column#59; every row is in the offer's native_currency_code. Resolution by price_type: SALE (live window) then LIST. Account type and quantity are not inputs — B2B_TIER is not a V1 price type
             O->>P: SELECT rate, as_of FROM pricing.fx_rate<br/>WHERE base_currency_code = :offer_currency<br/>AND quote_currency_code = :buyer_display_currency
             Note over O,P: The capture rate. Read once, here, and written to fulfillment_item.fx_rate_used_at_capture.<br/>1.00000000 when the two currencies are the same. No later read re-derives it.
-            alt resolved price differs from the confirmed/shown price beyond CHECKOUT_PRICE_TOLERANCE
+            alt resolved price differs from the confirmed (shown) price beyond CHECKOUT_PRICE_TOLERANCE
                 O->>P: ROLLBACK
                 O-->>A: PriceChangedException { updatedPrices[] }
                 A-->>C: 409 PRICE_CHANGED<br/>{ updatedPrices: [{ offerId, productTitle, shownAmount, newAmount, currency }] }
-                Note over O,A: Checked against a fresh resolution every time, including on a re-submission<br/>carrying confirmedPrices[] — the buyer confirms each move (US-B-09:210-211).
+                Note over O,A: Checked against a fresh resolution every time, on a first submission and on a re-submission<br/>alike, since confirmedPrices[] is mandatory — the buyer confirms each move (US-B-09:210-211).
             else price confirmed
                 O->>P: SELECT inventory.stock<br/>WHERE offer_id IN :offer_ids FOR UPDATE
                 Note over O,P: Row lock prevents concurrent over-reservation

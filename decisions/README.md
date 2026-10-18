@@ -65,3 +65,4 @@ Copy [`0000-adr-template.md`](0000-adr-template.md) to start one.
 | [0017](0017-seller-price-input-respects-minor-unit-scale.md) | A seller price may not have more decimals than its currency's `minor_unit_scale` | Accepted |
 | [0018](0018-money-renders-through-towire.md) | `Money` renders through `toWire(scale)`, not `toJSON(scale)` | Accepted |
 | [0019](0019-locale-currency-table-partial-placement-duplicate-sku.md) | Locale-to-currency table, `PARTIALLY_PLACED` on skipped lines, duplicate SKU is `422` | Accepted |
+| [0020](0020-confirmed-prices-mandatory-on-checkout.md) | `confirmedPrices[]` is mandatory on every `POST /orders` submission | Accepted |
