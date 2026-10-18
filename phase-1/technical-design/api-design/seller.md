@@ -1777,7 +1777,7 @@ That upload step is [`POST /seller/products/images`](#upload-product-image), one
 
 **The soft tier opens no case at this endpoint, because there is no listing yet.** `admin.moderation_case.offer_id` is a required FK to `catalog.offer` ([data-model-erd.md](../data-model-erd.md#table-admin-moderation-case)) and this endpoint creates no offer — a product with no offer is not listed, is not returned by catalog list or search, and is not something an admin can be asked to decide on. The screen runs again at [`POST /seller/offers`](#create-offer), which is the moment the content becomes a listing, and that is where the `FLAGGED` offer and the `moderation_case` row are written. Flagging here instead would have put a case in the admin's queue pointing at nothing a buyer could see, and left the queue holding products that may never get an offer at all.
 
-**Errors:** 400 validation, 404 category not found, 422 prohibited category, 422 hard-blocklist (`BLOCK`) hit — a `FLAG`-only match is not an error
+**Errors:** 400 validation, 404 category not found, 422 prohibited category, 422 hard-blocklist (`BLOCK`) hit — a `FLAG`-only match is not an error, 422 a duplicate `sku` within the product ([ADR-0019](../../../decisions/0019-locale-currency-table-partial-placement-duplicate-sku.md))
 
 #### Sequence
 
