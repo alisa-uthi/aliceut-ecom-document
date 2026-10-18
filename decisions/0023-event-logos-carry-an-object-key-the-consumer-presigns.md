@@ -33,6 +33,8 @@ publicly readable. The user reversed that: **business logos stay private.**
    the key comes from the payload, and the only I/O is local signing.
 4. **TTL 7 days**, config `LOGO_URL_TTL_SECONDS`, default `604800`. That is
    the S3 SigV4 maximum, so it is also the ceiling; larger values are clamped.
+   Because the consumer presigns at send time, the seven days start when the
+   email is sent, not when the order was placed.
 5. **Public presign host.** The host is part of an S3 signature, so a URL
    signed for `minio:9000` cannot be fixed up afterwards. A second MinIO client
    is built for `MINIO_PUBLIC_ENDPOINT` (default `http://localhost:9000`), with
