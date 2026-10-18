@@ -66,5 +66,6 @@ Copy [`0000-adr-template.md`](0000-adr-template.md) to start one.
 | [0018](0018-money-renders-through-towire.md) | `Money` renders through `toWire(scale)`, not `toJSON(scale)` | Accepted |
 | [0019](0019-locale-currency-table-partial-placement-duplicate-sku.md) | Locale-to-currency table, `PARTIALLY_PLACED` on skipped lines, duplicate SKU is `422` | Accepted |
 | [0020](0020-confirmed-prices-mandatory-on-checkout.md) | `confirmedPrices[]` is mandatory on every `POST /orders` submission | Accepted |
+| [0021](0021-submit-kyc-accepts-a-rejected-seller.md) | `POST /seller/kyc` accepts a new application from a seller whose latest one was `REJECTED` | Accepted |
 | [0022](0022-refund-reason-travels-on-the-refunded-event.md) | The seller's refund reason is stored on the fulfillment and carried on `fulfillment.refunded` | Accepted |
 | [0023](0023-business-logos-are-served-from-a-public-path.md) | Business logos are served from a public path, not presigned | Accepted |
