@@ -624,7 +624,7 @@ The business address is held as columns here rather than as a foreign key to `id
 | `review_due_at` | `TIMESTAMPTZ` | Required; the review SLA deadline, computed once when the row is inserted and never recomputed (BRD §12 #14 — 3 business days, Mon–Fri `Asia/Bangkok`, 17:00 cutoff). Every SLA badge, dashboard count and email reads this column instead of deriving an interval from `submitted_at`, so the business-day rule and its cutoff have exactly one owner. |
 | `created_at`, `updated_at` | `TIMESTAMPTZ` | Required audit timestamps |
 
-A rejected seller resubmits by inserting a new `kyc_application` row whose `supersedes_application_id` points at the rejected one; the same transaction sets `seller.seller_profile.kyc_status` back to `PENDING_KYC`. The rejected row keeps its `status`, `decision_reason`, `reviewer_user_id`, and `decided_at` untouched, so the audit trail of what was refused and why survives every resubmission, and the review history reads back as a chain from the newest application to the first.
+A rejected seller resubmits (through `POST /seller/kyc` or `POST /seller/kyc/resubmit`, [ADR-0021](../../decisions/0021-submit-kyc-accepts-a-rejected-seller.md)) by inserting a new `kyc_application` row whose `supersedes_application_id` points at the rejected one; the same transaction sets `seller.seller_profile.kyc_status` back to `PENDING_KYC`. The rejected row keeps its `status`, `decision_reason`, `reviewer_user_id`, and `decided_at` untouched, so the audit trail of what was refused and why survives every resubmission, and the review history reads back as a chain from the newest application to the first.
 
 <a id="table-admin-moderation-case"></a>
 #### `admin.moderation_case`

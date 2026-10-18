@@ -62,7 +62,7 @@ Guard names are the ones defined in [api-conventions.md § Auth Guard Legend](..
 | Endpoint | Primary DB | Tables / Notes |
 |----------|-----------|----------------|
 | `POST /seller/register` | Postgres | `identity.user` (insert, or add SELLER role to an existing row), `seller.seller_profile` (insert, every `NOT NULL` column from the request — [ADR-0007](../../../decisions/0007-seller-register-collects-business-details.md)), `identity.refresh_session` (insert). New account only: `identity.email_verification_token` (insert), `platform.outbox_event` (`auth.email_verification_requested`, `portal = 'SELLER'` — [ADR-0015](../../../decisions/0015-seller-register-sends-verification-email.md)) |
-| `POST /seller/kyc` | Postgres | `seller.kyc_application` (insert), `platform.outbox_event` (`seller.kyc.submitted`) |
+| `POST /seller/kyc` | Postgres | `seller.kyc_application` (insert; `supersedes_application_id` set when the latest was `REJECTED` — [ADR-0021](../../../decisions/0021-submit-kyc-accepts-a-rejected-seller.md)), `seller.seller_profile` (`kyc_status` back to `PENDING_KYC` after a rejection), `platform.outbox_event` (`seller.kyc.submitted`, `is_resubmission: true` after a rejection) |
 | `GET /seller/profile` | Postgres | `seller.seller_profile` (incl. the address columns `address_line_1`, `address_line_2`, `city`, `state_region`, `postal_code`, `country_code` — [ADR-0009](../../../decisions/0009-seller-profile-get-returns-business-address.md)) |
 | `PATCH /seller/profile` | Postgres | `seller.seller_profile` (`business_name` and the address columns only — [ADR-0006](../../../decisions/0006-seller-profile-patch-writes-address-columns.md)), `platform.outbox_event` (`seller.profile_changed`, only when `business_name` changed) |
 | `GET /seller/kyc` | Postgres | `seller.kyc_application` |
@@ -313,7 +313,8 @@ documents[]: file[] (business licence PDF, ID document, proof of address — enc
 }
 ```
 Side effect: `seller.kyc.submitted` event via the outbox — the notification consumer sends ET-14 to the seller and ET-21 to the admin.  
-**Errors:** 400 validation, 404 the account holds no seller profile (it is created by [`POST /seller/register`](#register-as-seller), never here — [ADR-0007](../../../decisions/0007-seller-register-collects-business-details.md)), 409 an application is already `PENDING` or `APPROVED` (a rejected one is resubmitted through [`POST /seller/kyc/resubmit`](#resubmit-kyc-application)), 413 a file exceeds `KYC_UPLOAD_MAX_BYTES`, 415 a file fails the type allowlist
+**A rejected seller submits here too** ([ADR-0021](../../../decisions/0021-submit-kyc-accepts-a-rejected-seller.md)): when the latest application is `REJECTED`, the new row's `supersedes_application_id` points at it, `seller_profile.kyc_status` returns to `PENDING_KYC` in the same transaction, and the event carries `is_resubmission: true`, `prior_application_id` and `prior_rejection_date`, exactly as [`POST /seller/kyc/resubmit`](#resubmit-kyc-application) does; the two share one code path.  
+**Errors:** 400 validation, 404 the account holds no seller profile (it is created by [`POST /seller/register`](#register-as-seller), never here — [ADR-0007](../../../decisions/0007-seller-register-collects-business-details.md)), 409 the latest application is `PENDING`, `UNDER_REVIEW` or `APPROVED`, 413 a file exceeds `KYC_UPLOAD_MAX_BYTES`, 415 a file fails the type allowlist
 
 <a id="kyc-upload-validation"></a>
 **Upload validation.** Each file is checked three ways before it reaches object storage, and all three must pass:
@@ -360,8 +361,9 @@ sequenceDiagram
     SS->>P: SELECT seller.kyc_application WHERE seller_profile_id = :sellerProfileId ORDER BY submitted_at DESC LIMIT 1
     alt latest application status IN (PENDING, UNDER_REVIEW, APPROVED)
         SS-->>A: ConflictException
-        A-->>C: 409 Conflict — an application is already pending or approved
+        A-->>C: 409 Conflict — an application is already pending, under review or approved
     end
+    Note over SS,P: latest status REJECTED is accepted: the insert below sets supersedes_application_id, the same transaction sets seller_profile.kyc_status=PENDING_KYC, and the event carries is_resubmission:true with prior_application_id and prior_rejection_date (ADR-0021)
 
     SS->>ObjS: PUT documents[N] (AES-256 encrypted, bucket: kyc-documents)
     ObjS-->>SS: document_storage_keys[]
@@ -588,6 +590,9 @@ POST /seller/kyc/resubmit
 Tag: Seller
 Auth: SELLER (KYC status must be REJECTED)
 ```
+[`POST /seller/kyc`](#submit-kyc-application) accepts the same rejected seller ([ADR-0021](../../../decisions/0021-submit-kyc-accepts-a-rejected-seller.md)); this endpoint is kept for existing clients and behaves identically in that case.
+
+
 **Request body** (multipart/form-data) — the same fields as [`POST /seller/kyc`](#submit-kyc-application):
 ```
 businessName: string
