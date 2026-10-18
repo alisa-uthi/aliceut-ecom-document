@@ -153,7 +153,7 @@ Recipient identity above; this is the rest of each template. A variable rendered
 | | `failed_groups[].items[].product_title`, `reason` | `payload.failed_groups[]` |
 | ET-02 | `seller_name`, `tracking_number`, `eta`, `item.*` | `payload.seller_name`, `.tracking_number`, `.estimated_delivery_at`, `.items[]` |
 | ET-03 | `seller_name`, `item.*` | `payload.seller_name`, `.items[]` |
-| ET-04 | `seller_name`, `refunded_at`, `item.*`, totals | `payload.seller_name`, `.refunded_at`, `.items[]`, `.buyer_currency_total`, `.currency_code`, `.buyer_display_currency` |
+| ET-04 | `seller_name`, `refunded_at`, `refund_reason`, `item.*`, totals | `payload.seller_name`, `.refunded_at`, `.reason` (optional; the block is omitted when null), `.items[]`, `.buyer_currency_total`, `.currency_code`, `.buyer_display_currency` |
 | ET-05 | `order_id`, `placed_at` | `payload.display_id`, `payload.placed_at` |
 | ET-06 / ET-07 | `seller.full_name`, `seller.business_name`, `rejection_reason` | `payload.seller_name`, `.business_name`, `.reason` |
 | ET-08 | `seller.full_name`, `product_title`, `flagged_at`, `flag_reason` | `payload.seller_name`, `.product_title`, `.flagged_at`, `.flag_reason` |

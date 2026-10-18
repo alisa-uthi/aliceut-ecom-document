@@ -1605,7 +1605,7 @@ Auth: SELLER_ACTIVE
 ```json
 { "reason": "string (required, max 500 chars)" }
 ```
-`reason` is mandatory (US-S-07:144) — the buyer is told why their order was refunded, so there has to be something to tell them. The cancel endpoint already required one; refund did not, and had nowhere to put it.
+`reason` is mandatory (US-S-07:144) — the buyer is told why their order was refunded, so there has to be something to tell them. It is stored in `orders.fulfillment.refund_reason` and carried as `payload.reason` on `fulfillment.refunded`, which ET-04 renders ([ADR-0022](../../../decisions/0022-refund-reason-travels-on-the-refunded-event.md)). A replay against an already-`REFUNDED` fulfillment keeps the reason from the first refund; the replayed body's `reason` is ignored.
 
 **Response 200**
 ```json
@@ -1674,9 +1674,9 @@ sequenceDiagram
     OrdS->>OrdS: capture prior_status = fulfillment.status (PENDING or SHIPPED)
 
     Note over P,KO: BEGIN TRANSACTION
-    OrdS->>P: UPDATE orders.fulfillment SET status='REFUNDED', refunded_at=NOW(), updated_at=NOW() WHERE id=:fulfillmentId AND seller_profile_id = :sellerProfileId
+    OrdS->>P: UPDATE orders.fulfillment SET status='REFUNDED', refunded_at=NOW(), refund_reason=:reason, updated_at=NOW() WHERE id=:fulfillmentId AND seller_profile_id = :sellerProfileId
     Note over OrdS,P: no inventory write here — stock restoration belongs to the inventory consumer, keyed on fulfillment_id. Writing it in this transaction as well restored the stock twice.
-    OrdS->>KO: INSERT platform.outbox_event (topic='fulfillment.refunded', aggregate_type='orders.fulfillment', aggregate_id=:fulfillmentId, key=order_id, payload={fulfillment_id, display_id, order_id, buyer_id, buyer_email, buyer_name, seller_id:sellerProfileId, seller_name, prior_status, stock_restored:(prior_status='PENDING'), refunded_at, refund_amount, currency_code, buyer_currency_total, buyer_display_currency, items[]})
+    OrdS->>KO: INSERT platform.outbox_event (topic='fulfillment.refunded', aggregate_type='orders.fulfillment', aggregate_id=:fulfillmentId, key=order_id, payload={fulfillment_id, display_id, order_id, buyer_id, buyer_email, buyer_name, seller_id:sellerProfileId, seller_name, prior_status, stock_restored:(prior_status='PENDING'), refunded_at, refund_amount, currency_code, buyer_currency_total, buyer_display_currency, reason, items[]})
     Note over OrdS,KO: Field names are the schema's (kafka-events § 2.7): buyer_currency_total, not buyer_currency_refund_amount — the refunded total is the captured fulfillment total and the payload calls it what orders.fulfillment calls it. buyer_email and buyer_name address and greet ET-04
     Note over OrdS,KO: stock_restored is false when prior_status = SHIPPED — the goods have left the warehouse (US-S-07:148)
     Note over P,KO: COMMIT
