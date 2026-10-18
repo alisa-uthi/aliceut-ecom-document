@@ -85,7 +85,7 @@ Auth: JWT
 **Notes:**
 - `sellerKycStatus` and `sellerSuspensionStatus` mirror the two independent JWT claims of the same names ([auth-jwt-design § 1.1](../../../conventions/auth-jwt-design.md#jwt-payload-structure)) and the two `seller.seller_profile` columns behind them. Both are `null` when the account holds no SELLER role. There is no combined `sellerStatus` field — a seller can be KYC-approved and suspended at once, so one field cannot express the state.
 - `preferredCurrency` drives display-currency resolution across the buyer and seller portals. It is an ISO 4217 code from the seller-priceable set, or `null`. **`null` is the "Auto" setting** — the display currency is resolved from `Accept-Language` at request time, falling back to `USD` when the resolved currency is not supported. There is no `"AUTO"` value: the column is `CHAR(3)` with an FK to `pricing.currency(code)` (ERD `identity.user`), and `AUTO` is not a currency.
-- `businessName` and `businessLogoUrl` are non-null only for `accountType = B2B`. `businessLogoUrl` is the stable public URL of the logo, `{MINIO_PUBLIC_BASE_URL}/user-assets/{business_logo_storage_key}` ([ADR-0023](../../../decisions/0023-business-logos-are-served-from-a-public-path.md)). It does not expire and carries no signature.
+- `businessName` and `businessLogoUrl` are non-null only for `accountType = B2B`. `businessLogoUrl` is a presigned URL (1-hour TTL) generated from `identity.user.business_logo_storage_key`, signed for `MINIO_PUBLIC_ENDPOINT` so a browser can load it ([ADR-0023](../../../decisions/0023-event-logos-carry-an-object-key-the-consumer-presigns.md)). The 7-day logo URL in ET-01 is a different URL, minted by the notification consumer.
 
 #### Sequence
 
@@ -100,7 +100,7 @@ sequenceDiagram
     G->>A: guard passed (JWT) — proceed with decoded JWT {sub, roles, ...}
 
     A->>PG: SELECT identity.user WHERE id = JWT.sub
-    Note over A: If business_logo_storage_key is set, build the public logo URL from MINIO_PUBLIC_BASE_URL and the key
+    Note over A: If business_logo_storage_key is set, generate presigned URL (1h TTL) from user-assets bucket, signed for MINIO_PUBLIC_ENDPOINT
 
     A-->>C: 200 { data: { id, email, fullName, roles, emailVerified, accountType, sellerKycStatus, sellerSuspensionStatus, preferredCurrency, businessName, businessLogoUrl } }
 ```
@@ -158,7 +158,7 @@ sequenceDiagram
     A->>PG: UPDATE identity.user SET full_name=$1, preferred_currency=$2, business_name=$3 WHERE id=JWT.sub
 
     A->>PG: SELECT identity.user WHERE id = JWT.sub
-    Note over A: If business_logo_storage_key is set, build the public logo URL so the response matches GET /profile/me
+    Note over A: If business_logo_storage_key is set, generate presigned URL (1h TTL) so the response matches GET /profile/me
     A-->>C: 200 { data: { id, email, fullName, roles, emailVerified, accountType, sellerKycStatus, sellerSuspensionStatus, preferredCurrency, businessName, businessLogoUrl } }
 ```
 
@@ -175,16 +175,16 @@ Auth: JWT
 **Request:** `multipart/form-data` — single file field `logo` (JPEG/PNG/WebP, max 2 MB, max 800 × 800 px).  
 **Response 200** — updated profile with new `businessLogoUrl`
 ```json
-{ "data": { "businessLogoUrl": "http://localhost:9000/user-assets/logos/{userId}/{uuid}.png" } }
+{ "data": { "businessLogoUrl": "https://minio.../presigned-url" } }
 ```
 **Errors:** 400 invalid file type or size, 422 non-B2B account
 
 **Notes:**
 - Server generates a UUID filename; client-supplied filename is ignored.
 - Dimensions are read server-side before storage. An image larger than 800 × 800 px is **resized down** to fit that box, preserving aspect ratio, and the resized image is what gets stored (US-B-15). Oversized dimensions are not a validation failure — only an unsupported MIME type or a file above 2 MB is.
-- File stored in the `user-assets` bucket under key `logos/{userId}/{uuid}.{ext}`. The `logos/` prefix is anonymously readable ([ADR-0023](../../../decisions/0023-business-logos-are-served-from-a-public-path.md)); nothing else in `user-assets` is.
+- File stored in the private `user-assets` bucket under key `logos/{userId}/{uuid}.{ext}`.
 - After upload, `identity.user.business_logo_storage_key` is updated in the same request.
-- The URL in the response is the stable public URL; no TTL.
+- Presigned URL in response has 1-hour TTL, signed for `MINIO_PUBLIC_ENDPOINT`.
 
 #### Sequence
 
@@ -218,8 +218,9 @@ sequenceDiagram
 
     A->>PG: UPDATE identity.user SET business_logo_storage_key = :key WHERE id = JWT.sub
 
-    A->>A: Build public URL from MINIO_PUBLIC_BASE_URL + bucket + key
-    A-->>C: 200 { data: { businessLogoUrl: "public-url" } }
+    A->>MinIO: Generate presigned GET URL (1h TTL, public endpoint host)
+    MinIO-->>A: presigned URL
+    A-->>C: 200 { data: { businessLogoUrl: "presigned-url" } }
 ```
 
 ---
