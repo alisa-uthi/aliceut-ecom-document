@@ -341,7 +341,7 @@ div.search-layout [display: flex; gap: 24px]
 Two reads, because the display-currency fields and the seller name are returned only by the second form of the offer resource:
 
 - `GET /catalog/products/:productId` — title, brand, description, `attributes`, `variants[]`, `images[]`, and `offers[]` with `effectivePrice` (native currency), `availableQty`, `status`.
-- `GET /catalog/products/:productId/offers?currency=` — the same offers with `sellerName` and the `displayAmount` / `displayCurrency` / `fxRate` / `fxAsOf` / `fxStale` fields. `currency` defaults to the caller's `preferredCurrency`, then `USD`.
+- `GET /catalog/products/:productId/offers?currency=` — the same offers with `sellerName` and the `displayAmount` / `displayCurrency` / `fxRate` / `fxAsOf` / `fxStale` fields. `currency` defaults to the caller's `preferredCurrency`; a `NULL` preference or an anonymous caller is the Auto setting, which resolves to the currency of the `Accept-Language` locale, and `USD` only when there is no header or that currency is not one of `USD`, `THB`, `JPY`, `SGD` ([ADR-0011](../../decisions/0011-null-preferred-currency-resolves-from-accept-language.md)).
 
 ### Layout
 

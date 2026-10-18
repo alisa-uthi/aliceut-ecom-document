@@ -1,14 +1,14 @@
 # Authentication Portals
 
 **References:** US-B-00, US-B-01, US-B-15, US-S-01, US-A-00b  
-**Email templates:** ET-14 (KYC received — to seller), ET-18 (email verification — buyer), ET-21 (KYC alert — to admin)  
+**Email templates:** ET-14 (KYC received — to seller), ET-18 (email verification — buyer and seller), ET-21 (KYC alert — to admin)  
 
 ## Key invariants
 
 - Three separate portals: buyer (`/login`, `/register`), seller (`/seller/login`, `/seller/register`), admin (`/admin/login` — no self-registration)
 - OAuth (Google/Facebook) available on buyer portal only; seller and admin portals are email/password exclusively
 - One account may hold BUYER + SELLER roles, accessed via respective portals independently; ADMIN is never co-held
-- Seller `/seller/register`: new email creates new account; existing buyer email requires password auth to link SELLER role; OAuth-only buyer must set local password first (US-B-15)
+- Seller `/seller/register`: new email creates new account and sends the ET-18 seller-variant verification email (link to `/seller/verify-email`; ADR-0015); existing buyer email requires password auth to link SELLER role; OAuth-only buyer must set local password first (US-B-15)
 - Admin accounts seeded directly in database (`admin@aliceut.dev`, hashed password in DB); no registration path exists in the UI
 - All three portals issue the same JWT format (`sub`, `roles`, `email_verified`); refresh token rotation applies to all sessions
 
@@ -37,6 +37,9 @@ subgraph SELLER_P["SELLER PORTAL — /seller/login · /seller/register"]
     SP1 -->|"Existing buyer account\nhas local password"| SP3["Authenticate with password\nSELLER role linked to account"]
     SP1 -->|"Existing buyer account\nOAuth-only — no local password"| SP4["Set password first via\nBuyer Account Settings\nUS-B-15"]
     SP4 --> SP3
+    SP2 --> SP2V["ET-18 seller variant
+Verification email to the new account
+Link opens /seller/verify-email"]
     SP2 --> SP5["KYC documents form"]
     SP3 --> SP5
     SP5 --> SP6["Submit KYC\nET-14 to seller · ET-21 to admin"]

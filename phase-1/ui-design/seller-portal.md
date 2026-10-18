@@ -653,6 +653,7 @@ mat-card [margin-bottom: 24px; padding: 24px]
           <!-- Currency comes from the select above, not from the loaded entity: `listing` is
                null on a new listing, which is exactly when that select is enabled. -->
           <aliceut-currency-input [currencyCode]="listingForm.get('nativeCurrencyCode')?.value" formControlName="amount" [required]="true">
+            mat-error *ngIf="priceGroup.get('amount')?.hasError('scale')" — At most {{ scale }} decimal places (JPY none, USD/THB/SGD two). Checked before submit; the API answers 400 with an `errors[]` entry on `prices[].amount` otherwise and the form shows that message on the field (ADR-0017).
           <!-- SALE fields -->
           ng-container *ngIf="priceGroup.value.priceType === 'SALE'"
             mat-form-field [appearance=outline]
@@ -723,10 +724,11 @@ The two must not be collapsed into one message: a `422` leaves the seller with n
 
 ### API flow — create a new listing
 
-1. `POST /seller/products` with the product fields (title, description, category, images, variants) → returns `productId`.
-2. `POST /seller/offers` with that `productId` plus `nativeCurrencyCode` and the price rows.
+1. Each selected image is uploaded first with `POST /seller/products/images`, one file per request, which returns a `storageKey` ([ADR-0003](../../decisions/0003-product-image-upload-endpoint.md)). The upload widget makes one request per file and retries a failed file on its own, without re-sending the others.
+2. `POST /seller/products` with the product fields (title, description, category, the `storageKey`s as `images`, variants) → returns `productId`.
+3. `POST /seller/offers` with that `productId` plus `nativeCurrencyCode` and the price rows.
 
-The hard tier can reject either call. If step 2 fails the page shows "Your product was saved but pricing could not be set — please try again from the Listings page." and retains the `productId` from step 1, so a retry does not duplicate the product. Editing an existing listing is `PATCH /seller/products/:productId` against the product the loaded offer points at; the route carries the offer id only and the component resolves the product id from it ([navigation-routing.md § 3](navigation-routing.md#seller-app-route-tree)).
+The hard tier can reject either call. If step 3 fails the page shows "Your product was saved but pricing could not be set — please try again from the Listings page." and retains the `productId` from step 2, so a retry does not duplicate the product. Editing an existing listing is `PATCH /seller/products/:productId` against the product the loaded offer points at; the route carries the offer id only and the component resolves the product id from it ([navigation-routing.md § 3](navigation-routing.md#seller-app-route-tree)).
 
 ---
 
@@ -1080,6 +1082,7 @@ mat-card *ngIf="showPriceForm" [padding: 24px; margin-top: 16px]
           mat-option value="SALE" — SALE
       <aliceut-currency-input [currencyCode]="offer.nativeCurrencyCode" formControlName="amount" [required]="true">
         mat-error *ngIf="priceForm.get('amount')?.hasError('pattern')" — Amount must be a valid number
+        mat-error *ngIf="priceForm.get('amount')?.hasError('scale')" — At most {{ scale }} decimal places for {{ offer.nativeCurrencyCode }}. Checked before submit; a 400 `errors[]` entry on `amount` from the API is shown on the same field (ADR-0017).
       <!-- SALE fields (shown when priceType === 'SALE') -->
       ng-container *ngIf="priceForm.get('priceType')?.value === 'SALE'"
         mat-form-field [appearance=outline]

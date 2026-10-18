@@ -848,7 +848,7 @@ Terminal statuses count as settled, not pending:
           { "name": "offer_id",    "type": "string" },
           { "name": "product_id",  "type": "string" },
           { "name": "seller_id",   "type": "string" },
-          { "name": "variant_id",  "type": ["null","string"], "default": null },
+          { "name": "variant_id",  "type": ["null","string"], "default": null, "doc": "UUID of the offer's variant. Every offer has one (ADR-0013), so events produced now always carry a non-null string; the null branch stays only so schema version 1 remains BACKWARD-compatible, and consumers must still tolerate null on a replay of an older event." },
           { "name": "change_type", "type": { "type": "enum", "name": "OfferChangeType", "symbols": ["CREATED","UPDATED","DEACTIVATED","REMOVED","UNKNOWN"], "default": "UNKNOWN" }, "doc": "Names the status the offer row reached, not the operation the endpoint is called: CREATED is the first publish, DEACTIVATED the ACTIVE-to-INACTIVE transition a seller makes through PATCH /seller/offers/:offerId (catalog.offer.status_changed_reason = SELLER_DEACTIVATED), REMOVED the soft delete. UPDATED covers everything else, including a status move that has no symbol of its own — a reactivation back to ACTIVE, or a move to FLAGGED — where status carries the truth and change_type only says the change was not one of the named kinds. One status change does not appear on this topic at all: an admin suspension sets a seller's offers INACTIVE and publishes seller.suspended carrying offer_ids (§2.3), so a consumer sees that transition there and not here" },
           { "name": "status",      "type": "string", "doc": "catalog.offer.status — ACTIVE, INACTIVE, REMOVED or FLAGGED. V1 has no draft state: a listing goes live on successful submit. Authoritative for any consumer deciding whether the offer belongs in the search index: change_type says what kind of change it was, status says what the row now is" },
           { "name": "seller_name",   "type": "string", "doc": "seller.seller_profile.business_name — the seller's catalogue-facing display name, indexed on the offers[] entry and rendered beside the listing. Obtained through SellerApplicationService in the producing transaction, because the search consumer may not read seller.seller_profile; a later rename travels on seller.profile_changed (§2.28)" },
@@ -973,8 +973,8 @@ Terminal statuses count as settled, not pending:
           { "name": "product_title",       "type": "string" },
           { "name": "available_qty",       "type": "int" },
           { "name": "low_stock_threshold", "type": "int", "default": 5 },
-          { "name": "sku_label",           "type": "string" },
-          { "name": "sku_id",              "type": "string" },
+          { "name": "sku_label",           "type": "string", "doc": "The offer's variant SKU (catalog.product_variant.sku), never an empty string: every offer references a variant, so the producer INNER JOINs it (ADR-0013). A default variant is the literal 'DEFAULT'." },
+          { "name": "sku_id",              "type": "string", "doc": "UUID of the offer's catalog.product_variant (ADR-0013), never an empty string." },
           { "name": "on_hand_qty",         "type": "int" },
           { "name": "reserved_qty",        "type": "int" },
           { "name": "seller_email",        "type": "string" },
@@ -1393,7 +1393,7 @@ The sweep is the **one** place that scopes on `order_id` rather than `fulfillmen
                 "type": "record", "name": "FxRateEntry",
                 "fields": [
                   { "name": "currency_code", "type": "string", "doc": "ISO 4217 — display/quote currency (buyer's display target)" },
-                  { "name": "rate",          "type": "string", "doc": "NUMERIC(19,8) as string; base_currency → currency_code conversion rate" },
+                  { "name": "rate",          "type": "string", "doc": "NUMERIC(19,8) as string; base_currency → currency_code conversion rate, derived from one USD-based provider quote (ADR-0016)" },
                   { "name": "as_of",         "type": "string", "doc": "ISO 8601 — mirrors pricing.fx_rate.as_of, the provider's quote timestamp" }
                 ]
               }
@@ -1410,7 +1410,7 @@ The sweep is the **one** place that scopes on `order_id` rather than `fulfillmen
 
 | Consumer group | Pattern | Side effects |
 |---------------|---------|--------------|
-| `search.fx-rate-updated` | `search.*` | Refreshes the `display_prices` map for the updated currency pair: on every `offers[]` entry whose `native_currency_code` is the event's base currency, and on the product-level copy recomputed from those entries. The index holds product documents, so this touches nested entries and a rollup, not one document per offer. Browse-time display only — no order or fulfillment amount is ever re-derived from this event. |
+| `search.fx-rate-updated` | `search.*` | Refreshes the `display_prices` map for the updated base currency, once per event (a refresh emits four, one per base; ADR-0016): on every `offers[]` entry whose `native_currency_code` is the event's base currency, and on the product-level copy recomputed from those entries. The index holds product documents, so this touches nested entries and a rollup, not one document per offer. Browse-time display only — no order or fulfillment amount is ever re-derived from this event. |
 
 This is the one topic with **no `platform.audit` consumer**: the FX table is a per-pair display cache refreshed by upsert in place, so its previous values are neither accountability nor lifecycle data ([data-model-mongodb.md — Consumer routing](data-model-mongodb.md#consumer-routing)).
 

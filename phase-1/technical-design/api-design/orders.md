@@ -40,7 +40,7 @@
 - Offer status, effective price, and stock are rechecked inside the checkout transaction — cart data alone is never trusted.
 - `FulfillmentItem` snapshots are immutable after insert. `fx_rate_used_at_capture` is `NOT NULL` and is `1.00000000` when the seller's native currency equals the buyer's display currency, so no reader branches on a null rate.
 - Every buyer-currency amount the buyer is shown is itself snapshotted at capture (`fulfillment.buyer_currency_total`, `fulfillment_item.buyer_currency_unit_price`, `fulfillment_item.buyer_currency_tax`, `order.buyer_currency_grand_total`). **No endpoint in this module converts money at read time**, and no client performs monetary arithmetic — every amount is a string already denominated in the currency it will be displayed in, with its currency code beside it (FR-P-03, FR-P-04a).
-- Rounding happens once, at capture, using the target currency's `Currency.minor_unit_scale` (JPY 0, BHD 3); storage keeps four fractional digits.
+- Rounding happens once, at capture, half-up ([ADR-0008](../../../decisions/0008-api-amounts-round-half-up.md)), using the target currency's `Currency.minor_unit_scale` (JPY 0, BHD 3); storage keeps four fractional digits.
 - Order confirmation is returned after the transaction commits; it never waits for Kafka, Elasticsearch, email, or MongoDB consumers.
 - The Orders module never writes `inventory.*` outside the checkout transaction. Cancel and refund publish an event and the inventory consumer restores stock; reservation release scopes on `fulfillment_id`, never on `order_id`.
 

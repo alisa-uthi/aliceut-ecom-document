@@ -65,7 +65,7 @@ erDiagram
     CATALOG_PRODUCT ||--o{ CATALOG_PRODUCT_VARIANT : has
     CATALOG_PRODUCT ||--o{ CATALOG_PRODUCT_IMAGE : displays
     CATALOG_PRODUCT ||--o{ CATALOG_OFFER : offered_as
-    CATALOG_PRODUCT_VARIANT o|--o{ CATALOG_OFFER : selected_variant
+    CATALOG_PRODUCT_VARIANT ||--o{ CATALOG_OFFER : selected_variant
     SELLER_SELLER_PROFILE o|--o{ CATALOG_PRODUCT : created
     SELLER_SELLER_PROFILE ||--o{ CATALOG_OFFER : sells
     CATALOG_OFFER ||--o{ PRICING_OFFER_PRICE : priced_by
@@ -256,8 +256,8 @@ Storing only `token_hash` is a **PostgreSQL storage rule**, and it applies equal
 |---|---|---|
 | `id` | `UUID` | PK; `DEFAULT uuidv7()` |
 | `product_id` | `UUID` | Required FK → `catalog.product(id)` |
-| `sku` | `TEXT` | Required; unique with `product_id` |
-| `attributes` | `JSONB` | Required normalized buyer-facing attributes, such as colour and size |
+| `sku` | `TEXT` | Required; `UNIQUE (product_id, sku)`. The default variant created for an offer that names none uses SKU `DEFAULT`; concurrent offer creates resolve it with `ON CONFLICT (product_id, sku) DO NOTHING` then re-select ([ADR-0013](../../decisions/0013-offer-requires-variant.md)) |
+| `attributes` | `JSONB` | Required normalized buyer-facing attributes, such as colour and size. The variant's display label (`variantLabel`, max 200 characters) is stored here as `attributes.variantLabel`: the table has no column of its own, the service folds the request field in on write, and every read path takes it out of this column ([ADR-0002](../../decisions/0002-variant-label-lives-in-attributes.md)) |
 | `created_at`, `updated_at` | `TIMESTAMPTZ` | Required audit timestamps |
 
 <a id="table-catalog-product-image"></a>
@@ -267,7 +267,7 @@ Storing only `token_hash` is a **PostgreSQL storage rule**, and it applies equal
 |---|---|---|
 | `id` | `UUID` | PK; `DEFAULT uuidv7()` |
 | `product_id` | `UUID` | Required FK → `catalog.product(id)` |
-| `storage_key` | `TEXT` | Required object-storage key or URL |
+| `storage_key` | `TEXT` | Required object-storage key, never a URL: `products/<sellerProfileId>/<uuidv7>.<ext>` in the public-read `product-images` bucket, resolved against the media base URL at read time ([ADR-0003](../../decisions/0003-product-image-upload-endpoint.md)) |
 | `alt_text` | `TEXT` | Nullable accessibility text |
 | `position` | `SMALLINT` | Required display order; unique with `product_id` |
 | `created_at`, `updated_at` | `TIMESTAMPTZ` | Required audit timestamps |

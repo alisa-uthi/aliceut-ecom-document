@@ -196,6 +196,12 @@ export class Money {
     return this.amount.toFixed(scale, Decimal.ROUND_HALF_UP);
   }
 
+  // Deliberately throws: a Money embedded directly in a JSON.stringify call would reach a
+  // toJSON hook with the parent key as `scale`. Callers must name toWire(scale) (ADR-0018).
+  toJSON(): never {
+    throw new Error('Money.toJSON() must not be called directly. Use Money.toWire(scale).');
+  }
+
   private assertSameCurrency(other: Money): void {
     if (this.currency !== other.currency) {
       throw new Error(`Currency mismatch: ${this.currency} vs ${other.currency}`);

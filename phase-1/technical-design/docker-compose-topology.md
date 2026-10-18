@@ -53,7 +53,7 @@ The three `./config/` paths resolve inside the infra repository itself, not a si
 <a id="service-inventory"></a>
 ## 2. Service inventory
 
-**Twenty services.** Every one of them starts in V1; nothing in this file is staged for a later phase.
+Every service below starts in V1 (the count is published in [architecture-overview.md § 10](../../architecture-overview.md#deployment-topology), not here); nothing in this file is staged for a later phase.
 
 | Service | Image / Build | Host port | Purpose |
 |---------|--------------|-----------|---------|
@@ -271,6 +271,9 @@ CLEANUP_IDEMPOTENCY_KEYS_CRON=20 3 * * *
 CLEANUP_OUTBOX_EVENTS_CRON=25 3 * * *
 CLEANUP_PROCESSED_EVENTS_CRON=30 3 * * *
 CLEANUP_IN_APP_NOTIFICATIONS_CRON=35 3 * * *
+CLEANUP_PRODUCT_IMAGES_CRON=40 3 * * *
+# Orphan sweep of the product-images bucket (ADR-0004): an object younger than this is never a candidate.
+PRODUCT_IMAGE_ORPHAN_GRACE_HOURS=24
 # One batch size shared by every cleanup job, not one per job.
 CLEANUP_BATCH_SIZE=1000
 # Retention windows. Three of these are coupled to other values and are not free
@@ -500,6 +503,11 @@ services:
       ELASTICSEARCH_NODE: http://elasticsearch:9200
       KAFKA_BROKERS: kafka:9092
       SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      # The orphaned-product-image sweep lists and deletes objects in product-images (ADR-0004).
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-aliceut_app}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      MINIO_PRODUCT_IMAGES_BUCKET: ${MINIO_PRODUCT_IMAGES_BUCKET:-product-images}
       # Every ET-* email leaves from here: notifications are Kafka consumers, never
       # inline in an HTTP handler, so api carries no SMTP config at all.
       SMTP_HOST: ${SMTP_HOST:-mailpit}
@@ -528,6 +536,8 @@ services:
       CLEANUP_OUTBOX_EVENTS_CRON: "${CLEANUP_OUTBOX_EVENTS_CRON:-25 3 * * *}"
       CLEANUP_PROCESSED_EVENTS_CRON: "${CLEANUP_PROCESSED_EVENTS_CRON:-30 3 * * *}"
       CLEANUP_IN_APP_NOTIFICATIONS_CRON: "${CLEANUP_IN_APP_NOTIFICATIONS_CRON:-35 3 * * *}"
+      CLEANUP_PRODUCT_IMAGES_CRON: "${CLEANUP_PRODUCT_IMAGES_CRON:-40 3 * * *}"
+      PRODUCT_IMAGE_ORPHAN_GRACE_HOURS: ${PRODUCT_IMAGE_ORPHAN_GRACE_HOURS:-24}
       CLEANUP_BATCH_SIZE: ${CLEANUP_BATCH_SIZE:-1000}
       REFRESH_SESSION_CLEANUP_BUFFER_DAYS: ${REFRESH_SESSION_CLEANUP_BUFFER_DAYS:-7}
       STOCK_RESERVATION_RETENTION_DAYS: ${STOCK_RESERVATION_RETENTION_DAYS:-30}
