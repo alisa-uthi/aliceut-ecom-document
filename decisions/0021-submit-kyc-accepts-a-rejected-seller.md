@@ -3,7 +3,7 @@
 **Status:** Accepted
 **Date:** 2026-10-18
 **Affects:** `phase-1/technical-design/api-design/seller.md` (Submit KYC application, Resubmit KYC application, DB Mapping, endpoint index), `phase-1/technical-design/data-model-erd.md` (`kyc_application`), `phase-1/requirements/user-stories/seller.md` (US-S-01), `phase-1/technical-design/spec-compliance.md` (the `POST /seller/kyc` entry, closed by the lead)
-**Implemented by:** aliceut-ecom-backend (PR number below once opened); no frontend change
+**Implemented by:** aliceut-ecom-backend (w7-kyc branch, same pass); no frontend change
 
 ## Context
 
