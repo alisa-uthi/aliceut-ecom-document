@@ -764,6 +764,7 @@ sequenceDiagram
     alt currency not in the allowed set (USD, THB, JPY, SGD)
         PAS-->>C: 422 Unprocessable — currency not allowed for seller pricing
     end
+    OS->>CAS: resolveVariant(productId, variantId?) — a supplied variantId must belong to the product; when omitted, find or create the product's default variant (SKU DEFAULT) with INSERT ... ON CONFLICT (product_id, sku) DO NOTHING then re-select (ADR-0013)
     OS->>CAS: getProductForListing(productId)
     CAS->>P: SELECT catalog.product JOIN catalog.category ON product.category_id = category.id WHERE product.id = productId AND product.status = 'ACTIVE'
     alt product not found
@@ -1834,7 +1835,7 @@ sequenceDiagram
         CAS->>P: INSERT catalog.product_image (product_id, storage_key, position, created_at)
     end
     CAS->>KO: INSERT platform.outbox_event (topic='product.changed', aggregate_type='catalog.product', aggregate_id=product_id, key=product_id, event_type='product.changed', event_version=1, correlation_id, occurred_at=NOW(), created_at=NOW(), updated_at=NOW(), payload={product_id, change_type:'CREATED', category_id, category_path, title, brand, description, status:'ACTIVE', created_at, variants[], images[]}, publication_status='PENDING')
-    Note over PS,KO: The payload is the whole set of fields Catalog owns on the product document, not an id and a change type: the search consumer writes title, brand, description, category_id, category_path, status, created_at, variants and images, and may read no catalog table to obtain them (api-design/search.md § Document composition). category_path is resolved from catalog.category in this transaction — the consumer cannot walk the tree
+    Note over PS,KO: The payload is the whole set of fields Catalog owns on the product document, not an id and a change type: the search consumer writes title, brand, description, category_id, category_path, status, created_at, variants and images, and may read no catalog table to obtain them; category_path is the ancestor-to-leaf category slugs, ADR-0005 (api-design/search.md § Document composition). category_path is resolved from catalog.category in this transaction — the consumer cannot walk the tree
     Note over P,KO: COMMIT
 
     Note right of KR: async — post-commit
@@ -1949,6 +1950,7 @@ sequenceDiagram
     Note over PS,P: the edit commits even when a guard fired — the flag follows the save, it does not replace it (US-S-04:74)
     loop for each variant in variants[] (upsert by sku)
         CAS->>P: INSERT catalog.product_variant (...) ON CONFLICT (product_id, sku) DO UPDATE SET attributes=?, updated_at=NOW()
+        Note over CAS,P: attributes is the supplied attributes with variantLabel folded in as attributes.variantLabel, so an edit never drops the label (ADR-0002)
     end
     loop for each image update
         CAS->>P: UPDATE catalog.product_image SET storage_key=?, alt_text=?, updated_at=NOW() WHERE product_id=? AND position=?

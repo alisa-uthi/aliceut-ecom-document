@@ -208,7 +208,7 @@ Auth: PUBLIC (JWT claims are not used for price resolution)
       {
         "offerId": "uuid",
         "sellerId": "uuid",
-        "variantId": "uuid | null",
+        "variantId": "uuid",
         "variantLabel": "string | null",
         "effectivePrice": {
           "amount": "99.99",
@@ -227,6 +227,7 @@ Auth: PUBLIC (JWT claims are not used for price resolution)
 **Field semantics:**
 - `effectivePrice` (`amount`, `currency`, `priceType`, `compareAtAmount`, `saleEndsAt`) — resolved per [Offer currency and price resolution](#offer-currency-and-price-resolution).
 - `availableQty` is `COALESCE(on_hand_qty - reserved_qty, 0)` — an offer with no `inventory.stock` row is returned with `availableQty: 0`, not omitted.
+- `variantId` is never null: every offer references a variant ([ADR-0013](../../../decisions/0013-offer-requires-variant.md)). `variantLabel` is read from the variant's `attributes.variantLabel`; the column holds no label of its own ([ADR-0002](../../../decisions/0002-variant-label-lives-in-attributes.md)).
 - No `currency` query param and no FX conversion on this endpoint. For a buyer display currency use `GET /catalog/products/:id/offers?currency=` or `GET /pricing/offers/:id/effective-price?currency=`.
 
 **Errors:** 404
@@ -249,7 +250,7 @@ sequenceDiagram
         CatalogService-->>API: null
         API-->>Client: 404 Not Found
     else found
-        CatalogService->>Postgres: SELECT id, sku, attributes FROM catalog.product_variant<br/>WHERE product_id = :productId
+        CatalogService->>Postgres: SELECT id, sku, attributes FROM catalog.product_variant<br/>WHERE product_id = :productId<br/>(variantLabel is read from attributes.variantLabel, ADR-0002)
         Postgres-->>CatalogService: variant rows
         CatalogService->>Postgres: SELECT storage_key, alt_text, position FROM catalog.product_image<br/>WHERE product_id = :productId ORDER BY position
         Postgres-->>CatalogService: image rows
@@ -283,7 +284,7 @@ Auth: PUBLIC
     "id": "uuid",
     "sellerId": "uuid",
     "sellerName": "string",
-    "variantId": "uuid | null",
+    "variantId": "uuid",
     "status": "ACTIVE",
     "effectivePrice": {
       "amount": "99.99",

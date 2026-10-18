@@ -172,7 +172,9 @@ Compose services:
 | `minio` | 9000 / 9001 | Object storage / console |
 | `minio-init` | — | One-shot bucket creation |
 | `kafka` | 29092 | Event bus |
+| `kafka-init` | — | One-shot topic creation; `workers` waits for it |
 | `schema-registry` | 8081 | Avro schema registry |
+| `schema-init` | — | One-shot that registers the backend's Avro subjects ([ADR-0012](../decisions/0012-avro-subjects-registered-by-ci-and-schema-init.md)); `workers` waits for it |
 | `kafka-ui` | 8080 | Kafka topic browser (provectus/kafka-ui) |
 | `elasticsearch` | 9200 | Search index |
 | `mailpit` | 8025 / 1025 | Email sink — web inbox / SMTP |
@@ -352,7 +354,7 @@ A CI step runs the generator and diffs the output against the committed `api-cli
 ### Authoring a migration
 
 1. Add a new `{seq}_{description}.ts` shell plus its `.up.sql` + `.down.sql` pair in `aliceut-ecom-backend/migrations/phase-1/`.
-2. Sequence number is 4-digit zero-padded, next in sequence, and the migration class name ends in the same four digits.
+2. Sequence number is 4-digit zero-padded, next in sequence, and the migration class sets `name = '{seq}_{description}_179000000{seq}'` ([ADR-0014](../decisions/0014-migration-name-suffix-is-the-sequence.md)).
 3. Test locally: run `npm run migration:run`, verify, then `npm run migration:revert` to confirm rollback works — one migration per invocation.
 4. Open a PR in the backend repo, where the migrations live.
 

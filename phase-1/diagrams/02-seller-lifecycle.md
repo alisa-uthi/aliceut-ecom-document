@@ -1,11 +1,11 @@
 # Seller Account Lifecycle
 
 **References:** US-S-00, US-S-01, US-S-02, US-A-01, US-A-02, US-A-05, US-A-05b, US-P-18  
-**Email templates:** ET-06 (KYC approved), ET-07 (KYC rejected), ET-10 (suspended), ET-11 (auto-reinstated), ET-12 (admin reinstated), ET-14 (KYC received — to seller), ET-21 (KYC alert — to admin)  
+**Email templates:** ET-18 (email verification — seller variant, sent on new-account registration), ET-06 (KYC approved), ET-07 (KYC rejected), ET-10 (suspended), ET-11 (auto-reinstated), ET-12 (admin reinstated), ET-14 (KYC received — to seller), ET-21 (KYC alert — to admin)  
 
 ## Key invariants
 
-- Seller registration at `/seller/register` — no buyer account required; existing buyer accounts can link SELLER role via same form (must authenticate with password; OAuth-only buyers set password first via US-B-15)
+- Seller registration at `/seller/register` — no buyer account required; existing buyer accounts can link SELLER role via same form (must authenticate with password; OAuth-only buyers set password first via US-B-15); a new account is created unverified and registration sends the ET-18 seller-variant verification email (link to `/seller/verify-email`), while linking sends none ([ADR-0015](../../decisions/0015-seller-register-sends-verification-email.md))
 - KYC submit fires ET-14 to seller AND ET-21 to admin; ET-21 includes SLA deadline (`kyc_application.review_due_at` — 3 business days, BRD §12 #14); applies to resubmissions too
 - Suspension deactivates all listings; seller retains read-only access to PENDING orders for fulfillment only (US-A-05)
 - On reinstatement: only listings deactivated by the suspension are restored; independently-removed listings remain REMOVED (US-A-05b)

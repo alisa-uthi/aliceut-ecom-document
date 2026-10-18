@@ -111,6 +111,8 @@ PUT /products
 }
 ```
 
+`category_path` holds category slugs, ancestor-to-leaf (`["electronics", "cameras"]`), never display names; the `category` filter term-matches a slug against it ([ADR-0005](../../../decisions/0005-search-category-filter-is-a-slug.md)).
+
 **Notes on the shape**
 
 - `display_prices` is declared per V1 currency (`USD`, `THB`, `JPY`, `SGD` — the seller-price allowlist) rather than as a dynamic map, so each key gets the money type explicitly. The product-level copy is the lowest indexable offer's converted price and is what `priceMin`/`priceMax`, the price sorts and the `priceRange` aggregation read; the nested copy is per offer.
@@ -258,7 +260,7 @@ Two consequences follow, and both are load-bearing:
 
 | Event | Fields it owns and merges |
 |---|---|
-| `product.changed` | `product_id`, `title`, `brand`, `description`, `category_id`, `category_path`, `images`, `variants`, `status`, `created_at`. Every one of them is carried in the payload, `category_path` and `created_at` included — Catalog resolves the path from `catalog.category` inside the producing transaction, because walking the tree here would be a read into another module's schema. Deletes the document on `change_type = REMOVED`, and is the only event that deletes one — on either of its two triggers, a seller withdrawing their last listing on the product or an admin removal emptying it. |
+| `product.changed` | `product_id`, `title`, `brand`, `description`, `category_id`, `category_path`, `images`, `variants`, `status`, `created_at`. Every one of them is carried in the payload, `category_path` and `created_at` included — Catalog resolves the path from `catalog.category` inside the producing transaction as category slugs, ancestor-to-leaf (not display names; [ADR-0005](../../../decisions/0005-search-category-filter-is-a-slug.md)), because walking the tree here would be a read into another module's schema. Deletes the document on `change_type = REMOVED`, and is the only event that deletes one — on either of its two triggers, a seller withdrawing their last listing on the product or an admin removal emptying it. |
 | `offer.changed` | The `offers[]` entry for that one offer — `offer_id`, `seller_profile_id`, `seller_name`, `seller_active`, `status`, `native_currency_code`, `amount`, `price_type`, its `display_prices` — and the product-level `lowest_offer_*` and `display_prices` recomputed across the surviving entries. `seller_name` and `seller_active` come from the payload, composed by Catalog through `SellerApplicationService`; `display_prices` likewise, through `PricingApplicationService`, so a newly published offer is findable by a price filter before the next FX refresh. Removes the entry whenever the payload's `status` is not `ACTIVE`, whatever the `change_type` says. |
 | `inventory.changed`, `inventory.reservation_expired` | `offers[].available_qty` for that offer, and the `in_stock` product rollup recomputed from every entry. Both payloads carry `product_id` — the document id this write is addressed to — and an **absolute** `available_qty`, never a delta: a redelivered release applied as an increment would raise availability twice. Writes neither field when `change_reason = SHIPMENT` — see below. |
 | `seller.suspended`, `seller.reinstated`, `seller.suspension_expired` | `offers[].seller_active` for every offer id in the payload, and the `in_stock` rollup. All three carry `offer_ids`, including the timed expiry — a set the consumer cannot otherwise obtain, holding no permission to read `catalog.offer`. |
@@ -562,8 +564,8 @@ sequenceDiagram
     participant Consumer as SearchConsumer
     participant ES as Elasticsearch
 
-    Note over FXWorker: Cron job fetches fresh FX rates from external provider
-    FXWorker->>Postgres: BEGIN TX<br/>UPSERT pricing.fx_rate SET rate = :rate, as_of = :asOf, updated_at = NOW()<br/>INSERT platform.outbox_event (topic=fx_rate.updated, payload includes base_currency and rates array)
+    Note over FXWorker: Cron job makes one USD-based provider call and derives the 12 ordered pairs (ADR-0016)
+    FXWorker->>Postgres: BEGIN TX<br/>UPSERT pricing.fx_rate (12 rows) SET rate = :rate, as_of = :asOf, updated_at = NOW()<br/>INSERT platform.outbox_event x4 (topic=fx_rate.updated, one per base currency, payload includes base_currency and its rates array)
     Postgres-->>FXWorker: COMMIT
 
     Relay->>Kafka: Produce to fx_rate.updated (partition key: base_currency)
