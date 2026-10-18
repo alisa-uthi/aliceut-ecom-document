@@ -138,7 +138,7 @@ Recipient identity above; this is the rest of each template. A variable rendered
 |---|---|---|
 | ET-01 | `buyer.full_name` | `payload.buyer_name` |
 | | `buyer.preferred_currency` | `payload.buyer_display_currency` |
-| | `buyer.business_name`, `buyer.business_logo_url` | `payload.buyer_business_name`, `payload.buyer_business_logo_url` |
+| | `buyer.business_name`, `buyer.business_logo_url` | `payload.buyer_business_name`, `payload.buyer_business_logo_url` (a stable public URL, rendered as-is; the consumer neither presigns nor rewrites it, [ADR-0023](../../decisions/0023-business-logos-are-served-from-a-public-path.md)) |
 | | `order_id`, `placed_at` | `payload.display_id`, `payload.placed_at` |
 | | `seller_name` | `payload.placed_fulfillments[].seller_name` |
 | | `fulfillment.offer_currency` | `payload.placed_fulfillments[].currency_code` |

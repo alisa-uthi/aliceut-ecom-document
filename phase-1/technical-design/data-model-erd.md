@@ -136,7 +136,7 @@ The `promotion_status`, `promotion_type`, `discount_type`, and `stacking_policy`
 | `status` | `user_status` | Required: `ACTIVE`, `SUSPENDED`, `BANNED`. |
 | `preferred_currency` | `CHAR(3)` | Nullable FK → `pricing.currency(code)`; display preference only. |
 | `business_name` | `VARCHAR(120)` | Nullable; B2B buyer only (`account_type = B2B`). Max 120 chars. |
-| `business_logo_storage_key` | `TEXT` | Nullable; B2B buyer only. Object storage key for uploaded business logo; URL derived at serve time. |
+| `business_logo_storage_key` | `TEXT` | Nullable; B2B buyer only. Object storage key for uploaded business logo (`logos/{userId}/{uuid}.{ext}` in `user-assets`); the stable public URL is derived from it and `MINIO_PUBLIC_BASE_URL` at serve time, never stored (ADR-0023). |
 | `created_at`, `updated_at` | `TIMESTAMPTZ` | Required audit timestamps |
 
 **Note on roles change (2026-08-29):** The original ERD used a single `role` column (`user_role` enum: `BUYER`, `SELLER`, `ADMIN`). This has been corrected to `roles TEXT[]` to support the multi-role requirement (BUYER + SELLER simultaneously).
