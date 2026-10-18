@@ -393,7 +393,7 @@ MinIO (`MINIO_ENDPOINT`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`) stores binary o
 |--------|---------|--------|
 | `product-images` | Product and variant images (JPEG/PNG/WebP, max 5 MB each) | Public read, authenticated write |
 | `kyc-documents` | KYC submission scans (PDF/JPEG, max 10 MB each) | Private; seller write, admin read |
-| `user-assets` | Business logos (`logos/` prefix) | `logos/` anonymously readable (ADR-0023); everything else private |
+| `user-assets` | Business logos (`logos/{userId}/{uuid}.{ext}`) | Private; presigned GET only (ADR-0023) |
 
 ### Rules
 
@@ -401,7 +401,7 @@ MinIO (`MINIO_ENDPOINT`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`) stores binary o
 - **Presigned URL TTL:** 
   - Product images — 1 hour (long, public bucket, CDN-cacheable). 
   - KYC documents — 15 minutes (short, private, one-time download). 
-  - User assets — business logos are not presigned: they are public, stable URLs built from `MINIO_PUBLIC_BASE_URL` ([ADR-0023](../decisions/0023-business-logos-are-served-from-a-public-path.md)). Any future non-logo user asset stays private and presigned for 1 hour.
+  - User assets — profile responses 1 hour. The ET-01 email logo is presigned by the notification consumer at send time with a 7-day TTL (`LOGO_URL_TTL_SECONDS`, 604800 = the SigV4 ceiling), because an email is opened days later ([ADR-0023](../decisions/0023-event-logos-carry-an-object-key-the-consumer-presigns.md)). Presigned URLs are signed for `MINIO_PUBLIC_ENDPOINT`, not `minio:9000`.
 - **Virus scan on upload:** all KYC documents must pass a ClamAV scan before being made accessible. Block the upload API response until the scan completes (synchronous in V1).
 - **Filename policy:** generate a UUIDv7 filename server-side. Never trust the client-supplied filename — it is stored only in a metadata column alongside the object key.
 
