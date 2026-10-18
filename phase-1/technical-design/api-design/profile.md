@@ -124,7 +124,10 @@ Auth: JWT
 ```
 **`preferredCurrency` semantics:**
 - ISO 4217 code (`"USD"`, `"THB"`, `"JPY"`, `"SGD"`): display prices are converted to that currency using the **cached display-only FX rates** in `pricing.fx_rate`, refreshed by the scheduled FX job (US-P-02). The API never calls an FX provider inline, and never converts a stored order amount.
-- `null` — the "Auto" setting: the display currency is resolved from the `Accept-Language` header on each request, falling back to `USD` when the resolved currency is unsupported. The locale-to-currency table is in [ADR-0019](../../../decisions/0019-locale-currency-table-partial-placement-duplicate-sku.md).
+- `null` — the "Auto" setting: the display currency is resolved from the `Accept-Language` header on each request, falling back to `USD` when the resolved currency is unsupported. Resolution ([ADR-0019](../../../decisions/0019-locale-currency-table-partial-placement-duplicate-sku.md)):
+  - Take the highest-q language range; ties go to header order; `q=0` and `*` are ignored. A lower-ranked locale is never consulted, so `en-GB, th;q=0.8` resolves from `en-GB` (USD).
+  - Region is the tag's region subtag (`th-TH`, `zh-Hant-SG`). A tag without one takes its language's likely region: `en` US, `th` TH, `ja` JP. Any other bare language has no region.
+  - Region to currency: `US` USD, `TH` THB, `JP` JPY, `SG` SGD. Anything else, no header, or no region: `USD`.
 - A converted amount is an estimate. Responses that carry one also carry the rate's `as_of` timestamp so the client can render the mandated "estimated" label (FR-P-02); when `now() - as_of` exceeds the staleness window the rate is returned marked stale.
 - The display currency is resolved at checkout submission time and snapshotted as `orders.fulfillment.buyer_display_currency`, alongside the already-converted `buyer_currency_total` (FR-P-03). Subsequent profile changes do not alter historical order display, and no reader re-derives a historical amount from this setting or from a live rate.
 
