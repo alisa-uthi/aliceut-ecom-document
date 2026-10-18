@@ -804,9 +804,10 @@ The order snapshots the address as JSONB at checkout, so editing or deleting the
 
 ### Placing the order
 
-`POST /orders` with a required `Idempotency-Key: <client-uuid>` header and the body `{ shippingAddressId, paymentMethod: "FAKE_CARD", maskedPaymentDetail, cartItems[], confirmedPrices[]? }`.
+`POST /orders` with a required `Idempotency-Key: <client-uuid>` header and the body `{ shippingAddressId, paymentMethod: "FAKE_CARD", maskedPaymentDetail, cartItems[], confirmedPrices[] }`.
 
 - **`maskedPaymentDetail` is the only thing the payment step transmits.** The client sends the already-masked display string (`"XXXX-XXXX-XXXX-4242"`); a full card number is never sent, never logged, and the field is named so that an unmasked number cannot reach it.
+- `confirmedPrices[]` is required on every submission ([ADR-0020](../../decisions/0020-confirmed-prices-mandatory-on-checkout.md)): one `{ offerId, amount, currency }` per purchased line, the unit price the buyer was shown, taken from the cart's `effectivePrice` strings. The client never omits it.
 - `cartItems[]` are the ids of the lines being purchased. There is **no `currency` field**: the buyer's display currency is resolved server-side from the profile at submission time and snapshotted per fulfillment, so a later preference change does not alter historical order display. The client cannot choose the capture currency.
 - On `201` the response carries the whole order — `orderId`, `displayId`, `placementOutcome`, `fulfillments[]`, `skippedItems[]`, `failedGroups[]` — and the page navigates to `/checkout/confirmation?orderId={orderId}` **carrying that response**, because part of it is available nowhere else (see [Screen 6](#screen-6-order-confirmation)).
 - A replay of the same `Idempotency-Key` with the same body returns `200` with the existing order and creates nothing; the client may safely retry a request whose response it lost. `409` means the same key was presented with a *different* body.
