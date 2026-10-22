@@ -70,3 +70,5 @@ Copy [`0000-adr-template.md`](0000-adr-template.md) to start one.
 | [0022](0022-refund-reason-travels-on-the-refunded-event.md) | The seller's refund reason is stored on the fulfillment and carried on `fulfillment.refunded` | Accepted |
 | [0023](0023-event-logos-carry-an-object-key-the-consumer-presigns.md) | Event logos carry an object key; the consumer presigns at send time | Accepted |
 | [0024](0024-retention-job-run-limits-and-fk-safe-deletes.md) | Retention jobs are throttled and capped, and deletes are foreign-key safe | Accepted |
+| [0027](0027-api-response-details-and-checkout-edge-cases.md) | API response details, checkout edge cases and V1 limitations the design left open | Accepted |
+| [0028](0028-notification-and-audit-spec-aligned-to-built-consumers.md) | Notification and audit spec aligned to the built consumers | Accepted |

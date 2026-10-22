@@ -221,6 +221,9 @@ Real shipping is out of V1 scope (BRD §3.2) and Phase 1 defines no tax engine, 
   }
   ```
 - 422 no purchasable items remain after stale-item exclusion, or every seller/currency group failed reservation. No order row is created in either case.
+- 422 an FX rate needed for a line (offer currency to the buyer's display currency) is missing from `pricing.fx_rate`. The whole request fails; no order row is created and nothing is partially placed. A missing rate is a platform fault, not a per-line condition, and falling back to a stale or inverted rate would put a wrong `fx_rate_used_at_capture` into an immutable snapshot ([ADR-0027](../../../decisions/0027-api-response-details-and-checkout-edge-cases.md)).
+- 404 a `cartItems` id that is not in the caller's cart (including another buyer's cart item id). It does not confirm that the id exists.
+- Grouping, totals and reservation count the cart's `ACTIVE` lines only; a line whose offer is not `ACTIVE` is a stale line and is skipped as described above.
 
 <a id="idempotency-replay"></a>
 **Idempotency.** `Idempotency-Key` is required. Replaying a key whose checkout already completed returns **HTTP 200** with the order's current state — the same body `GET /orders/:id` would serve, re-read at replay time rather than served from a stored response body — and creates nothing (US-B-09:209). Because the read is fresh, a replay can legitimately return a *later* state than the original response did: an order whose fulfillments have since moved to `SHIPPED` replays as `SHIPPED`. `409` is reserved for the genuine conflict: the same key presented with a different `request_hash`. `orders.idempotency_key` has **no `status` column** and no `PROCESSING`/`COMPLETED` lifecycle; the row is inserted inside the checkout transaction with its `request_hash`, `order_id` is filled in once the order row exists, and the unique constraint on `(buyer_id, key)` is what serialises concurrent duplicate submissions — a losing concurrent insert waits on the lock and then reads the winner's order.
@@ -427,7 +430,7 @@ Pagination: cursor
   "data": [{
     "id": "uuid",
     "displayId": "ORD-000001042",
-    "orderStatus": "PENDING | SHIPPED | DELIVERED | COMPLETED | REFUNDED | CANCELLED | IN_PROGRESS | PARTIALLY_SHIPPED | PARTIALLY_DELIVERED | PARTIALLY_REFUNDED",
+    "orderStatus": "PENDING | SHIPPED | COMPLETED | REFUNDED | CANCELLED | IN_PROGRESS | PARTIALLY_SHIPPED | PARTIALLY_DELIVERED | PARTIALLY_REFUNDED",
     "placementOutcome": "FULLY_PLACED | PARTIALLY_PLACED",
     "buyerCurrencyGrandTotal": "6879.31",
     "buyerDisplayCurrency": "THB",
@@ -500,7 +503,7 @@ Auth: BUYER
   "data": {
     "id": "uuid",
     "displayId": "ORD-000001042",
-    "orderStatus": "PENDING | SHIPPED | DELIVERED | COMPLETED | REFUNDED | CANCELLED | IN_PROGRESS | PARTIALLY_SHIPPED | PARTIALLY_DELIVERED | PARTIALLY_REFUNDED",
+    "orderStatus": "PENDING | SHIPPED | COMPLETED | REFUNDED | CANCELLED | IN_PROGRESS | PARTIALLY_SHIPPED | PARTIALLY_DELIVERED | PARTIALLY_REFUNDED",
     "placementOutcome": "FULLY_PLACED | PARTIALLY_PLACED",
     "placedAt": "ISO8601",
     "buyerDisplayCurrency": "THB",
@@ -561,10 +564,12 @@ Auth: BUYER
 - `:orderId` addresses an `orders.order` row by UUID or by `display_id` (`ORD-…`). Fulfillments are nested; there is no top-level fulfillment resource on the buyer API.
 - `shippingAddress.countryCode` is the ISO 3166-1 alpha-2 code carried in `order.shipping_address_snapshot`, matching `identity.address.country_code`. The snapshot is immutable, so the order shows the address as it was at checkout even if the buyer has since edited or deleted the saved one.
 - Every amount comes from an immutable snapshot column. `fxRateUsedAtCapture` is always present and is `"1.00000000"` when the seller's native currency equals the buyer's display currency.
-- **Skipped items are not returned here.** An order contains what was placed. Skipped lines are reported once, in the checkout response, and they remain in the buyer's cart — so the confirmation page renders them from that response, and the cart itself keeps showing them as stale lines for the buyer to retry or remove. Listing them here would require a persisted per-order record of items that were deliberately *not* ordered, and no such table exists or is to be added.
+- **Skipped items are not returned here.** An order contains what was placed. Skipped lines are reported once, in the checkout response, and they remain in the buyer's cart — so the confirmation page renders them from that response, and the cart itself keeps showing them as stale lines for the buyer to retry or remove. Listing them here would require a persisted per-order record of items that were deliberately *not* ordered, and no such table exists or is to be added. The same holds for `failedGroups`. **V1 limitation ([ADR-0027](../../../decisions/0027-api-response-details-and-checkout-edge-cases.md)):** the confirmation page can show skipped lines and failed groups only from the checkout response, so reloading it shows the placed fulfillments alone. Skipped lines are still visible as stale lines in the cart; failed groups' cart items also remain in the cart. Nothing is built to persist them.
 - The order-level `shippingTotal` / `taxTotal` and the per-fulfillment `shippingCost` / `taxTotal` and line `tax` are the `"0.00"` structural zeroes described at [Shipping and tax in V1](#shipping-and-tax). The fulfillment and line figures are read from the snapshot like every other amount; the order-level pair is summed over the fulfillments on read, because no column holds it.
 
 **Errors:** 404 (not found, or the order belongs to another buyer — a foreign order is a `404`, not a `403`, so the endpoint does not confirm that an id exists)
+
+**Built details ([ADR-0027](../../../decisions/0027-api-response-details-and-checkout-edge-cases.md)):** `shippingAddress.phone` is always `null` in V1 — `identity.address` has no phone column, so the snapshot has none to copy. `itemCount` (here and on the list) is the sum of line `quantity` across the order's fulfillments, not the number of lines. `orderStatus` never takes the value `DELIVERED`: all-delivered is `COMPLETED` per the table above, so `DELIVERED` is not in the `orderStatus` enum (it remains a valid `fulfillment.status`).
 
 #### Sequence
 

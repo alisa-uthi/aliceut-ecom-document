@@ -132,7 +132,7 @@ Two writes per consumer at most: an SMTP send whose template variables are liste
 
 ### 4.1 Template body variables
 
-Recipient identity above; this is the rest of each template. A variable rendered from configuration (`base_url`, `ttl_hours`, `ttl_minutes`, `admin.email`) or computed at send time (`review_by = seller.kyc_application.review_due_at` (read from the owning row), `line_total = unit_price × quantity`) is not listed — it needs no payload field.
+Recipient identity above; this is the rest of each template. A variable rendered from configuration (`base_url`, `ttl_hours`, `ttl_minutes`, `admin.email`) or computed at send time (`line_total = unit_price × quantity`) is not listed — it needs no payload field.
 
 | Template | Variable | Supplied by |
 |---|---|---|
@@ -199,7 +199,8 @@ The envelope supplies six of every document's fields on every topic — `event_i
 | `auth.email_verification_requested` | `audit_logs` | `payload.user_id` | `payload.user_id` | — |
 | `auth.password_reset_requested` | `audit_logs` | `payload.user_id` | `payload.user_id` | — |
 | `auth.password_changed` | `audit_logs` | `payload.user_id` | `payload.user_id` | — |
-| `inventory.changed` (`MANUAL_UPDATE`, `BULK_UPDATE`, `UNKNOWN`) | `audit_logs` | `payload.offer_id` | `payload.seller_id` | `payload.adjustment_reason` |
+| `inventory.changed` (`MANUAL_UPDATE`, `BULK_UPDATE`) | `audit_logs` | `payload.offer_id` | `payload.seller_id` | `payload.adjustment_reason` |
+| `inventory.changed` (`UNKNOWN`) | `audit_logs` | `payload.offer_id` | `null` (SYSTEM) | `payload.adjustment_reason` |
 | `inventory.changed` (`RESERVATION`, `SHIPMENT`, `REFUND_RESTORE`, `CANCEL_RESTORE`) | `activity_events` | `payload.offer_id` | `null` (SYSTEM) | n/a |
 | `inventory.low_stock` | `activity_events` | `payload.offer_id` | `null` (SYSTEM) | n/a |
 | `inventory.reservation_expired` | `activity_events` | `payload.reservation_id` | `null` (SYSTEM) | n/a |
@@ -218,6 +219,11 @@ The envelope supplies six of every document's fields on every topic — `event_i
 | `fx_rate.updated`, `seller.profile_changed` | not persisted | — | — | — |
 
 Every projection above is supplied. The audit family was never the family that could not be built — it is in the matrix because a projection nobody had written down is one nobody can check, and because it is the family that turns an event-payload omission into a permanent hole: there is no second write path to fall back on (FR-P-11).
+
+**Three audit projections that the table cannot say in a cell** ([ADR-0028](../../decisions/0028-notification-and-audit-spec-aligned-to-built-consumers.md)):
+- `inventory.changed` with `change_reason = UNKNOWN` is written with `actor_id: null`, `actor_role: 'SYSTEM'` and `action: 'STOCK_ADJUSTED'`, as data-model-mongodb.md says. SYSTEM wins over the seller: a reason this build cannot name is not attributable to the seller.
+- `audit_logs.actor_id` is the literal column in the table above, so it is `payload.seller_id` — a **seller_profile id**, not an `identity.user` id — for `seller.kyc.submitted` and the seller stock edits. The acting user's id is `payload.seller_user_id` on `seller.kyc.submitted`; nothing joins `actor_id` to `identity.user` for these rows.
+- A `listing.flagged` whose `source` is not `ADMIN_MANUAL` has no admin: it is written with `actor_id: null` and `actor_role: 'SYSTEM'`.
 
 **`actor_id` on `offer.changed` names the owning seller, not the actor.** The payload carries no actor field, so a moderation transition performed by an admin is audited from `listing.flagged` or `moderation.listing.removed`, which carry theirs ([kafka-events.md § 2.11](kafka-events.md#211-offerchanged)).
 

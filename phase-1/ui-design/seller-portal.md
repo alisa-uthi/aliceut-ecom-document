@@ -1275,18 +1275,16 @@ The types a seller account receives, rendered by `<aliceut-notification-bell>` i
 
 | Type | Icon | Message pattern | Opens |
 |---|---|---|---|
-| `ORDER_PLACED` | `receipt_long` | "New order [FUL- display id] placed" | `/seller/orders/{fulfillmentId}` |
 | `FULFILLMENT_CANCELLED` | `cancel` (warn) | "Fulfillment [FUL- display id] was cancelled" | `/seller/orders/{fulfillmentId}` |
 | `LOW_STOCK` | `warning_amber` (warn) | "[SKU] is running low ([N] left)" | `/seller/inventory` |
 | `LISTING_FLAGGED` | `flag` (warn) | "'[product title]' has been flagged for review" | `/seller/listings/{offerId}/edit` |
 | `LISTING_REMOVED` | `block` (warn) | "'[product title]' was removed by an admin" | `/seller/listings` |
-| `KYC_SUBMITTED` | `assignment` | "Your KYC application was received" | `/seller/kyc` |
 | `KYC_DECIDED` | `check_circle_outline` (success) on `APPROVED`, `cancel` (warn) on `REJECTED` | "Your KYC application was [approved / rejected]" — the `payload` carries `decision: APPROVED \| REJECTED`, so one type drives both lines | `/seller/kyc` |
 | `SELLER_SUSPENDED` | `block` (warn) | "Your account has been suspended" | `/seller/profile` |
 | `SELLER_REINSTATED` | `lock_open` (success) | "Your account has been reinstated" | `/seller/profile` |
 | `SUSPENSION_EXPIRED` | `lock_open` (success) | "Your suspension has ended and your listings are active again" | `/seller/profile` |
 
-These are the seller-relevant canonical types in [notifications.md](../technical-design/api-design/notifications.md). `SUSPENSION_EXPIRED` exists as a notification **type** only; it is not a stored status and nothing passes it to a `StatusBadge` ([shared-components.md § 5](shared-components.md#5-status-vocabulary)).
+These are the seller-relevant canonical types in [notifications.md](../technical-design/api-design/notifications.md). A seller receives no in-app `ORDER_PLACED` (the seller is told by e-mail ET-17) and no in-app `KYC_SUBMITTED` (that row goes to admins; the seller gets e-mail ET-14), per consumer-field-matrix.md § 4 ([ADR-0028](../../decisions/0028-notification-and-audit-spec-aligned-to-built-consumers.md)). `SUSPENSION_EXPIRED` exists as a notification **type** only; it is not a stored status and nothing passes it to a `StatusBadge` ([shared-components.md § 5](shared-components.md#5-status-vocabulary)).
 
 ---
 

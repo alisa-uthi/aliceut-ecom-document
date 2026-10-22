@@ -121,8 +121,8 @@ Each consumer group belongs to one family. The idempotency wrapper (§4) applies
      - Never a DB lookup: a seller_id is a seller_profile_id and addresses no user row,
        which is why every notification topic carries the recipient's user id and address
 2. Render email template (ET-XX defined in email-templates.md)
-3. Send via SMTP/mailer with 3× retry + exponential backoff (100 ms, 500 ms, 2 s)
-     - On 3× failure: route to email.outbound.dlq (do NOT route main event to DLQ)
+3. Send via SMTP/mailer: 4 attempts in all (the first send plus 3 retries), backed off 100 ms, 500 ms, 2 s
+     - After the 4th failed attempt: route to email.outbound.dlq (do NOT route main event to DLQ)
 4. If consumer also creates in-app notification:
      a. INSERT notifications (user_id, type, payload, created_at) in Postgres
 ```
@@ -188,7 +188,7 @@ Each consumer group has a dedicated DLQ topic: `<consumer_group>.dlq`
 - **A DLQ is per consumer group, not per topic.** A group that consumes more than one topic has one DLQ covering all of them, so the number of DLQ topics equals the number of consumer groups and is never derived from the topic count. The tally for a given phase is in that phase's event catalog — for Phase 1, in [kafka-events.md § 4](../phase-1/technical-design/kafka-events.md#dlq-topics).
 - DLQ message includes the original event envelope + error metadata (`error_type`, `error_message`, `failed_at`, `attempt_count`).
 - DLQ non-empty → alert (Kafka UI monitoring or a health check endpoint exposed by workers).
-- SMTP failures: retry 3× with exponential backoff, then route to `email.outbound.dlq`.
+- SMTP failures: 4 attempts in all (first send plus 3 retries) with exponential backoff, then route to `email.outbound.dlq`.
 
 ---
 

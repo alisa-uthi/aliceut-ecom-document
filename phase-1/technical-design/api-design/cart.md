@@ -33,7 +33,7 @@
 
 | Endpoint | Primary DB | Tables |
 |----------|-----------|--------|
-| `GET /cart` | Postgres | `cart.cart`, `cart.cart_item`, `catalog.offer`, `pricing.offer_price`, `pricing.fx_rate`, `inventory.stock`, `identity.user` (`preferred_currency`) — price resolved live |
+| `GET /cart` | Postgres | `cart.cart`, `cart.cart_item`, `catalog.offer`, `pricing.offer_price`, `pricing.fx_rate`, `inventory.stock`, `seller.seller_profile` (`business_name` for `sellerName`, read-only), `identity.user` (`preferred_currency`) — price resolved live |
 | `POST /cart/items` | Postgres | `cart.cart` (upsert), `cart.cart_item` (insert, or increment qty on an existing offer), `catalog.offer` (status check), `inventory.stock` (qty check) |
 | `PATCH /cart/items/:id` | Postgres | `cart.cart_item` (qty set), `inventory.stock` (qty check) |
 | `DELETE /cart/items/:id` | Postgres | `cart.cart_item` (delete) |
@@ -109,6 +109,8 @@ Auth: BUYER
 }
 ```
 Effective price is resolved live on GET (not cached from add-to-cart time).
+
+**Lines without a live price ([ADR-0027](../../../decisions/0027-api-response-details-and-checkout-edge-cases.md)).** A line whose offer has no live `LIST` row returns `effectivePrice: null` and `lineTotal: null`, is excluded from `groups[].subtotal` and the totals, and is flagged through `offerStatus`/stale handling like any unpurchasable line. The non-null shapes above describe a priceable line. `groups[]` and the totals count `ACTIVE` lines only. `sellerName` is `seller.seller_profile.business_name`.
 
 **Field semantics:**
 - `effectivePrice.amount` / `effectivePrice.currency` — the amount of the resolved price row and the offer's `native_currency_code`. Each offer has exactly one pricing currency, so no currency selection happens here; resolution picks a `price_type` by current time only (`SALE` if live, else `LIST`) — account type and quantity are not inputs (BRD FR-P-06b). See [pricing.md § Pricing Constraints](pricing.md#pricing-constraints).
