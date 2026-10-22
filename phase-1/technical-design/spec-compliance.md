@@ -157,8 +157,15 @@ What is left of this entry:
 
 ### 4. Tooling the conventions assume is missing
 
-- No project has a `lint` target, so CI's `nx run-many -t lint` runs nothing
-  and the money-field lint rule the conventions require is not enforced.
+- Lint now runs (backend#78): every project has a `lint` target, `lint:root`
+  covers `migrations`, `scripts` and `tools`, and the money-field rule is
+  enforced as an error. Still missing from backend-coding-standards §2.2:
+  `no-explicit-any`, `no-floating-promises`, `explicit-function-return-type`,
+  `no-unsafe-assignment`, `no-console` and `import/order`. The type-aware ones
+  need `parserOptions.project`, which is not set up. The money rule is
+  name-based: a monetary field with an exempt trailing word (`count`, `ttl`,
+  `id`, ...) or a bare `total` inside a `*Page*` / `*Paginat*` type is not
+  flagged.
 - The pre-merge checklist requires a Supertest test per endpoint; the backend
   has none.
 - About 50 nullable string and date DTO fields are emitted as `type: object` in
