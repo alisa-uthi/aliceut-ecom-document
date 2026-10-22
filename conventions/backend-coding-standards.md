@@ -557,7 +557,7 @@ export class AppModule {}
 | `AES_ENCRYPTION_KEY` | ✓ | — | 32-byte hex key for KYC document AES-256 encryption in MinIO `kyc-documents` bucket |
 | `JWT_SECRET` | ✓ | — | Min 32 bytes; generated per environment |
 | `JWT_ACCESS_TTL_SECONDS` | ✓ | — | Default 900 (15 min) |
-| `JWT_REFRESH_TTL_SECONDS` | ✓ | — | Default 604800 (7 days) |
+| `JWT_REFRESH_TTL_SECONDS` | ✓ | ✓ | Default 604800 (7 days). `workers` reads it for the refresh-session cleanup, so it **must equal the `api` value**: a shorter figure there deletes revoked sessions before the reuse-detection window ends |
 | `KAFKA_BROKERS` | ✓ | ✓ | Comma-separated host:port list |
 | `SCHEMA_REGISTRY_URL` | ✓ | ✓ | Confluent Schema Registry |
 | `ELASTICSEARCH_NODE` | ✓ | ✓ | ES/OpenSearch node URL |
@@ -566,6 +566,9 @@ export class AppModule {}
 | `FACEBOOK_APP_ID` | ✓ | — | OAuth |
 | `FACEBOOK_APP_SECRET` | ✓ | — | OAuth |
 | `OUTBOX_POLL_INTERVAL_MS` | — | ✓ | Default 500 |
+| `CLEANUP_BATCH_SIZE` | — | ✓ | Rows per cleanup statement; default 1000, validated 1–10000 ([cleanup-jobs.md](../phase-1/technical-design/cleanup-jobs.md#job-conventions)) |
+| `CLEANUP_BATCH_PAUSE_MS` | — | ✓ | Pause between cleanup batches; default 50, minimum 0 ([ADR-0024](../decisions/0024-retention-job-run-limits-and-fk-safe-deletes.md)) |
+| `CLEANUP_MAX_BATCHES_PER_RUN` | — | ✓ | Batch cap per cleanup run; default 1000, minimum 1 ([ADR-0024](../decisions/0024-retention-job-run-limits-and-fk-safe-deletes.md)) |
 | `PORT_WORKERS` | — | ✓ | Health check HTTP port; default 3001 |
 | `LOG_SENSITIVE_KEYS` | ✓ | ✓ | Comma-separated field names to redact from logs; see [observability.md](observability.md) |
 | `LOG_MAX_BODY_BYTES` | ✓ | ✓ | Max body size to log before truncation; default 4096 |
