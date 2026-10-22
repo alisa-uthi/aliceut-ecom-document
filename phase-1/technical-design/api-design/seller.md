@@ -803,7 +803,7 @@ sequenceDiagram
         Note over PAS,P: no currency_code column — the currency is offer.native_currency_code
     end
     OS->>IAS: openStock(offer_id, initialStock, lowStockThreshold, tx)
-    IAS->>P: INSERT inventory.stock (offer_id, on_hand_qty=initialStock, reserved_qty=0, low_stock_threshold=COALESCE(lowStockThreshold, 5), version=1)
+    IAS->>P: INSERT inventory.stock (offer_id, product_id, on_hand_qty=initialStock, reserved_qty=0, low_stock_threshold=COALESCE(lowStockThreshold, 5), version=1)
     CAS->>KO: INSERT platform.outbox_event (topic='offer.changed', aggregate_type='catalog.offer', aggregate_id=offer_id, key=offer_id, payload={change_type:CREATED, offer_id, product_id, seller_id:sellerProfileId, seller_name, seller_active:true, currency_code, status, prices[], display_prices})
     Note over CAS,KO: status is the offer's actual status — 'FLAGGED' on a soft-tier hit, in which case search.offer-changed removes the offers[] entry instead of writing it, so the flagged listing never becomes visible
     Note over CAS,KO: Catalog owns catalog.offer, so Catalog writes this row — one producer per topic, which is the schema owner. seller_name and seller_active come from SellerApplicationService and display_prices from PricingApplicationService.toDisplayPrices(), both inside this transaction: the search consumer indexes all three and may read no table to get them

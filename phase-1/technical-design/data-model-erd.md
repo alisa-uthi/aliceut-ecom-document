@@ -376,6 +376,7 @@ Staleness is a read-time concern, not a stored state: when `now() - as_of` excee
 | Column | Type | Constraints / purpose |
 |---|---|---|
 | `offer_id` | `UUID` | PK and FK → `catalog.offer(id)` |
+| `product_id` | `UUID` | Required; copy of `catalog.offer.product_id`, written with the row when the offer is created ([ADR-0026](../../decisions/0026-inventory-stock-holds-product-id.md)). An offer never changes product, so the copy cannot go stale. It lets inventory build `inventory.changed` and `inventory.reservation_expired` without reading `catalog` |
 | `on_hand_qty` | `INT` | Required; `CHECK (on_hand_qty >= 0)`; the physical warehouse quantity, decremented when a fulfillment ships and never at reservation time |
 | `reserved_qty` | `INT` | Required; `CHECK (reserved_qty >= 0 AND reserved_qty <= on_hand_qty)`; units held by placed fulfillments that have not yet shipped, covering the checkout-to-ship gap (US-S-08) |
 | `low_stock_threshold` | `SMALLINT` | Required; `DEFAULT 5`; `CHECK (low_stock_threshold > 0)`; threshold compared against available quantity for the `inventory.low_stock` event; configurable per offer via CSV import |
@@ -537,6 +538,7 @@ Immutable line-item snapshot created inside the checkout transaction, alongside 
 | `id` | `UUID` | PK; `DEFAULT uuidv7()` |
 | `fulfillment_id` | `UUID` | Required FK → `orders.fulfillment(id)` |
 | `offer_id` | `UUID` | Required FK → `catalog.offer(id)`; identifies source offer, not price source |
+| `product_id` | `UUID` | Required; `catalog.offer.product_id` snapshotted at checkout ([ADR-0025](../../decisions/0025-fulfillment-events-carry-product-id.md)) so every `fulfillment.*` item can carry it |
 | `product_title_snapshot` | `TEXT` | Required immutable product title at time of purchase |
 | `variant_label_snapshot` | `TEXT` | Nullable immutable variant label |
 | `quantity` | `INT` | Required; `CHECK (quantity > 0)` |

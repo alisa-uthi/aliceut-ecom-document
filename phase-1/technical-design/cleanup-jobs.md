@@ -209,15 +209,16 @@ Delivery is absent from that list deliberately: `fulfillment.delivered` moves no
 Claim the due rows:
 
 ```sql
-SELECT id, offer_id, order_id, quantity
-FROM inventory.stock_reservation
+SELECT sr.id, sr.offer_id, sr.order_id, sr.quantity, s.version, s.product_id
+FROM inventory.stock_reservation sr
+JOIN inventory.stock s ON s.offer_id = sr.offer_id
 WHERE status = 'ACTIVE'
   AND expires_at < now()
   AND fulfillment_id IS NULL
 LIMIT :batchSize;
 ```
 
-Then resolve the product id of every claimed offer in one call — `CatalogApplicationService.getProductIdsForOffers(offerIds)`. It is not a join: `catalog.offer` is Catalog's table, and the event needs `product_id` because the search consumer's write is addressed by document id and that consumer may read nothing.
+The claim carries `product_id` from `inventory.stock`, Inventory's own table ([ADR-0026](../../decisions/0026-inventory-stock-holds-product-id.md)): the event needs it because the search consumer's write is addressed by document id and that consumer may read nothing, and `catalog.offer` is not Inventory's to read.
 
 Then, per row, in one transaction — release the stock under the optimistic lock, mark the reservation, write the outbox row:
 
@@ -257,7 +258,7 @@ INSERT INTO platform.outbox_event (
 The stock `UPDATE` carries the `version` read with the row and is the required optimistic lock: a checkout that reserved against the same offer between the `SELECT` and the `UPDATE` bumps `version`, the statement affects zero rows, and the row is skipped and retried on the next pass rather than decrementing `reserved_qty` from a stale figure. The reservation `UPDATE` re-checks `status = 'ACTIVE'` for the same reason — a checkout that completed in that window has already set `fulfillment_id`, and its reservation must not be expired underneath it. The payload carries every field `InventoryReservationExpiredPayload` declares ([kafka-events.md § 2.19](kafka-events.md#219-inventoryreservation_expired)); `order_id` is why `stock_reservation.order_id` stays `NOT NULL`. Three details of it are load-bearing:
 
 - **`available_qty`, the absolute figure, not the quantity released.** It comes from the `RETURNING` clause of the release itself, so it is the post-release value read inside the same transaction. The search consumer sets `offers[].available_qty` to it. A delta would not be idempotent: the topic is at-least-once, and a redelivered release applied as an increment raises availability a second time.
-- **`product_id`.** The Elasticsearch index holds product documents, so the consumer's write is a `POST /products/_update/:productId`, and the consumer may not read `catalog.offer` to find the id. The scheduler resolves it through `CatalogApplicationService`, once per batch, rather than joining `catalog.offer` into the claim query above.
+- **`product_id`.** The Elasticsearch index holds product documents, so the consumer's write is a `POST /products/_update/:productId`, and the consumer may not read `catalog.offer` to find the id. The scheduler takes it from `inventory.stock.product_id` in the claim query above, so no `catalog` table is read ([ADR-0026](../../decisions/0026-inventory-stock-holds-product-id.md)).
 - **The partition key is `offer_id`.** The topic keys on the offer, and the outbox contract makes `key` = `aggregate_id`, so the aggregate is the stock row and not the reservation. Keyed on `reservationId` every expiry for one offer would land on a different partition, and two expiries racing on one offer could be applied to the index out of order — the later absolute figure overwritten by the earlier one.
 
 #### `cleanup-old-stock-reservations` — terminal-row retention
