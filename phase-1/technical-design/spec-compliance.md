@@ -168,19 +168,17 @@ What is left of this entry:
   flagged.
 - The pre-merge checklist requires a Supertest test per endpoint; the backend
   has none.
-- About 50 nullable string and date DTO fields are emitted as `type: object` in
-  the OpenAPI document (NestJS union reflection), mostly in seller and admin
-  (`readAt`, `suspendedUntil`, `shippedAt`, `decidedAt`, `nextCursor`, ...), so
-  the generated client types them `object | null` and the apps cast. The fix is
-  an explicit `type: String` on each `@ApiProperty`.
 - The frontend `typecheck` target fails on tsconfig settings
   (`declarationMap` / `rootDir`) and CI does not run it.
 - `auth.service.seller-account.spec.ts` timed out once in a full parallel test
   run and passed alone; it may flake in CI.
 - Many endpoints with a request DTO do not declare the `400` they can answer.
 - `@nestjs/swagger` silently merges two DTO classes with the same name into one
-  schema. One collision (`FulfillmentItemDto`) was found and renamed; nothing
-  checks for others.
+  schema. Collisions were found and renamed (`FulfillmentItemDto`; backend#79:
+  `CursorMetaDto`, `ProductVariantDto`, `ProductImageDto`, `KycApplicationDto`),
+  and `openapi-spec.spec.ts` now fails on a duplicate class name and on any bare
+  `type: object`. It only sees a column-0 `export class`, so an indented or
+  non-exported DTO is not checked.
 - `CheckoutService` sits in `application/` but runs raw SQL through TypeORM's
   `DataSource`, against the Tier 1 layer rule.
 - `identity:test` and a seller-app test timed out once under a full parallel run and passed on rerun; both may flake in CI.
