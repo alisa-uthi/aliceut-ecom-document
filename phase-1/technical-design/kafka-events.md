@@ -278,6 +278,7 @@ MongoDB audit collection schemas (`audit_logs`, `activity_events`): see [data-mo
                 "type": "record", "name": "FulfillmentItem",
                 "fields": [
                   { "name": "offer_id",        "type": "string" },
+                  { "name": "product_id", "type": ["null","string"], "default": null, "doc": "catalog.offer.product_id, snapshotted on orders.fulfillment_item at checkout (ADR-0025). inventory.changed requires it and the inventory consumer may not read catalog.offer. Null only on events published before this field existed" },
                   { "name": "product_title",   "type": "string" },
                   { "name": "variant_label",   "type": ["null","string"], "default": null },
                   { "name": "quantity",        "type": "int" },
@@ -359,6 +360,7 @@ MongoDB audit collection schemas (`audit_logs`, `activity_events`): see [data-mo
                 "type": "record", "name": "ShippedItem",
                 "fields": [
                   { "name": "offer_id",      "type": "string" },
+                  { "name": "product_id", "type": ["null","string"], "default": null, "doc": "catalog.offer.product_id, snapshotted on orders.fulfillment_item at checkout (ADR-0025). inventory.changed requires it and the inventory consumer may not read catalog.offer. Null only on events published before this field existed" },
                   { "name": "product_title", "type": "string" },
                   { "name": "variant_label", "type": ["null","string"], "default": null },
                   { "name": "quantity",      "type": "int" }
@@ -501,6 +503,8 @@ The scheduler sets `orders.fulfillment.status = DELIVERED` and writes the outbox
               "items": {
                 "type": "record", "name": "RefundedItem",
                 "fields": [
+                  { "name": "offer_id", "type": ["null","string"], "default": null, "doc": "orders.fulfillment_item.offer_id (ADR-0025). Null only on events published before this field existed" },
+                  { "name": "product_id", "type": ["null","string"], "default": null, "doc": "catalog.offer.product_id, snapshotted on orders.fulfillment_item at checkout (ADR-0025). inventory.changed requires it and the inventory consumer may not read catalog.offer. Null only on events published before this field existed" },
                   { "name": "product_title",           "type": "string" },
                   { "name": "variant_label",           "type": ["null","string"], "default": null },
                   { "name": "quantity",                "type": "int" },
@@ -1150,6 +1154,7 @@ Fires when an admin lifts a seller's suspension (sets `suspension_status = ACTIV
                 "type": "record", "name": "CancelledItem",
                 "fields": [
                   { "name": "offer_id",                  "type": "string" },
+                  { "name": "product_id", "type": ["null","string"], "default": null, "doc": "catalog.offer.product_id, snapshotted on orders.fulfillment_item at checkout (ADR-0025). inventory.changed requires it and the inventory consumer may not read catalog.offer. Null only on events published before this field existed" },
                   { "name": "product_title",             "type": "string" },
                   { "name": "variant_label",             "type": ["null","string"], "default": null },
                   { "name": "quantity",                  "type": "int" },
@@ -1224,6 +1229,7 @@ Fires when an admin lifts a seller's suspension (sets `suspension_status = ACTIV
                 "type": "record", "name": "SuspendedSellerRefundItem",
                 "fields": [
                   { "name": "offer_id",      "type": "string" },
+                  { "name": "product_id", "type": ["null","string"], "default": null, "doc": "catalog.offer.product_id, snapshotted on orders.fulfillment_item at checkout (ADR-0025). inventory.changed requires it and the inventory consumer may not read catalog.offer. Null only on events published before this field existed" },
                   { "name": "product_title", "type": "string" },
                   { "name": "variant_label", "type": ["null","string"], "default": null },
                   { "name": "quantity",      "type": "int" },

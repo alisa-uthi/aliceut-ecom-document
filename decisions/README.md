@@ -70,3 +70,5 @@ Copy [`0000-adr-template.md`](0000-adr-template.md) to start one.
 | [0022](0022-refund-reason-travels-on-the-refunded-event.md) | The seller's refund reason is stored on the fulfillment and carried on `fulfillment.refunded` | Accepted |
 | [0023](0023-event-logos-carry-an-object-key-the-consumer-presigns.md) | Event logos carry an object key; the consumer presigns at send time | Accepted |
 | [0024](0024-retention-job-run-limits-and-fk-safe-deletes.md) | Retention jobs are throttled and capped, and deletes are foreign-key safe | Accepted |
+| [0025](0025-fulfillment-events-carry-product-id.md) | `fulfillment.*` items carry `product_id`, and `fulfillment.refunded` items carry `offer_id` | Accepted |
+| [0026](0026-inventory-stock-holds-product-id.md) | `inventory.stock` holds `product_id` | Accepted |
