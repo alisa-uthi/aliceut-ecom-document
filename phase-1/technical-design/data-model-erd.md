@@ -165,11 +165,13 @@ Unique constraint: `(provider, provider_subject)`.
 | `token_hash` | `TEXT` | Required; store only a hash of the refresh token |
 | `expires_at` | `TIMESTAMPTZ` | Required |
 | `revoked_at` | `TIMESTAMPTZ` | Nullable; set to `now()` on rotation and on logout. A non-null value is the single test for "this session may no longer be used". |
-| `replaced_by_id` | `UUID` | Nullable self-FK → `identity.refresh_session(id)`; the session issued by the rotation that revoked this row. Chains the token family. |
+| `replaced_by_id` | `UUID` | Nullable self-FK → `identity.refresh_session(id)` `ON DELETE SET NULL` ([ADR-0024](../../decisions/0024-retention-job-run-limits-and-fk-safe-deletes.md)); the session issued by the rotation that revoked this row. Chains the token family; the cleanup job may delete an ancestor, which nulls the pointer on its survivor. |
 | `device_metadata` | `JSONB` | Nullable client/device context |
 | `created_at`, `updated_at` | `TIMESTAMPTZ` | Required audit timestamps |
 
 Session rows are **soft-revoked and retained**: rotation and logout never delete a row. Rotation sets `revoked_at = now()` and `replaced_by_id` to the newly issued session, so the whole family remains walkable. Presenting a refresh token whose session already has `revoked_at IS NOT NULL` is therefore detectable as reuse (token theft), and the reuse handler revokes every session in that user's family. Retained rows are removed only by the session-cleanup job, once `revoked_at` is older than the refresh TTL plus a configurable buffer.
+
+Indexes beyond the lookups above: `ix_refresh_replaced_by (replaced_by_id) WHERE replaced_by_id IS NOT NULL` (the self-FK check on every delete), `ix_refresh_revoked_at (revoked_at) WHERE revoked_at IS NOT NULL` and `ix_refresh_lapsed_expires_at (expires_at) WHERE revoked_at IS NULL` (one per cleanup arm). See [ADR-0024](../../decisions/0024-retention-job-run-limits-and-fk-safe-deletes.md).
 
 <a id="table-identity-address"></a>
 #### `identity.address`
@@ -463,7 +465,7 @@ One `order` is created per checkout attempt. It may contain multiple `fulfillmen
 | `currency_code` | `CHAR(3)` | Required FK → `pricing.currency(code)`; the buyer display currency for the order as a whole, resolved at checkout submission and immutable thereafter. `buyer_currency_grand_total` is denominated in it. |
 | `placement_outcome` | `placement_outcome` | Required: `FULLY_PLACED` or `PARTIALLY_PLACED`; immutable after set |
 | `shipping_address_snapshot` | `JSONB` | Required immutable address copy captured at checkout; its country field carries the same ISO 3166-1 alpha-2 code as `identity.address.country_code` |
-| `idempotency_key_id` | `UUID` | Nullable FK → `orders.idempotency_key(id)` |
+| `idempotency_key_id` | `UUID` | Nullable FK → `orders.idempotency_key(id)` `ON DELETE SET NULL` ([ADR-0024](../../decisions/0024-retention-job-run-limits-and-fk-safe-deletes.md)): the key is a replay guard that expires, the row is permanent; partial index `WHERE idempotency_key_id IS NOT NULL` |
 | `placed_at` | `TIMESTAMPTZ` | Required order creation time |
 | `buyer_currency_grand_total` | `NUMERIC(19,4)` | Required; the sum of the order's `fulfillment.buyer_currency_total` values, in `currency_code`, as captured at checkout. A stored snapshot per FR-P-03, not a view and never recomputed from live FX. |
 | `created_at`, `updated_at` | `TIMESTAMPTZ` | Required audit timestamps |
@@ -560,7 +562,7 @@ The buyer-currency columns exist because the buyer is shown a converted amount a
 | `masked_payment_detail` | `TEXT` | Required safe display detail; never PAN or CVV |
 | `amount` | `NUMERIC(19,4)` | Required captured payment amount in seller's native currency (`currency_code`) |
 | `currency_code` | `CHAR(3)` | Required captured payment currency; **seller's native** (mirrors `fulfillment.currency_code`) |
-| `idempotency_key_id` | `UUID` | Nullable FK → `orders.idempotency_key(id)` |
+| `idempotency_key_id` | `UUID` | Nullable FK → `orders.idempotency_key(id)` `ON DELETE SET NULL` ([ADR-0024](../../decisions/0024-retention-job-run-limits-and-fk-safe-deletes.md)): the key is a replay guard that expires, the row is permanent; partial index `WHERE idempotency_key_id IS NOT NULL` |
 | `created_at` | `TIMESTAMPTZ` | Required; attempts are append-only |
 
 This table is a log of simulated charge attempts, **not a ledger**. A refund is a change of `orders.fulfillment.status` to `REFUNDED` and nothing more: no reversal row is written here, and `payment_status` has no refund value. There is therefore no payment-side record that money went back to the buyer. That is acceptable only while payments are mocked — BRD §3.2 excludes a real gateway from V1 — and must be revisited if V2 introduces one, at which point a reversal record becomes mandatory.
@@ -578,7 +580,7 @@ This table is a log of simulated charge attempts, **not a ledger**. A refund is 
 | `expires_at` | `TIMESTAMPTZ` | Required retention limit; the window is env-configurable and its value is recorded beside the idempotency-key cleanup job in the cleanup-jobs design, not fixed here |
 | `created_at` | `TIMESTAMPTZ` | Required |
 
-Unique constraint: `(actor_user_id, key)`. Replaying a completed key returns its original order.
+Unique constraint: `(actor_user_id, key)`. Replaying a completed key returns its original order. Expired keys are deleted by the cleanup job; the orders that referenced them keep their row and lose only the link (`SET NULL`, above).
 
 The key is scoped to the acting user rather than to a buyer, so one table protects every mutation that must not be applied twice: buyer checkout, and the seller ship, refund, and cancel actions. Buyer behaviour is unchanged — a checkout still resolves through `order_id` — while a seller mutation stores its key against the seller's own user id. There is no second idempotency table.
 
@@ -761,6 +763,8 @@ Every outbox `INSERT` populates all of `aggregate_type`, `aggregate_id`, `topic`
 | `event_id` | `UUID` | PK component; UUIDv7 event ID |
 | `processed_at` | `TIMESTAMPTZ` | Required successful-processing time |
 | `outcome` | `TEXT` | Required idempotent processing result |
+
+Index `ix_processed_event_processed_at (processed_at)` serves the retention delete; without it every cleanup batch scans the largest table in the system ([ADR-0024](../../decisions/0024-retention-job-run-limits-and-fk-safe-deletes.md)).
 
 The dedupe window required by BRD §9 is enforced by age rather than by a stored TTL column: the scheduled cleanup job deletes rows whose `processed_at` is older than the configured retention, which must exceed the longest topic retention so a replayed event is still recognised as processed. The same applies to `notifications.in_app_notification`, which has no per-row expiry and is pruned by age. Both retention values are env-configurable and are recorded with their jobs in the cleanup-jobs design.
 

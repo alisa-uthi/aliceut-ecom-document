@@ -276,8 +276,12 @@ CLEANUP_IN_APP_NOTIFICATIONS_CRON=35 3 * * *
 CLEANUP_PRODUCT_IMAGES_CRON=40 3 * * *
 # Orphan sweep of the product-images bucket (ADR-0004): an object younger than this is never a candidate.
 PRODUCT_IMAGE_ORPHAN_GRACE_HOURS=24
-# One batch size shared by every cleanup job, not one per job.
+# One batch size shared by every cleanup job, not one per job. 1-10000.
 CLEANUP_BATCH_SIZE=1000
+# Throttle and per-run cap (ADR-0024): sleep between batches, stop after this many
+# batches and resume on the next tick.
+CLEANUP_BATCH_PAUSE_MS=50
+CLEANUP_MAX_BATCHES_PER_RUN=1000
 # Retention windows. Three of these are coupled to other values and are not free
 # to lower in isolation:
 #   REFRESH_SESSION_CLEANUP_BUFFER_DAYS is ADDED to JWT_REFRESH_TTL_SECONDS above,
@@ -541,6 +545,10 @@ services:
       CLEANUP_PRODUCT_IMAGES_CRON: "${CLEANUP_PRODUCT_IMAGES_CRON:-40 3 * * *}"
       PRODUCT_IMAGE_ORPHAN_GRACE_HOURS: ${PRODUCT_IMAGE_ORPHAN_GRACE_HOURS:-24}
       CLEANUP_BATCH_SIZE: ${CLEANUP_BATCH_SIZE:-1000}
+      CLEANUP_BATCH_PAUSE_MS: ${CLEANUP_BATCH_PAUSE_MS:-50}
+      CLEANUP_MAX_BATCHES_PER_RUN: ${CLEANUP_MAX_BATCHES_PER_RUN:-1000}
+      # Must equal the api's value: revoked refresh sessions are kept for this TTL plus the buffer.
+      JWT_REFRESH_TTL_SECONDS: ${JWT_REFRESH_TTL_SECONDS:-604800}
       REFRESH_SESSION_CLEANUP_BUFFER_DAYS: ${REFRESH_SESSION_CLEANUP_BUFFER_DAYS:-7}
       STOCK_RESERVATION_RETENTION_DAYS: ${STOCK_RESERVATION_RETENTION_DAYS:-30}
       IDEMPOTENCY_KEY_TTL_HOURS: ${IDEMPOTENCY_KEY_TTL_HOURS:-24}

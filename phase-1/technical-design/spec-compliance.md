@@ -1,7 +1,7 @@
 # Spec compliance — known code/spec divergences
 
 **Status:** Living document
-**Updated:** 2026-10-18
+**Updated:** 2026-10-22
 
 The technical design in this directory is canonical. This file is the register
 of places where the code is known **not** to match it yet, so that no mismatch
@@ -135,10 +135,25 @@ four full update-only reindexes where one would do (correct, wasteful).
 
 ### 3. Most retention jobs are not built
 
-[cleanup-jobs.md](cleanup-jobs.md) lists more jobs than the five `workers` now
-runs (outbox retention, suspension expiry, suspended-seller auto-refund, FX
-refresh, the orphaned-image sweep and `expire-stock-reservations`). The
-remaining six have no implementation.
+The seven retention deletes [cleanup-jobs.md](cleanup-jobs.md) listed as
+unbuilt now run in `workers` ([ADR-0024](../../decisions/0024-retention-job-run-limits-and-fk-safe-deletes.md)).
+What is left of this entry:
+
+- `PROCESSED_EVENT_RETENTION_DAYS` strictly greater than Kafka log retention is
+  a documented rule that nothing enforces at startup.
+- No real-Postgres test runs the retention SQL; the repo has no testcontainers
+  setup. The refresh-session delete and the migrations were exercised by hand
+  against a scratch database, and CI asserts only the three foreign-key actions.
+- `@Cron(process.env[X] ?? default)` is evaluated at import, before
+  `ConfigModule` reads `.env`, so a cron variable set only in a `.env` file the
+  app loads is ignored; compose passes them as real environment variables.
+- `CLEANUP_BATCH_PAUSE_MS` and `CLEANUP_MAX_BATCHES_PER_RUN` have no upper
+  bound; a very large pause holds the run's connection and advisory lock that
+  long.
+- The `down` of migrations 0021 and 0028 re-validates a foreign key inside the
+  revert transaction, holding the heavier lock through the scan.
+- CI does not assert the foreign keys return to `NO ACTION` after the revert
+  loop, or that the six new indexes exist and are valid.
 
 ### 4. Tooling the conventions assume is missing
 
