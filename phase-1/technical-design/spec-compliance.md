@@ -133,6 +133,18 @@ from the payload as written. The indexer also rebuilds every product on each
 `fx_rate.updated`; ADR-0016 emits four per refresh, so an hourly refresh runs
 four full update-only reindexes where one would do (correct, wasteful).
 
+The seller read sequences contradict the same rule on paper. `seller.md` says
+foreign schemas are reached through application services, never by SQL
+([db-mapping](api-design/seller.md#db-mapping)), yet four read statements join
+across modules: the order list (`orders.order` to `identity.user` for the buyer
+name, and `orders.fulfillment_item` to `catalog.offer` for the removed-listing
+flag), the order detail (`fulfillment_item` to `catalog.offer` for listing
+status) and the dashboard low-stock count (`inventory.stock` to `catalog.offer`
+for seller scope and status). Rewriting them as `CatalogApplicationService` /
+`IdentityApplicationService` calls needs new service methods and a decision on
+how a paginated list batches those lookups, so it is a design change, not an
+editorial one, and needs an ADR. Until then the spec text stays as written.
+
 ### 3. Most retention jobs are not built
 
 The seven retention deletes [cleanup-jobs.md](cleanup-jobs.md) listed as
