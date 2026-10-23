@@ -152,7 +152,9 @@ Pagination: cursor (Elasticsearch search_after)
 
 There is **no `minRating` param and no rating sort**. Reviews and ratings are out of V1 scope (BRD §3.2), so no rating field exists in the `products` mapping, in the ERD, or in any result object — the filter is removed rather than deferred behind a flag.
 
-The story text at US-B-04:112 writes the sort token as `?sort=price_asc`; that phrasing is illustrative. The canonical parameter follows [api-conventions § Naming](../../../conventions/api-conventions.md#naming) — camelCase `sortBy` with camelCase values.
+The sort parameter follows [api-conventions § Naming](../../../conventions/api-conventions.md#naming) — camelCase `sortBy` with camelCase values, matching US-B-04 (`?sortBy=priceAsc`).
+
+**Errors:** 400 invalid query param (unknown `sortBy`, non-decimal `priceMin` / `priceMax`, `limit` out of range), 400 malformed `cursor` or a `cursor` presented with a different sort or filter set than it was issued under ([api-conventions § Pagination](../../../conventions/api-conventions.md#pagination))
 
 **Response 200**
 ```json

@@ -1715,7 +1715,7 @@ Content-Type: multipart/form-data
 
 **Response 201**
 ```json
-{ "data": { "storageKey": "products/<sellerProfileId>/<uuidv7>.jpg" } }
+{ "data": { "storageKey": "products/<sellerProfileId>/<uuidv7>.<ext>" } }
 ```
 
 Pass the keys to `POST /seller/products` in `images[]`, in the order they should display — `images[0]` is the primary image. The key, not a URL, is what the API returns and what `catalog.product_image.storage_key` stores; the `product-images` bucket is anonymous-readable, so the client resolves a key against the media base URL.
