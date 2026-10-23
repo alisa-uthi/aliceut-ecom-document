@@ -117,7 +117,7 @@ Every inventory write is therefore eventually consistent, bounded by consumer la
 <a id="scheduled-tasks"></a>
 ## Scheduled tasks (workers)
 
-Every scheduled job in Phase 1 runs in the `workers` process using `@nestjs/schedule`. There is **no in-database scheduler**: Postgres is the stock `postgres:16-alpine` image with no `pg_cron` and no scheduling extension. Schedulers live in `apps/workers/src/schedulers/` and are plain `@Injectable()` providers registered in `WorkersModule`; each one injects the exported application service of the module that owns the data and never reaches a table directly ([conventions §10](../../conventions/backend-module-architecture.md#10-workers-composition-root)).
+Every scheduled job in Phase 1 runs in the `workers` process using `@nestjs/schedule`. There is **no in-database scheduler**: Postgres is the stock `postgres:18-alpine` image with no `pg_cron` and no scheduling extension. Schedulers live in `apps/workers/src/schedulers/` and are plain `@Injectable()` providers registered in `WorkersModule`; each one injects the exported application service of the module that owns the data and never reaches a table directly ([conventions §10](../../conventions/backend-module-architecture.md#10-workers-composition-root)).
 
 Every interval, TTL and batch size is env-configurable, and the env var name is in the table below beside the default it overrides — no schedule literal is hardcoded anywhere in the set. Each job acquires a `pg_advisory_lock` keyed on the job name before doing work and releases it at the end, so a second `workers` replica is safe by construction rather than by deployment convention.
 

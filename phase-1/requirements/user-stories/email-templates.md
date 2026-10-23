@@ -4,7 +4,7 @@ Notification emails triggered by auth, order, and fulfillment lifecycle events (
 
 Templates are grouped by audience: **Auth** (ET-18, ET-19, ET-20), **Buyer Order Lifecycle** (ET-01–ET-05, ET-13, ET-16), **Seller Operations** (ET-06–ET-15, ET-17), and **Admin Notifications** (ET-21).
 
-**Portal links ([ADR-0032](../../../decisions/0032-notification-and-audit-spec-aligned-to-built-consumers.md)).** Seller and admin links in these templates use the portal-prefixed paths of navigation-routing.md (`${SELLER_APP_URL}/seller/...`, `${ADMIN_APP_URL}/admin/...`). The seller and admin apps serve their routes at the root of their own origin, so each app must redirect the prefixed form to the root form. The seller app does this for `/seller/verify-email` and `/seller/reset-password`; the other seller links and every admin link are not yet covered (open code gap).
+**Portal links ([ADR-0031](../../../decisions/0031-notification-and-audit-spec-aligned-to-built-consumers.md)).** Seller and admin links in these templates use the portal-prefixed paths of navigation-routing.md (`${SELLER_APP_URL}/seller/...`, `${ADMIN_APP_URL}/admin/...`). The seller and admin apps serve their routes at the root of their own origin, so each app must redirect the prefixed form to the root form. The seller app does this for `/seller/verify-email` and `/seller/reset-password`; the other seller links and every admin link are not yet covered (open code gap).
 
 ---
 
@@ -293,7 +293,7 @@ AliceUT
 
 | Variable | Description |
 |---|---|
-| `buyer.business_logo_url` | Optional URL of the business logo (B2B accounts only); omit section when absent. **V1 limitation ([ADR-0031](../../../decisions/0031-api-response-details-and-checkout-edge-cases.md)):** presigned for `MINIO_PUBLIC_ENDPOINT` (default `http://localhost:9000`), so the image resolves only on the developer's machine and the link expires 7 days after sending; a real public origin is a V2 deployment concern. An event published before ADR-0023 carries no logo key and renders no logo |
+| `buyer.business_logo_url` | Optional URL of the business logo (B2B accounts only); omit section when absent. **V1 limitation ([ADR-0028](../../../decisions/0028-api-response-details-and-checkout-edge-cases.md)):** presigned for `MINIO_PUBLIC_ENDPOINT` (default `http://localhost:9000`), so the image resolves only on the developer's machine and the link expires 7 days after sending; a real public origin is a V2 deployment concern. An event published before ADR-0023 carries no logo key and renders no logo |
 | `buyer.business_name` | Business name for logo alt text (B2B accounts only) |
 | `fulfillment.subtotal_display` / `shipping_display` / `tax_display` / `grand_total_display` | Seller group totals in buyer's preferred currency (snapshot × captured FX rate) |
 | `session.grand_total_display` | Grand total across all sellers |
@@ -461,7 +461,7 @@ AliceUT
 
 **Trigger:** Seller's account is suspended and an order has passed its fulfillment window without being shipped (US-A-05). Same event also sends ET-13b to the seller.  
 **To:** buyer  
-**Order reference:** `fulfillment.refund_suspended_seller` carries `order_id` (the order UUID) and no `display_id`, so `{{order_id}}` renders the UUID here, unlike ET-01 to ET-05 which render `ORD-…` ([ADR-0032](../../../decisions/0032-notification-and-audit-spec-aligned-to-built-consumers.md)).
+**Order reference:** `fulfillment.refund_suspended_seller` carries `order_id` (the order UUID) and no `display_id`, so `{{order_id}}` renders the UUID here, unlike ET-01 to ET-05 which render `ORD-…` ([ADR-0031](../../../decisions/0031-notification-and-audit-spec-aligned-to-built-consumers.md)).
 **Subject:** `Your order from {{seller_name}} could not be fulfilled — refund issued — Order {{order_id}}`
 
 ```
@@ -900,7 +900,7 @@ AliceUT
 **Trigger:** Same event as ET-13 (US-A-05). Informational only — seller cannot access seller dashboard while suspended.  
 **To:** seller  
 **CC:** admin  
-**Order reference:** `fulfillment.refund_suspended_seller` carries `order_id` (the order UUID) and no `display_id`, so `{{order_id}}` renders the UUID here, unlike ET-01 to ET-05 which render `ORD-…` ([ADR-0032](../../../decisions/0032-notification-and-audit-spec-aligned-to-built-consumers.md)).
+**Order reference:** `fulfillment.refund_suspended_seller` carries `order_id` (the order UUID) and no `display_id`, so `{{order_id}}` renders the UUID here, unlike ET-01 to ET-05 which render `ORD-…` ([ADR-0031](../../../decisions/0031-notification-and-audit-spec-aligned-to-built-consumers.md)).
 **Subject:** `Auto-refund issued for order {{order_id}} — account suspended`
 
 ```
@@ -1124,7 +1124,7 @@ AliceUT
 | Variable | Description |
 |---|---|
 | `submitted_at` | Timestamp of application submission |
-| `review_by` | **Omitted in V1** ([ADR-0032](../../../decisions/0032-notification-and-audit-spec-aligned-to-built-consumers.md)): `seller.kyc.submitted` carries no `review_due_at` and a consumer may not read `seller.kyc_application` (consumer-field-matrix.md § 1), so the line is not rendered. The deadline still exists as `kyc_application.review_due_at` and drives the admin queue badge and dashboard count (BRD §12 #14). Rendered only if a later `seller.kyc.submitted` version carries `review_due_at` |
+| `review_by` | **Omitted in V1** ([ADR-0031](../../../decisions/0031-notification-and-audit-spec-aligned-to-built-consumers.md)): `seller.kyc.submitted` carries no `review_due_at` and a consumer may not read `seller.kyc_application` (consumer-field-matrix.md § 1), so the line is not rendered. The deadline still exists as `kyc_application.review_due_at` and drives the admin queue badge and dashboard count (BRD §12 #14). Rendered only if a later `seller.kyc.submitted` version carries `review_due_at` |
 | `application_id` | KYC application identifier — deep-links directly to the admin review page |
 | `is_resubmission` | Boolean — true when this is a resubmission of a previously rejected application |
 | `prior_rejection_date` | Date of prior rejection (omitted when `is_resubmission` is false) |

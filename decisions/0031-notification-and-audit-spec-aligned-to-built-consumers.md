@@ -1,4 +1,4 @@
-# ADR-0032: Notification and audit spec aligned to the built consumers
+# ADR-0031: Notification and audit spec aligned to the built consumers
 
 **Status:** Accepted  
 **Date:** 2026-10-22  

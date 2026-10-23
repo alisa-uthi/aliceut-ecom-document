@@ -70,5 +70,8 @@ Copy [`0000-adr-template.md`](0000-adr-template.md) to start one.
 | [0022](0022-refund-reason-travels-on-the-refunded-event.md) | The seller's refund reason is stored on the fulfillment and carried on `fulfillment.refunded` | Accepted |
 | [0023](0023-event-logos-carry-an-object-key-the-consumer-presigns.md) | Event logos carry an object key; the consumer presigns at send time | Accepted |
 | [0024](0024-retention-job-run-limits-and-fk-safe-deletes.md) | Retention jobs are throttled and capped, and deletes are foreign-key safe | Accepted |
-| [0031](0031-api-response-details-and-checkout-edge-cases.md) | API response details, checkout edge cases and V1 limitations the design left open | Accepted |
-| [0032](0032-notification-and-audit-spec-aligned-to-built-consumers.md) | Notification and audit spec aligned to the built consumers | Accepted |
+| [0025](0025-fulfillment-events-carry-product-id.md) | `fulfillment.*` items carry `product_id`, and `fulfillment.refunded` items carry `offer_id` | Accepted |
+| [0026](0026-inventory-stock-holds-product-id.md) | `inventory.stock` holds `product_id` | Accepted |
+| [0027](0027-postgresql-18.md) | PostgreSQL 18 is the Phase 1 database version | Accepted |
+| [0028](0028-api-response-details-and-checkout-edge-cases.md) | API response details, checkout edge cases and V1 limitations the design left open | Accepted |
+| [0031](0031-notification-and-audit-spec-aligned-to-built-consumers.md) | Notification and audit spec aligned to the built consumers | Accepted |

@@ -220,7 +220,7 @@ The envelope supplies six of every document's fields on every topic — `event_i
 
 Every projection above is supplied. The audit family was never the family that could not be built — it is in the matrix because a projection nobody had written down is one nobody can check, and because it is the family that turns an event-payload omission into a permanent hole: there is no second write path to fall back on (FR-P-11).
 
-**Three audit projections that the table cannot say in a cell** ([ADR-0032](../../decisions/0032-notification-and-audit-spec-aligned-to-built-consumers.md)):
+**Three audit projections that the table cannot say in a cell** ([ADR-0031](../../decisions/0031-notification-and-audit-spec-aligned-to-built-consumers.md)):
 - `inventory.changed` with `change_reason = UNKNOWN` is written with `actor_id: null`, `actor_role: 'SYSTEM'` and `action: 'STOCK_ADJUSTED'`, as data-model-mongodb.md says. SYSTEM wins over the seller: a reason this build cannot name is not attributable to the seller.
 - `audit_logs.actor_id` is the literal column in the table above, so it is `payload.seller_id` — a **seller_profile id**, not an `identity.user` id — for `seller.kyc.submitted` and the seller stock edits. The acting user's id is `payload.seller_user_id` on `seller.kyc.submitted`; nothing joins `actor_id` to `identity.user` for these rows.
 - A `listing.flagged` whose `source` is not `ADMIN_MANUAL` has no admin: it is written with `actor_id: null` and `actor_role: 'SYSTEM'`.
@@ -236,13 +236,13 @@ These four groups write their own module's tables, so the matrix question is nar
 
 | Consumer group | Event | Write | Scope and quantity from |
 |---|---|---|---|
-| `inventory.fulfillment-placed` | `fulfillment.placed` | `inventory.changed` outbox row (`RESERVATION`) | `payload.items[].offer_id`, `.quantity` |
+| `inventory.fulfillment-placed` | `fulfillment.placed` | `inventory.changed` outbox row (`RESERVATION`) | `payload.items[].offer_id`; `product_id` for the row comes from `inventory.stock.product_id` ([ADR-0026](../../decisions/0026-inventory-stock-holds-product-id.md)) |
 | `inventory.fulfillment-shipped` | `fulfillment.shipped` | reservations → `CONSUMED`; `on_hand_qty` and `reserved_qty` decrement | `payload.fulfillment_id`, `payload.items[].offer_id`, `.quantity` |
 | `inventory.fulfillment-cancelled` | `fulfillment.cancelled` | reservations → `RELEASED`; `reserved_qty` decrement | `payload.fulfillment_id`, `payload.items[].offer_id`, `.quantity` |
-| `inventory.fulfillment-refunded` | `fulfillment.refunded`, `fulfillment.refund_suspended_seller` | same as cancel, **only when** `prior_status = PENDING` | `payload.fulfillment_id`, `payload.prior_status`, `payload.items[]` |
+| `inventory.fulfillment-refunded` | `fulfillment.refunded`, `fulfillment.refund_suspended_seller` | same as cancel, **only when** `prior_status = PENDING` | `payload.fulfillment_id`, `payload.prior_status`; `fulfillment.refunded` items carry `offer_id` and `product_id` ([ADR-0025](../../decisions/0025-fulfillment-events-carry-product-id.md)) |
 | `orders.delivery-tracker` | `fulfillment.delivered` | `OrdersApplicationService` completion check; `order.completed` outbox row | `payload.order_id` |
 
-Every reservation write is scoped `WHERE fulfillment_id = :fulfillment_id` and never `WHERE order_id = ?`, so one seller's fulfillment in a multi-seller checkout cannot release another's stock. `fulfillment_id` is present on all four topics.
+Every `fulfillment.placed`, `.shipped`, `.cancelled`, `.refunded` and `.refund_suspended_seller` item carries `offer_id` and `product_id` ([ADR-0025](../../decisions/0025-fulfillment-events-carry-product-id.md)); `product_id` is nullable on the wire only so the schema stays `BACKWARD` compatible, and producers always set it. Every reservation write is scoped `WHERE fulfillment_id = :fulfillment_id` and never `WHERE order_id = ?`, so one seller's fulfillment in a multi-seller checkout cannot release another's stock. `fulfillment_id` is present on all four topics.
 
 ---
 
