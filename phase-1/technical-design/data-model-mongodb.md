@@ -53,8 +53,7 @@ Every document in every collection below carries the full Kafka event envelope �
 **Payload masking is mandatory.** Before insert, the consumer masks every `payload` key matching `DEFAULT_SENSITIVE_KEYS` in [conventions/observability.md §2](../../conventions/observability.md#nestjs-logger) — `password`, `token`, `authorization`, `cookie`, `tax_id`, `secret`, `refresh_token` and the rest of that list, matched case- and separator-insensitively — writing `"***"` in place of the value at any depth. This is a requirement of the collections, not a recommendation on the consumer:
 
 - `auth.email_verification_requested` and `auth.password_reset_requested` legitimately carry the **raw single-use token** on the wire, because the notification consumer cannot build the email link otherwise and reading `identity.email_verification_token` from the notifications module would be a cross-schema read.
-- Seller KYC payloads carry `tax_id`.
-- `audit_logs` retention is **two years**. An unmasked token or tax id written here outlives its own TTL by two years, in a store whose whole purpose is to be queried later.
+- `audit_logs` retention is **two years**. An unmasked token written here outlives its own TTL by two years, in a store whose whole purpose is to be queried later.
 
 The same list governs log lines, so masking is one shared sanitizer, not a per-consumer reimplementation. The consumer side of this rule is stated at [kafka-events.md §audit masking](kafka-events.md#audit-masking); the shortened retention that bounds the same token's exposure in the Kafka log itself is at [§topic retention](kafka-events.md#topic-retention). Masking here and short retention there are two independent limits on one secret, not alternatives — the topic retention protects the log, and only the masking protects a two-year collection.
 
@@ -75,7 +74,7 @@ Admin, moderation, credential and seller stock-correction actions. Answers: *who
 | `event_version` | int | envelope field; the payload schema version this document was written under |
 | `occurred_at` | Date | indexed |
 | `correlation_id` | string | indexed; propagated from `X-Correlation-ID` |
-| `actor_id` | UUID (BinData subtype 4) \| null | the acting user; `null` when `actor_role` is `SYSTEM` |
+| `actor_id` | UUID (BinData subtype 4) \| null | the acting user; `null` when `actor_role` is `SYSTEM`. Per [consumer-field-matrix.md § 5](consumer-field-matrix.md) it is the literal payload field the matrix names, which for `seller.kyc.submitted` and seller stock edits is `payload.seller_id` (a seller_profile id), not a user id |
 | `actor_role` | `ADMIN` \| `SELLER` \| `USER` \| `SYSTEM` | `SELLER` for a seller's own KYC submission or stock correction, `USER` for a credential action on one's own account, `SYSTEM` for automated expiry and for an unclassifiable stock change |
 | `entity_type` | `SELLER` \| `OFFER` \| `USER` \| `KEYWORD_BLOCKLIST` | |
 | `entity_id` | UUID (BinData subtype 4) | indexed — `seller_profile_id`, `offer_id`, `user_id` or `blocklist_entry_id` |

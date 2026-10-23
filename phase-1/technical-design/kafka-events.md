@@ -121,7 +121,7 @@ MongoDB audit collection schemas (`audit_logs`, `activity_events`): see [data-mo
 | Consumer group | Pattern | Side effects |
 |---------------|---------|--------------|
 | `notification.kyc-submitted` | `notification.*` | Sends ET-14 to seller; sends ET-21 to admin. Creates one in-app notification per admin (type `KYC_SUBMITTED`) — fan-out is possible because `in_app_notification` is unique on `(recipient_user_id, source_event_id)`, not on `source_event_id` alone. |
-| `platform.audit` | `platform.audit` | Writes `audit_logs` (action=`KYC_SUBMITTED`, entity_type=`SELLER`, actor_id=seller_id). Payload keys matching `DEFAULT_SENSITIVE_KEYS` — `tax_id` among them — are masked before insert ([§5](#audit-masking)). |
+| `platform.audit` | `platform.audit` | Writes `audit_logs` (action=`KYC_SUBMITTED`, entity_type=`SELLER`, actor_id=`payload.seller_id`, a seller_profile id; the user id is `seller_user_id`). Payload keys matching `DEFAULT_SENSITIVE_KEYS` — `tax_id` among them, as a defence in depth — are masked before insert ([§5](#audit-masking)). |
 
 ---
 
@@ -1962,7 +1962,7 @@ Every consumer group has a dedicated DLQ topic named `<consumer_group>.dlq` ([co
 | `orders.*` | `orders.delivery-tracker` | `orders.delivery-tracker.dlq` |
 | `platform.audit` | `platform.audit` | `platform.audit.dlq` |
 
-One DLQ topic per consumer group — the groups themselves are listed in [backend-module-architecture.md § Module summary table](backend-module-architecture.md#module-summary-table), which is where a group is added or removed. Two of them consume more than one topic: `inventory.fulfillment-refunded` handles both refund topics (§2.7, §2.17) and the `platform.audit` group handles nearly all of them — a group's DLQ is per group, not per topic. The group count and the topic count in §1 therefore move independently: giving the `platform.audit` group another topic, as §2.27 and §2.29 do, adds no group and no DLQ, while a topic with a consumer of its own, as §2.28 has, adds both. SMTP delivery failures are the one exception to per-group routing: after 3 attempts with exponential backoff the *email* is routed to `email.outbound.dlq` and the originating event is **not** sent to the group's DLQ, because the event was processed correctly and only the transport failed ([conventions §5](../../conventions/kafka-events.md#dlq-topology)).
+One DLQ topic per consumer group — the groups themselves are listed in [backend-module-architecture.md § Module summary table](backend-module-architecture.md#module-summary-table), which is where a group is added or removed. Two of them consume more than one topic: `inventory.fulfillment-refunded` handles both refund topics (§2.7, §2.17) and the `platform.audit` group handles nearly all of them — a group's DLQ is per group, not per topic. The group count and the topic count in §1 therefore move independently: giving the `platform.audit` group another topic, as §2.27 and §2.29 do, adds no group and no DLQ, while a topic with a consumer of its own, as §2.28 has, adds both. SMTP delivery failures are the one exception to per-group routing: after 4 attempts in all (the first send and three retries, backed off 100 ms, 500 ms and 2 s) the *email* is routed to `email.outbound.dlq` and the originating event is **not** sent to the group's DLQ, because the event was processed correctly and only the transport failed ([conventions §5](../../conventions/kafka-events.md#dlq-topology)).
 
 A non-empty DLQ raises an alert; how that is observed in V1 is recorded in [docker-compose-topology.md](docker-compose-topology.md), alongside the outbox-relay-lag threshold.
 
@@ -1973,10 +1973,9 @@ A non-empty DLQ raises an alert; how that is observed in V1 is recorded in [dock
 
 The `platform.audit` consumer group masks before insert. Any `payload` key matching `DEFAULT_SENSITIVE_KEYS` in [conventions/observability.md](../../conventions/observability.md#nestjs-logger) — `password`, `token`, `authorization`, `cookie`, `tax_id`, `secret`, `refresh_token` and the rest of that list, matched case- and separator-insensitively at any nesting depth — is written to MongoDB as the literal string `"***"`.
 
-**This is mandatory, not best-effort.** Two payload families in this catalogue depend on it:
+**This is mandatory, not best-effort.** The one payload family in this catalogue that depends on it:
 
 - `auth.email_verification_requested` (§2.22) and `auth.password_reset_requested` (§2.23) carry a **raw single-use token**, because the notification consumer cannot build the email link otherwise and reading `identity.email_verification_token` from the notifications module would be a cross-schema read. `audit_logs` is retained for two years; an unmasked copy would outlive the token by that whole period.
-- `seller.kyc.submitted` (§2.1) and `seller.kyc.decided` (§2.2) carry seller business identifiers including `tax_id`.
 
 The mask is applied by the consumer, on the way into the document — never by the producer, which would deny the notification consumer the token it needs. The envelope fields (`event_id`, `event_type`, `event_version`, `occurred_at`, `correlation_id`) are never masked; they are what makes the record traceable back to the request that caused it.
 

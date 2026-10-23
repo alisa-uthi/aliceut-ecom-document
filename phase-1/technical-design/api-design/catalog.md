@@ -74,7 +74,7 @@ Auth: PUBLIC
   }]
 }
 ```
-Returns the full category tree (nested or flat with `parentId`). No pagination — category count bounded by taxonomy.
+Returns the full category tree, nested. No pagination — category count bounded by taxonomy. The tree is public and unfiltered: prohibited categories (`is_prohibited`) appear in it like any other node, because listing-time enforcement refuses them at submit and the tree is not the enforcement point ([ADR-0028](../../../decisions/0028-api-response-details-and-checkout-edge-cases.md)).
 
 #### Sequence
 
@@ -104,7 +104,19 @@ GET /catalog/categories/:categoryId
 Tag: Catalog
 Auth: PUBLIC
 ```
-**Response 200** — single category with children
+**Response 200** — the category with its **direct** children only (grandchildren are not loaded; walk `GET /catalog/categories` for the full tree)
+```json
+{
+  "data": {
+    "id": "uuid",
+    "parentId": "uuid | null",
+    "name": "Electronics",
+    "slug": "electronics",
+    "children": [{ "id": "uuid", "parentId": "uuid", "name": "Cameras", "slug": "cameras", "children": [] }]
+  }
+}
+```
+Each child has the list-shape fields and `children: []`. **Errors:** 404 category not found ([ADR-0028](../../../decisions/0028-api-response-details-and-checkout-edge-cases.md)).
 
 #### Sequence
 
@@ -142,7 +154,7 @@ Auth: PUBLIC
 Pagination: cursor
 ```
 **Query params**
-- `categoryId`: UUID
+- `categoryId`: UUID. An id that matches no category is **not** an error: the response is an empty page (`data: []`, `hasMore: false`), same as a real category with no active products ([ADR-0028](../../../decisions/0028-api-response-details-and-checkout-edge-cases.md))
 - `status`: `ACTIVE` (default, only value exposed publicly)
 - `limit`, `cursor`
 
@@ -308,6 +320,12 @@ Auth: PUBLIC
 - `availableQty` is `COALESCE(on_hand_qty - reserved_qty, 0)`.
 
 **Errors:** 404 product not found, 422 `currency` not supported
+
+**Behaviours fixed by [ADR-0028](../../../decisions/0028-api-response-details-and-checkout-edge-cases.md)** (apply to this endpoint and to the offers inside `GET /catalog/products/:productId`):
+- An offer with no live `LIST` row is omitted (price resolution cannot terminate without one).
+- An invalid or expired Bearer token is treated as anonymous, not `401`: the route is `PUBLIC`, and the token only supplies the display-currency preference.
+- The sale window is half-open: `starts_at <= now() < ends_at`.
+- Offers are ordered by offer id, so the order is stable across requests.
 
 #### Sequence
 
