@@ -199,7 +199,7 @@ Auth: PUBLIC
 ```
 **Field semantics:** `pricing.fx_rate` holds exactly one row per currency pair and keeps no history — refresh is an upsert in place, so `asOf` (the provider's timestamp for the current value) is the only field staleness is measured against; there is no `fetchedAt`. `stale` is `true` when `now() - asOf > FX_STALE_AFTER_HOURS` (env, default 24). A stale rate is still returned; the client presents it as an indicative rate. This is not a paginated list — the response is a single `data` object because the row count is bounded by the currency allowlist.
 
-**Errors:** `400` when `base` is not one of the seller-allowed currencies (`USD`, `THB`, `JPY`, `SGD`) — request-shape validation, `errors[]` present. A valid `base` with no stored rows is `200` with `rates: []`; this endpoint never returns `404` or `422` ([ADR-0027](../../../decisions/0027-api-response-details-and-checkout-edge-cases.md)).
+**Errors:** `400` when `base` is not one of the seller-allowed currencies (`USD`, `THB`, `JPY`, `SGD`) — request-shape validation, `errors[]` present. A valid `base` with no stored rows is `200` with `rates: []`; this endpoint never returns `404` or `422` ([ADR-0031](../../../decisions/0031-api-response-details-and-checkout-edge-cases.md)).
 
 #### Sequence
 

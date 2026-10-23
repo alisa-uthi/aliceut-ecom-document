@@ -220,7 +220,7 @@ The envelope supplies six of every document's fields on every topic — `event_i
 
 Every projection above is supplied. The audit family was never the family that could not be built — it is in the matrix because a projection nobody had written down is one nobody can check, and because it is the family that turns an event-payload omission into a permanent hole: there is no second write path to fall back on (FR-P-11).
 
-**Three audit projections that the table cannot say in a cell** ([ADR-0028](../../decisions/0028-notification-and-audit-spec-aligned-to-built-consumers.md)):
+**Three audit projections that the table cannot say in a cell** ([ADR-0032](../../decisions/0032-notification-and-audit-spec-aligned-to-built-consumers.md)):
 - `inventory.changed` with `change_reason = UNKNOWN` is written with `actor_id: null`, `actor_role: 'SYSTEM'` and `action: 'STOCK_ADJUSTED'`, as data-model-mongodb.md says. SYSTEM wins over the seller: a reason this build cannot name is not attributable to the seller.
 - `audit_logs.actor_id` is the literal column in the table above, so it is `payload.seller_id` — a **seller_profile id**, not an `identity.user` id — for `seller.kyc.submitted` and the seller stock edits. The acting user's id is `payload.seller_user_id` on `seller.kyc.submitted`; nothing joins `actor_id` to `identity.user` for these rows.
 - A `listing.flagged` whose `source` is not `ADMIN_MANUAL` has no admin: it is written with `actor_id: null` and `actor_role: 'SYSTEM'`.

@@ -1284,7 +1284,7 @@ The types a seller account receives, rendered by `<aliceut-notification-bell>` i
 | `SELLER_REINSTATED` | `lock_open` (success) | "Your account has been reinstated" | `/seller/profile` |
 | `SUSPENSION_EXPIRED` | `lock_open` (success) | "Your suspension has ended and your listings are active again" | `/seller/profile` |
 
-These are the seller-relevant canonical types in [notifications.md](../technical-design/api-design/notifications.md). A seller receives no in-app `ORDER_PLACED` (the seller is told by e-mail ET-17) and no in-app `KYC_SUBMITTED` (that row goes to admins; the seller gets e-mail ET-14), per consumer-field-matrix.md § 4 ([ADR-0028](../../decisions/0028-notification-and-audit-spec-aligned-to-built-consumers.md)). `SUSPENSION_EXPIRED` exists as a notification **type** only; it is not a stored status and nothing passes it to a `StatusBadge` ([shared-components.md § 5](shared-components.md#5-status-vocabulary)).
+These are the seller-relevant canonical types in [notifications.md](../technical-design/api-design/notifications.md). A seller receives no in-app `ORDER_PLACED` (the seller is told by e-mail ET-17) and no in-app `KYC_SUBMITTED` (that row goes to admins; the seller gets e-mail ET-14), per consumer-field-matrix.md § 4 ([ADR-0032](../../decisions/0032-notification-and-audit-spec-aligned-to-built-consumers.md)). `SUSPENSION_EXPIRED` exists as a notification **type** only; it is not a stored status and nothing passes it to a `StatusBadge` ([shared-components.md § 5](shared-components.md#5-status-vocabulary)).
 
 ---
 

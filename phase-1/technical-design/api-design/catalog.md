@@ -74,7 +74,7 @@ Auth: PUBLIC
   }]
 }
 ```
-Returns the full category tree, nested. No pagination — category count bounded by taxonomy. The tree is public and unfiltered: prohibited categories (`is_prohibited`) appear in it like any other node, because listing-time enforcement refuses them at submit and the tree is not the enforcement point ([ADR-0027](../../../decisions/0027-api-response-details-and-checkout-edge-cases.md)).
+Returns the full category tree, nested. No pagination — category count bounded by taxonomy. The tree is public and unfiltered: prohibited categories (`is_prohibited`) appear in it like any other node, because listing-time enforcement refuses them at submit and the tree is not the enforcement point ([ADR-0031](../../../decisions/0031-api-response-details-and-checkout-edge-cases.md)).
 
 #### Sequence
 
@@ -116,7 +116,7 @@ Auth: PUBLIC
   }
 }
 ```
-Each child has the list-shape fields and `children: []`. **Errors:** 404 category not found ([ADR-0027](../../../decisions/0027-api-response-details-and-checkout-edge-cases.md)).
+Each child has the list-shape fields and `children: []`. **Errors:** 404 category not found ([ADR-0031](../../../decisions/0031-api-response-details-and-checkout-edge-cases.md)).
 
 #### Sequence
 
@@ -154,7 +154,7 @@ Auth: PUBLIC
 Pagination: cursor
 ```
 **Query params**
-- `categoryId`: UUID. An id that matches no category is **not** an error: the response is an empty page (`data: []`, `hasMore: false`), same as a real category with no active products ([ADR-0027](../../../decisions/0027-api-response-details-and-checkout-edge-cases.md))
+- `categoryId`: UUID. An id that matches no category is **not** an error: the response is an empty page (`data: []`, `hasMore: false`), same as a real category with no active products ([ADR-0031](../../../decisions/0031-api-response-details-and-checkout-edge-cases.md))
 - `status`: `ACTIVE` (default, only value exposed publicly)
 - `limit`, `cursor`
 
@@ -321,7 +321,7 @@ Auth: PUBLIC
 
 **Errors:** 404 product not found, 422 `currency` not supported
 
-**Behaviours fixed by [ADR-0027](../../../decisions/0027-api-response-details-and-checkout-edge-cases.md)** (apply to this endpoint and to the offers inside `GET /catalog/products/:productId`):
+**Behaviours fixed by [ADR-0031](../../../decisions/0031-api-response-details-and-checkout-edge-cases.md)** (apply to this endpoint and to the offers inside `GET /catalog/products/:productId`):
 - An offer with no live `LIST` row is omitted (price resolution cannot terminate without one).
 - An invalid or expired Bearer token is treated as anonymous, not `401`: the route is `PUBLIC`, and the token only supplies the display-currency preference.
 - The sale window is half-open: `starts_at <= now() < ends_at`.

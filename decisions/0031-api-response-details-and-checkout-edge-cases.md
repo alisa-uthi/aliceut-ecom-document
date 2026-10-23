@@ -1,4 +1,4 @@
-# ADR-0027: API response details, checkout edge cases and V1 limitations the design left open
+# ADR-0031: API response details, checkout edge cases and V1 limitations the design left open
 
 **Status:** Accepted  
 **Date:** 2026-10-22  

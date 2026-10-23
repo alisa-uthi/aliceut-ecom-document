@@ -469,7 +469,7 @@ Returns the seller's most recent application. **A suspended seller may read it**
   }
 }
 ```
-`status` is the `kyc_status` enum, complete. `priorRejectionReason` carries the reason the previous application was refused, so the resubmission form can show the seller what to fix (US-S-02:41). It is the reason on the application that the latest one supersedes, and `null` when the latest application supersedes nothing ([ADR-0027](../../../decisions/0027-api-response-details-and-checkout-edge-cases.md)).
+`status` is the `kyc_status` enum, complete. `priorRejectionReason` carries the reason the previous application was refused, so the resubmission form can show the seller what to fix (US-S-02:41). It is the reason on the application that the latest one supersedes, and `null` when the latest application supersedes nothing ([ADR-0031](../../../decisions/0031-api-response-details-and-checkout-edge-cases.md)).
 
 **Errors:** 404 no application submitted yet — the seller registered but has not completed [`POST /seller/kyc`](#submit-kyc-application). A caller with no seller profile gets the same `404`, indistinguishable from the above
 
@@ -590,7 +590,7 @@ POST /seller/kyc/resubmit
 Tag: Seller
 Auth: SELLER (KYC status must be REJECTED)
 ```
-[`POST /seller/kyc`](#submit-kyc-application) accepts the same rejected seller ([ADR-0021](../../../decisions/0021-submit-kyc-accepts-a-rejected-seller.md)); this endpoint is kept for existing clients and behaves identically in that case. **`POST /seller/kyc/resubmit` is a documented alias of `POST /seller/kyc` for a rejected seller** — one code path, same body, same events ([ADR-0027](../../../decisions/0027-api-response-details-and-checkout-edge-cases.md)); it is not deprecated in V1, and the frontend should use `POST /seller/kyc`.
+[`POST /seller/kyc`](#submit-kyc-application) accepts the same rejected seller ([ADR-0021](../../../decisions/0021-submit-kyc-accepts-a-rejected-seller.md)); this endpoint is kept for existing clients and behaves identically in that case. **`POST /seller/kyc/resubmit` is a documented alias of `POST /seller/kyc` for a rejected seller** — one code path, same body, same events ([ADR-0031](../../../decisions/0031-api-response-details-and-checkout-edge-cases.md)); it is not deprecated in V1, and the frontend should use `POST /seller/kyc`.
 
 
 **Request body** (multipart/form-data) — the same fields as [`POST /seller/kyc`](#submit-kyc-application):
