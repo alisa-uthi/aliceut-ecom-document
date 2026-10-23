@@ -1086,7 +1086,8 @@ Fires when an admin lifts a seller's suspension (sets `suspension_status = ACTIV
           { "name": "seller_email",   "type": "string" },
           { "name": "seller_name",    "type": "string" },
           { "name": "business_name",  "type": "string" },
-          { "name": "admin_id",       "type": "string", "doc": "UUID of the admin who lifted the suspension" },
+          { "name": "admin_user_id",  "type": ["null", "string"], "default": null, "doc": "UUID of identity.user — the admin who lifted the suspension, and the audit document's actor_id (ADR-0029). Always set on an event produced after ADR-0029; null only on an older record" },
+          { "name": "admin_id",       "type": ["null", "string"], "default": null, "doc": "DEPRECATED (ADR-0029): the same value as admin_user_id, written for the transition so old consumers keep working; consumers read it only when admin_user_id is null. Kept so schema evolution stays BACKWARD-compatible; removed by a later ADR once consumers are drained" },
           { "name": "reinstated_at",  "type": "string", "doc": "ISO 8601 UTC" },
           { "name": "reason",         "type": ["null", "string"], "default": null, "doc": "Optional admin note" },
           { "name": "offer_ids",      "type": { "type": "array", "items": "string" }, "doc": "IDs of offers reactivated by reinstatement" }
@@ -1097,13 +1098,15 @@ Fires when an admin lifts a seller's suspension (sets `suspension_status = ACTIV
 }
 ```
 
+**`admin_user_id` replaces `admin_id`.** Every other admin-initiated event names the actor `admin_user_id`; this one did not. The new field is additive and `admin_id` is kept as a deprecated copy so the change stays `BACKWARD`-compatible and `event_version` stays 1 ([ADR-0029](../../decisions/0029-seller-reinstated-carries-admin-user-id.md)).
+
 **Consumer groups**
 
 | Consumer group | Pattern | Side effects |
 |---------------|---------|--------------|
 | `notification.seller-reinstated` | `notification.*` | Sends ET-12 to seller. Creates in-app notification (type `SELLER_REINSTATED`). |
 | `search.seller-reinstated` | `search.*` | Reverses the suspension write: sets `seller_active = true` on the `offers[]` entry of every offer in `offer_ids` and recomputes `in_stock`. |
-| `platform.audit` | `platform.audit` | Writes `audit_logs` (action=`SELLER_REINSTATED`, entity_type=`SELLER`, actor_id=admin_id). |
+| `platform.audit` | `platform.audit` | Writes `audit_logs` (action=`SELLER_REINSTATED`, entity_type=`SELLER`, actor_id=admin_user_id; falls back to the deprecated `admin_id` when a pre-ADR-0029 record has no `admin_user_id`). |
 
 ---
 

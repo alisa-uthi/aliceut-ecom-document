@@ -388,8 +388,8 @@ div.pdp-layout [display: grid; grid-template-columns: 1fr 380px; gap: 32px; alig
             [converted]="isFxEstimate(offer)" [estimatedFrom]="offer.effectivePrice.currency"
             [fxAsOf]="offer.effectivePrice.fxAsOf" [fxStale]="offer.effectivePrice.fxStale"
             [saleEndsAt]="offer.effectivePrice.saleEndsAt">
-          button mat-stroked-button (click)="selectOffer(offer)" *ngIf="offer.id !== selectedOffer.id" — Select
-          mat-chip *ngIf="offer.id === selectedOffer.id" color="primary" — Selected
+          button mat-stroked-button (click)="selectOffer(offer)" *ngIf="offer.offerId !== selectedOffer.offerId" — Select
+          mat-chip *ngIf="offer.offerId === selectedOffer.offerId" color="primary" — Selected
 
   <!-- Right: buy box -->
   aside.buy-box [position: sticky; top: 88px]

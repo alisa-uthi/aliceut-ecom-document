@@ -191,7 +191,7 @@ The envelope supplies six of every document's fields on every topic — `event_i
 | `seller.kyc.decided` | `audit_logs` | `payload.seller_id` | `payload.reviewer_user_id` | `payload.reason` |
 | `seller.suspended` | `audit_logs` | `payload.seller_id` | `payload.admin_user_id` | `payload.reason` |
 | `seller.suspension_amended` | `audit_logs` | `payload.seller_id` | `payload.admin_user_id` | `payload.reason` |
-| `seller.reinstated` | `audit_logs` | `payload.seller_id` | `payload.admin_id` | `payload.reason` |
+| `seller.reinstated` | `audit_logs` | `payload.seller_id` | `payload.admin_user_id` (older records: `payload.admin_id`, [ADR-0029](../../decisions/0029-seller-reinstated-carries-admin-user-id.md)) | `payload.reason` |
 | `seller.suspension_expired` | `audit_logs` | `payload.seller_id` | `null` (SYSTEM) | — |
 | `listing.flagged` | `audit_logs` | `payload.offer_id` | `payload.admin_user_id` (null when not `ADMIN_MANUAL`) | `payload.flag_reason` |
 | `moderation.listing.removed` | `audit_logs` | `payload.offer_id` | `payload.admin_user_id` | `payload.removal_reason_text` |

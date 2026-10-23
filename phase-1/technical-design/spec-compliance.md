@@ -222,3 +222,8 @@ What is left of this entry:
 - No `inventory.low_stock` is emitted when a checkout reservation takes
   available stock below the threshold, though the ERD's edge-triggered rule
   covers any stock write.
+- `seller.reinstated` is built with `admin_id` only; [ADR-0029](../../decisions/0029-seller-reinstated-carries-admin-user-id.md)
+  adds `admin_user_id` (backend producer and Avro schema not yet changed).
+- `GET /catalog/products/:productId/offers` is built with `id`;
+  [ADR-0030](../../decisions/0030-offer-identifier-is-offerid-in-catalog-responses.md) renames it `offerId`
+  (backend DTO, OpenAPI spec and generated client not yet changed).
