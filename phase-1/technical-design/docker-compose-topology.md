@@ -62,7 +62,7 @@ Every service below starts in V1 (the count is published in [architecture-overvi
 | `admin-nginx` | `nginx:1.27-alpine` (+ built Angular dist) | `4202:80` | Serves admin Angular app |
 | `api` | `../aliceut-ecom-backend` (Dockerfile) | `3000:3000` | NestJS HTTP API |
 | `workers` | `../aliceut-ecom-backend` (Dockerfile, worker entrypoint) | — | Outbox relay + Kafka consumers |
-| `postgres` | `postgres:16-alpine` | `5432:5432` | Primary PostgreSQL database |
+| `postgres` | `postgres:18-alpine` | `5432:5432` | Primary PostgreSQL database |
 | `mongodb` | `mongo:7` | `27017:27017` | Audit and activity log store |
 | `elasticsearch` | `docker.elastic.co/elasticsearch/elasticsearch:8.14.0` | `9200:9200` | Search index |
 | `kafka` | `apache/kafka:3.8.0` | `29092:29092` | Kafka broker (KRaft mode); `kafka:9092` in-network, `localhost:29092` from the host |
@@ -108,7 +108,7 @@ The observability stack shares `aliceut_backend` rather than getting a network o
 
 | Volume | Used by | Purpose |
 |--------|---------|---------|
-| `postgres_data` | postgres | Persistent PostgreSQL data |
+| `postgres_data` | postgres | Persistent PostgreSQL data, mounted at `/var/lib/postgresql` (the 18 image keeps the cluster in `18/docker` below it — [ADR-0027](../../decisions/0027-postgresql-18.md)) |
 | `mongodb_data` | mongodb | Persistent MongoDB data |
 | `elasticsearch_data` | elasticsearch | Persistent search index |
 | `kafka_data` | kafka | Persistent Kafka log segments |
@@ -591,7 +591,7 @@ services:
   # ── PostgreSQL ───────────────────────────────────────────
 
   postgres:
-    image: postgres:16-alpine
+    image: postgres:18-alpine
     container_name: aliceut_postgres
     restart: unless-stopped
     ports:
@@ -602,7 +602,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql
       # First-boot only (runs when postgres_data is empty): roles and grants, and
       # nothing else. No schema, no extensions — see §10 for what does not belong here.
       - ../aliceut-ecom-backend/migrations/init:/docker-entrypoint-initdb.d:ro
@@ -1250,9 +1250,9 @@ They run in filename order, and that order is load-bearing rather than tidy: `00
 
 ### Required extension
 
-Migration `0001_create_extensions` exists solely to run `CREATE EXTENSION IF NOT EXISTS btree_gist;`, and it is numbered `0001` so that it precedes the `pricing` migration. The `EXCLUDE USING gist (offer_id WITH =, tstzrange(starts_at, ends_at) WITH &&)` constraint on `pricing.offer_price` ([data-model-erd.md](./data-model-erd.md#table-pricing-offer-price)) splits into two operands. The range half is core — built-in `range_ops` covers `WITH &&`. The `offer_id WITH =` half is not: `offer_id` is `UUID`, core PostgreSQL 16 ships no GiST operator class for `uuid`, and `gist_uuid_ops` comes only from `btree_gist`. Without the extension the migration fails with `data type uuid has no default operator class for access method "gist"`. The ERD carries the same rationale next to the constraint.
+Migration `0001_create_extensions` exists solely to run `CREATE EXTENSION IF NOT EXISTS btree_gist;`, and it is numbered `0001` so that it precedes the `pricing` migration. The `EXCLUDE USING gist (offer_id WITH =, tstzrange(starts_at, ends_at) WITH &&)` constraint on `pricing.offer_price` ([data-model-erd.md](./data-model-erd.md#table-pricing-offer-price)) splits into two operands. The range half is core — built-in `range_ops` covers `WITH &&`. The `offer_id WITH =` half is not: `offer_id` is `UUID`, core PostgreSQL 18 ships no GiST operator class for `uuid`, and `gist_uuid_ops` comes only from `btree_gist`. Without the extension the migration fails with `data type uuid has no default operator class for access method "gist"`. The ERD carries the same rationale next to the constraint.
 
-**This does not require a custom image.** `btree_gist` is a bundled contrib module already present in the official `postgres:16-alpine` image, and it is trusted in PG13+, so the database owner creates it without superuser — **no custom Dockerfile and no privileged migration step**. The rule it has to satisfy is bundled contrib versus third-party module, not extension versus no extension: that is the same distinction that rejects `pg_cron` in the design-decision list below. NFR-18 portability carries one caveat: a managed Postgres that blocks contrib modules blocks this constraint. No other extension is required in Phase 1.
+**This does not require a custom image.** `btree_gist` is a bundled contrib module already present in the official `postgres:18-alpine` image, and it is trusted in PG13+, so the database owner creates it without superuser — **no custom Dockerfile and no privileged migration step**. The rule it has to satisfy is bundled contrib versus third-party module, not extension versus no extension: that is the same distinction that rejects `pg_cron` in the design-decision list below. NFR-18 portability carries one caveat: a managed Postgres that blocks contrib modules blocks this constraint. No other extension is required in Phase 1.
 
 Running `api` and `workers` on the host (`npm run start:dev`) puts them outside `aliceut_backend`, so they reach each service through its published host port. Override `KAFKA_BROKERS=localhost:29092` (the EXTERNAL listener), `DATABASE_URL` on `localhost:5432` and `MINIO_ENDPOINT=http://localhost:9000` in a local `.env` for that mode; the values committed in `.env.example` are the in-network ones the containers use.
 
@@ -1340,7 +1340,7 @@ No antivirus or scanner sidecar runs in V1. A seller can upload a file that is a
 - **[DESIGN DECISION]** The compose file lives in the sibling `aliceut-ecom-infra` repository, not in the backend or frontend repository, because it wires all of them together and belongs to neither. Every `../` path in it resolves against that repository's root (§1). Compose commands run from there.
 - **[DESIGN DECISION]** Kafka uses KRaft mode (no ZooKeeper). `apache/kafka:3.8.0` ships with KRaft; a `CLUSTER_ID` is pre-generated. This removes ZooKeeper as a dependency, reducing the compose service count.
 - **[DESIGN DECISION]** Kafka advertises two client listeners, `INTERNAL://kafka:9092` and `EXTERNAL://localhost:29092`. A broker can advertise only one address per listener, and `kafka:9092` is unresolvable from the host while `localhost:29092` is unreachable from inside the network. Publishing host port 9092 is deliberately avoided: a host client connecting there would be redirected to `kafka:9092` and fail confusingly. In-network clients (`api`, `workers`, `schema-registry`, `kafka-ui`) use `KAFKA_BROKERS=kafka:9092`; host tooling and host-mode development use `localhost:29092`.
-- **[DESIGN DECISION]** Postgres stays on the stock `postgres:16-alpine` image. No custom image and no in-database scheduler: all scheduled work runs in the `workers` service via `@nestjs/schedule`. See [backend-module-architecture.md](./backend-module-architecture.md#scheduled-tasks) for the job inventory and [cleanup-jobs.md](./cleanup-jobs.md) for the per-job schedule and env var. The distinction that matters is bundled versus third-party: the official image ships the standard contrib modules, so `btree_gist` is a plain `CREATE EXTENSION` in migration `0001` (§10) and needs no Dockerfile. `pg_cron` is not a contrib module — it would require building or sourcing a different image, which is what this decision rejects.
+- **[DESIGN DECISION]** Postgres stays on the stock `postgres:18-alpine` image. No custom image and no in-database scheduler: all scheduled work runs in the `workers` service via `@nestjs/schedule`. See [backend-module-architecture.md](./backend-module-architecture.md#scheduled-tasks) for the job inventory and [cleanup-jobs.md](./cleanup-jobs.md) for the per-job schedule and env var. The distinction that matters is bundled versus third-party: the official image ships the standard contrib modules, so `btree_gist` is a plain `CREATE EXTENSION` in migration `0001` (§10) and needs no Dockerfile. `pg_cron` is not a contrib module — it would require building or sourcing a different image, which is what this decision rejects.
 - **[DESIGN DECISION]** `workers` runs as a single instance in V1 and every scheduled job additionally takes a `pg_advisory_lock` keyed on the job name before doing work, so a second replica is safe by construction rather than by convention. The compose file therefore sets no replica count; horizontal scaling of the consumer side needs only more partitions.
 - **[DESIGN DECISION]** The three nginx services bind-mount host build output rather than baking the Angular bundles into images. Rebuilding a frontend is then a `npm run build:*` away with no image rebuild and no container restart, which is the right trade for local development. The cost is that the build is a documented prerequisite (§10) rather than something compose guarantees; a clean clone with no `dist/` serves 403/404 until the build runs. V2 (Kubernetes) bakes the bundles into images.
 - **[DESIGN DECISION]** `migrations/init` is mounted into `docker-entrypoint-initdb.d` and holds **only** first-boot roles and grants. Postgres runs that directory exactly once, when `postgres_data` is empty. Neither schema nor extensions are placed there: migrations are operator-triggered and versioned, an initdb-executed statement is recorded in no migration state table, and `btree_gist` therefore belongs in migration `0001_create_extensions` (§10) where the ordering against the `pricing` migration is explicit and enforced by filename.
