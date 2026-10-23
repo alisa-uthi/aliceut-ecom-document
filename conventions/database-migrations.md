@@ -148,9 +148,9 @@ npm run migration:show
 CREATE EXTENSION IF NOT EXISTS btree_gist;
 ```
 
-`pricing.offer_price` carries `EXCLUDE USING gist (offer_id WITH =, tstzrange(starts_at, ends_at) WITH &&)`. The `tstzrange … WITH &&` operand is core, but `offer_id WITH =` is not: `offer_id` is `uuid`, core PostgreSQL 16 ships no GiST operator class for that type, and `gist_uuid_ops` arrives only with `btree_gist`. Without the extension, the `pricing` migration fails outright with `data type uuid has no default operator class for access method "gist"`.
+`pricing.offer_price` carries `EXCLUDE USING gist (offer_id WITH =, tstzrange(starts_at, ends_at) WITH &&)`. The `tstzrange … WITH &&` operand is core, but `offer_id WITH =` is not: `offer_id` is `uuid`, core PostgreSQL 18 ships no GiST operator class for that type, and `gist_uuid_ops` arrives only with `btree_gist`. Without the extension, the `pricing` migration fails outright with `data type uuid has no default operator class for access method "gist"`.
 
-`btree_gist` is a bundled contrib module, present in the official `postgres:16-alpine` image and trusted from PostgreSQL 13 onwards, so it needs no custom image and no superuser. **NFR-18 portability caveat:** a managed PostgreSQL that forbids contrib extensions also forbids this constraint. That is the one place where the portability claim carries an asterisk — every other object in the schema is plain ANSI-adjacent PostgreSQL DDL.
+`btree_gist` is a bundled contrib module, present in the official `postgres:18-alpine` image and trusted from PostgreSQL 13 onwards, so it needs no custom image and no superuser. **NFR-18 portability caveat:** a managed PostgreSQL that forbids contrib extensions also forbids this constraint. That is the one place where the portability claim carries an asterisk — every other object in the schema is plain ANSI-adjacent PostgreSQL DDL.
 
 ---
 
@@ -317,7 +317,7 @@ Three files per migration, sharing one stem:
 ```sql
 -- migrations/phase-1/0005_create_offers.up.sql
 CREATE TABLE offers (
-  id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  id          UUID        PRIMARY KEY DEFAULT uuidv7(),
   product_id  UUID        NOT NULL REFERENCES products(id),
   seller_id   UUID        NOT NULL REFERENCES users(id),
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now()

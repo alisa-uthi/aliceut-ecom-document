@@ -261,7 +261,7 @@ import { execSync } from 'child_process';
 let pg: StartedPostgreSqlContainer;
 
 beforeAll(async () => {
-  pg = await new PostgreSqlContainer('postgres:16-alpine').start();
+  pg = await new PostgreSqlContainer('postgres:18-alpine').start();
 
   const dataSource = process.env.MIGRATIONS_DATASOURCE ?? './migrations/phase-1/datasource.ts';
   execSync(`npx typeorm-ts-node-commonjs migration:run -d ${dataSource}`, {

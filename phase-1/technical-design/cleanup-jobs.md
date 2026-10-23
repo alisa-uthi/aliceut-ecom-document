@@ -3,7 +3,7 @@
 **Status:** Complete  
 **Source of truth:** [BRD v1.4](../requirements/BRD.md)
 
-Phase 1 implementation of the data lifecycle convention. Every job runs in the `workers` NestJS process using `@nestjs/schedule`. There is **no in-database scheduler**: PostgreSQL is the stock `postgres:16-alpine` image with no `pg_cron` and no scheduling extension, and nothing in this document may require one.
+Phase 1 implementation of the data lifecycle convention. Every job runs in the `workers` NestJS process using `@nestjs/schedule`. There is **no in-database scheduler**: PostgreSQL is the stock `postgres:18-alpine` image with no `pg_cron` and no scheduling extension, and nothing in this document may require one.
 
 **Convention:** [conventions/data-lifecycle.md](../../conventions/data-lifecycle.md)  
 **Related:** [data-model-erd.md](./data-model-erd.md), [data-model-mongodb.md](./data-model-mongodb.md), [backend-module-architecture.md §scheduled tasks](./backend-module-architecture.md#scheduled-tasks), [conventions/auth-jwt-design.md](../../conventions/auth-jwt-design.md), [conventions/observability.md](../../conventions/observability.md)
