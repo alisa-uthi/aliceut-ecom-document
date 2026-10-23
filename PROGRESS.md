@@ -31,6 +31,7 @@ Daily log of work on this project. Newest entry on top. One entry per active day
 > **Note on `phase-1/audits/` paths below.** That directory is gone: its two files — `2026-09-22-wave0-decisions.md` (decision records D-01…D-14) and `2026-09-22-alignment-audit-fix-plan.md` — were committed on 2026-09-22 and deleted again on 2026-09-24 by commit `c5767b8`. A `phase-1/audits/README.md` was never committed at any point, so entries below that describe creating one describe work that did not land. Every `phase-1/audits/…` path in the dated entries records what was worked from at the time; none of them resolve today. The decisions themselves are recorded inline in the documents they bind — `BRD.md` §12 and its amendment list, and `CLAUDE.md` Core Rules — and in the git history of commits `4f24166`, `61bbda4`, `f0db299` and `c5767b8`.
 
 **Index**
+- [2026-10-23 (audit)](#2026-10-23-audit) — Phase-1 cross-document audit, editorial pass; behaviour-changing findings queued for ADRs.
 - [2026-10-23](#2026-10-23) — PostgreSQL 18 adopted (ADR-0027): native `uuidv7()`, `postgres:18-alpine`, new volume mount path.
 - [2026-10-16](#2026-10-16) — Phase-1 migrations run on an empty database (ADR-0014), with a CI job that proves it.
 - [2026-10-15](#2026-10-15) — Spec-compliance wave 3: seller register to ADR-0007, CurrencyScaleCache, legacy category route deleted, frontend on the generated client, client sync pipeline live.
@@ -52,6 +53,19 @@ Daily log of work on this project. Newest entry on top. One entry per active day
 - [2026-08-29](#2026-08-29) — Requirements deep-dive: order lifecycle, buyer stories, auth portals, BA revalidation.
 - [2026-08-22](#2026-08-22) — Phase 1 technical-design kickoff; architecture overview + ERD.
 - [2026-08-19](#2026-08-19) — Requirements freeze (BRD v1.2 signed off) + repo scaffolding.
+
+<a id="2026-10-23-audit"></a>
+## 2026-10-23 (phase-1 audit, editorial pass)
+**Focus:** Cross-document audit of `phase-1/` against conventions, guidelines and BRD; editorial fixes only.
+
+**Done:**
+- Email-verification story aligned across `buyer.md`, diagram 06 and `navigation-routing.md`: unverified accounts can sign in and land on `/email-verification-pending`; only `POST /orders` is blocked.
+- ADR-0025 `product_id` carried into `orders.md`; blocklist `enforcement` added to the `admin.md` INSERT/UPDATE; `.badge-*` mapping for moderation status fixed in `design-system.md`.
+- `frontend-coding-standards.md`: `@if` / `@for` examples with `track`, `products/:id`, guest cart route unguarded, guard names and matrix match `navigation-routing.md`; same guard rename in `seller-portal.md`.
+- API docs: `Errors` lines on `GET /search/products` and `PATCH /profile/addresses/:addressId/default`; upload `storageKey` ends `.<ext>`; stale `?sort=price_asc` note removed from `search.md`.
+- Spec-compliance entry 2 records four cross-module joins in `seller.md`; fix needs an ADR.
+
+**Next:** ADRs for the behaviour-changing findings (cross-module joins, `offerId` vs `id` in catalog, `admin_id` vs `admin_user_id` on `seller.reinstated`, "other sessions" vs "all sessions" on password change).
 
 <a id="2026-10-23"></a>
 ## 2026-10-23

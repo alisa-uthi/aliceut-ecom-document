@@ -18,8 +18,8 @@ Priority: Must — trace: FR-B-01, NFR-05, NFR-06
 - Given I submit an email that has no account
   Then I see: "Incorrect email or password." (no email enumeration).
 - Given my account's email is not yet verified
-  When I attempt to log in
-  Then I am shown the verification-pending prompt with a one-click resend action; I cannot proceed until verified.
+  When I log in
+  Then I am signed in and taken to the verification-pending screen, which holds a one-click resend action; I may browse and keep a cart, but I cannot place an order until verified.
 - Given I click "Continue with Google"
   When Google returns a verified email matching an existing account
   Then I am signed in.
@@ -54,13 +54,13 @@ Priority: Must — trace: FR-B-01, NFR-05, NFR-06
   Then account is created (or linked if email exists) and I am logged in.
 - Given I submit an email already in use with a different auth method
   Then I see: "This email is registered via Google. Sign in with Google or reset password to link accounts."
-- On email/password register: system sends a verification email immediately after account creation. Account may browse catalog and maintain a cart but **cannot place orders** until email is verified. Verification link TTL 24 h; single-use; resend available from login prompt and account settings (rate-limited: 3 resends per hour per email).
+- On email/password register: system sends a verification email immediately after account creation. Account may browse catalog and maintain a cart but **cannot place orders** until email is verified. Verification link TTL 24 h; single-use. Registration opens a session, so the resend action (`POST /auth/resend-verification`, JWT-guarded) is available from the verification-pending screen (rate-limited: 3 resends per hour per user).
 - Given I open an expired or already-used verification link
-  Then I see "This link has expired — request a new one" with a one-click resend action.
+  Then I see "This link has expired — request a new one" with a one-click resend action when I am signed in, or a prompt to sign in first when I am not.
 - Given I click "Continue with Facebook"
   When Facebook returns a verified email
   Then account is created (or linked if email exists) and I am logged in. OAuth accounts are considered pre-verified.
-- Given I have requested 3 verification email resends within one hour, when I request another, then I see: "Resend limit reached. You can request another verification email after [time remaining]." The response does not confirm whether the email is registered.
+- Given I have requested 3 verification email resends within one hour, when I request another, then I see: "Resend limit reached. You can request another verification email after [time remaining]."
 - OAuth registrations are considered pre-verified (provider already verified the email); no additional step required.
 - Given I click "Continue with Facebook" and Facebook returns an email already linked to a Google OAuth account,
   Then I see: "This email is registered via Google. Sign in with Google or use password login."
@@ -109,7 +109,7 @@ Priority: Must — trace: FR-B-04
 - Default sort = relevance.
 - Price sort uses cheapest available price in buyer's preferred currency.
 - Newest = most recently listed first.
-- Sort persists in URL query string (`?sort=price_asc`) for share/back-button.
+- Sort persists in URL query string (`?sortBy=priceAsc`) for share/back-button.
 - **UI placement:** dropdown menu in results header, right-aligned next to filter chips. Options: Relevance (default), Price: Low to High, Price: High to Low, Newest.
 
 **Notes:** The mock labels its dropdown "Featured Partners." That is not a signed V1 sort option; use "Relevance" or obtain approval to define the ranking semantics.

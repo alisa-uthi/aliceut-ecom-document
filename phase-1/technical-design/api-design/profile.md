@@ -416,7 +416,8 @@ PATCH /profile/addresses/:addressId/default
 Tag: Profile
 Auth: BUYER
 ```
-**Response 200** — updated address with `isDefault: true`
+**Response 200** — updated address with `isDefault: true`  
+**Errors:** 404 not found, 403 not owner
 
 #### Sequence
 
