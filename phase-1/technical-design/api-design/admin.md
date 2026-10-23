@@ -1218,10 +1218,10 @@ sequenceDiagram
     Note over S,PG: Atomic Postgres transaction
     S->>PG: BEGIN TX
     alt create
-        S->>PG: INSERT admin.keyword_blocklist (term, match_type, category, is_active=true, created_by=:adminUserId)
+        S->>PG: INSERT admin.keyword_blocklist (term, match_type, enforcement, category, is_active=true, created_by=:adminUserId)
         Note over S,PG: UNIQUE (term, match_type) violation surfaces as 409, never a 500
     else update
-        S->>PG: UPDATE admin.keyword_blocklist SET term=?, match_type=?, category=?, is_active=?, updated_at=NOW() WHERE id=:termId
+        S->>PG: UPDATE admin.keyword_blocklist SET term=?, match_type=?, enforcement=?, category=?, is_active=?, updated_at=NOW() WHERE id=:termId
     else deactivate
         S->>PG: UPDATE admin.keyword_blocklist SET is_active=false, updated_at=NOW() WHERE id=:termId
     end

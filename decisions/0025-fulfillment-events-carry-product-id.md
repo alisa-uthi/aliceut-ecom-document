@@ -2,7 +2,7 @@
 
 **Status:** Accepted
 **Date:** 2026-10-22
-**Affects:** `phase-1/technical-design/kafka-events.md` (§ 2.4, 2.5, 2.7, 2.16, 2.17), `phase-1/technical-design/data-model-erd.md` (`orders.fulfillment_item`), `phase-1/technical-design/consumer-field-matrix.md` (§ 6)
+**Affects:** `phase-1/technical-design/kafka-events.md` (§ 2.4, 2.5, 2.7, 2.16, 2.17), `phase-1/technical-design/data-model-erd.md` (`orders.fulfillment_item`), `phase-1/technical-design/api-design/orders.md` (checkout sequence), `phase-1/technical-design/consumer-field-matrix.md` (§ 6)
 **Implemented by:** aliceut-ecom-backend (PR linked in `spec-compliance.md`)
 
 ## Context
