@@ -73,3 +73,5 @@ Copy [`0000-adr-template.md`](0000-adr-template.md) to start one.
 | [0025](0025-fulfillment-events-carry-product-id.md) | `fulfillment.*` items carry `product_id`, and `fulfillment.refunded` items carry `offer_id` | Accepted |
 | [0026](0026-inventory-stock-holds-product-id.md) | `inventory.stock` holds `product_id` | Accepted |
 | [0027](0027-postgresql-18.md) | PostgreSQL 18 is the Phase 1 database version | Accepted |
+| [0029](0029-seller-reinstated-carries-admin-user-id.md) | `seller.reinstated` carries `admin_user_id` | Accepted |
+| [0030](0030-offer-identifier-is-offerid-in-catalog-responses.md) | The offer identifier is `offerId` in every catalog response | Accepted |

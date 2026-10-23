@@ -656,8 +656,8 @@ sequenceDiagram
         S->>PG: UPDATE seller_profile SET suspension_status=ACTIVE, suspended_until=NULL, suspension_reason=NULL
         S->>PG: UPDATE catalog.offer SET status=ACTIVE, status_changed_reason=NULL WHERE seller_profile_id=:sellerProfileId AND status='INACTIVE' AND status_changed_reason='SUSPENSION' RETURNING id
         Note over S,PG: REMOVED offers are untouched — reinstatement does not reverse a content decision
-        Note over S,PG: Field names are the schema's (kafka-events § 2.15): offer_ids not reactivated_offer_ids, admin_id not reinstated_by — and the seller's identity fields, which ET-12 renders and the SELLER_REINSTATED in-app row is addressed by
-        S->>PG: INSERT outbox_event (topic='seller.reinstated', aggregate_type='seller.seller_profile', aggregate_id=sellerProfileId, key=sellerProfileId, payload={seller_id:sellerProfileId, seller_user_id:userId, seller_email, seller_name, business_name, admin_id:adminUserId, reinstated_at:NOW(), reason, offer_ids:reactivatedOfferIds})
+        Note over S,PG: Field names are the schema's (kafka-events § 2.15): offer_ids not reactivated_offer_ids, admin_user_id (ADR-0029) not reinstated_by — and the seller's identity fields, which ET-12 renders and the SELLER_REINSTATED in-app row is addressed by
+        S->>PG: INSERT outbox_event (topic='seller.reinstated', aggregate_type='seller.seller_profile', aggregate_id=sellerProfileId, key=sellerProfileId, payload={seller_id:sellerProfileId, seller_user_id:userId, seller_email, seller_name, business_name, admin_user_id:adminUserId, admin_id:adminUserId (deprecated copy), reinstated_at:NOW(), reason, offer_ids:reactivatedOfferIds})
         S->>PG: COMMIT TX
         S->>R: SET auth:revoke_before:{userId} = NOW() EX 960
         Note over S,R: forces a refresh so the token carries seller_suspension_status = ACTIVE

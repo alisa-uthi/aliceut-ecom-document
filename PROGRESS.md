@@ -31,7 +31,7 @@ Daily log of work on this project. Newest entry on top. One entry per active day
 > **Note on `phase-1/audits/` paths below.** That directory is gone: its two files — `2026-09-22-wave0-decisions.md` (decision records D-01…D-14) and `2026-09-22-alignment-audit-fix-plan.md` — were committed on 2026-09-22 and deleted again on 2026-09-24 by commit `c5767b8`. A `phase-1/audits/README.md` was never committed at any point, so entries below that describe creating one describe work that did not land. Every `phase-1/audits/…` path in the dated entries records what was worked from at the time; none of them resolve today. The decisions themselves are recorded inline in the documents they bind — `BRD.md` §12 and its amendment list, and `CLAUDE.md` Core Rules — and in the git history of commits `4f24166`, `61bbda4`, `f0db299` and `c5767b8`.
 
 **Index**
-- [2026-10-23](#2026-10-23) — PostgreSQL 18 adopted (ADR-0027): native `uuidv7()`, `postgres:18-alpine`, new volume mount path.
+- [2026-10-23](#2026-10-23) — PostgreSQL 18 adopted (ADR-0027): native `uuidv7()`, `postgres:18-alpine`, new volume mount path; ADR-0029 and ADR-0030 (event actor field, `offerId`).
 - [2026-10-16](#2026-10-16) — Phase-1 migrations run on an empty database (ADR-0014), with a CI job that proves it.
 - [2026-10-15](#2026-10-15) — Spec-compliance wave 3: seller register to ADR-0007, CurrencyScaleCache, legacy category route deleted, frontend on the generated client, client sync pipeline live.
 - [2026-10-10](#2026-10-10) — Spec-compliance wave 2: missing endpoints, validation 400, KYC to design, checkout fixes, ADR-0005/0006 with their code.
@@ -61,6 +61,10 @@ Daily log of work on this project. Newest entry on top. One entry per active day
 - ADR-0027: the ERD already required `DEFAULT uuidv7()`, native only in PG18, while specs pinned `postgres:16-alpine`. Image bumped everywhere (compose topology, testcontainers example, prose notes); ERD floor now "PostgreSQL 18+".
 - Compose volume `postgres_data` now mounts at `/var/lib/postgresql` (PG18 image keeps the cluster in `18/docker`). Existing PG16 volume must be recreated.
 - `database-migrations.md` example pair uses `uuidv7()` instead of `gen_random_uuid()`.
+
+- ADR-0029: `seller.reinstated` carries `admin_user_id` (Avro default null, `admin_id` kept as deprecated copy); kafka-events, consumer matrix and admin.md aligned.
+- ADR-0030: offer identifier is `offerId` in the catalog offers-list response and the PDP offer selector; breaking for the generated client.
+- Both recorded in `spec-compliance.md` entry 5 until backend catches up.
 
 **Next:** aliceut-ecom-infra and aliceut-ecom-backend carry the image and volume change; cross-doc audit report still being merged.
 

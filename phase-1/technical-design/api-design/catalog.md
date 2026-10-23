@@ -281,7 +281,7 @@ Auth: PUBLIC
 ```json
 {
   "data": [{
-    "id": "uuid",
+    "offerId": "uuid",
     "sellerId": "uuid",
     "sellerName": "string",
     "variantId": "uuid",
@@ -305,6 +305,7 @@ Auth: PUBLIC
 **Field semantics:**
 - `effectivePrice` (`amount`, `currency`, `priceType`, `compareAtAmount`, `saleEndsAt`) — resolved per [Offer currency and price resolution](#offer-currency-and-price-resolution).
 - `effectivePrice.displayAmount` / `displayCurrency` / `fxRate` / `fxAsOf` / `fxStale` — the `?currency` rendering of the same amount, a **browse-time estimate only**, per [pricing.md § Display-currency fields](pricing.md#fx-display-fields).
+- `offerId` is the offer identifier, named as in `GET /catalog/products/:id` and every other response that carries one ([ADR-0030](../../../decisions/0030-offer-identifier-is-offerid-in-catalog-responses.md)).
 - `availableQty` is `COALESCE(on_hand_qty - reserved_qty, 0)`.
 
 **Errors:** 404 product not found, 422 `currency` not supported
@@ -337,5 +338,5 @@ sequenceDiagram
         Note over CatalogService: displayAmount = amount, displayCurrency = currency, fxRate = null, fxAsOf = null, fxStale = false (no FX fetch needed)
     end
     CatalogService-->>API: offers with effectivePrice (native amount + display fields) + availableQty
-    API-->>Client: 200 { data: [{ id, sellerId, sellerName, variantId, effectivePrice, availableQty }] }
+    API-->>Client: 200 { data: [{ offerId, sellerId, sellerName, variantId, effectivePrice, availableQty }] }
 ```
