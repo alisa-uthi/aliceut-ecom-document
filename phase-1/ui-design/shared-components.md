@@ -262,7 +262,7 @@ type ViewState<T> =
   | { status: 'loaded'; data: T };
 ```
 
-Rendered with `@switch` on `viewState.status` — never an `*ngIf="data && !loading && !error"` chain, which makes the error state invisible. Each screen's **States** section names what the three look like there; the loading treatments themselves are in [design-system.md § 13](../../conventions/design-system.md#13-loading-state-patterns).
+Rendered with `@switch` on `viewState.status` — never an `@if (data && !loading && !error)` chain, which makes the error state invisible. Each screen's **States** section names what the three look like there; the loading treatments themselves are in [design-system.md § 13](../../conventions/design-system.md#13-loading-state-patterns).
 
 **Reactive forms only.** No `[(ngModel)]` anywhere, including inline table edits and search boxes — those are `FormControl`s. `mat-form-field` always carries a `mat-label`, `appearance="outline"` and `subscriptSizing="dynamic"`, and `mat-error` shows only after touch or submit.
 
@@ -272,7 +272,7 @@ Rendered with `@switch` on `viewState.status` — never an `*ngIf="data && !load
 
 **Accessibility.** Every portal shell opens with `<a class="skip-link" href="#main-content">Skip to main content</a>` as its first focusable element, and the shell's `<main>` carries `id="main-content"`. Every `mat-icon-button` without visible text has an `aria-label`. Every `<img>` has `alt` — product images use the product title, decorative images use `alt=""`. Colour is never the only carrier of state.
 
-**Lists.** Every `*ngFor` over data that can change supplies `trackBy` returning the row's `id`; static lists such as enum option sets may omit it. Observables are consumed with the `async` pipe, or with `takeUntilDestroyed(this.destroyRef)` where an imperative subscription is unavoidable.
+**Lists.** Every `@for` over data that can change tracks the row's `id` (`track row.id`); static lists such as enum option sets may use `track $index`. Observables are consumed with the `async` pipe, or with `takeUntilDestroyed(this.destroyRef)` where an imperative subscription is unavoidable.
 
 **Auth.** The access token lives in an in-memory field on `AuthService` — never `localStorage`, never `sessionStorage`. The refresh token is an HttpOnly cookie the frontend never reads. No token appears in a URL, a query string, or a rendered response.
 

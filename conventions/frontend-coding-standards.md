@@ -19,7 +19,7 @@
 | [8. Angular Material usage rules](#8-angular-material-usage-rules) | Component choices, import strategy |
 | [9. TypeScript and ESLint](#9-typescript-and-eslint) | Strict mode, naming, lint rules |
 | [10. Accessibility](#10-accessibility) | aria-label, matLabel, keyboard nav |
-| [11. Performance](#11-performance) | Lazy routes, trackBy, async pipe |
+| [11. Performance](#11-performance) | Lazy routes, @for track, async pipe |
 
 ---
 
@@ -132,7 +132,7 @@ Template pattern:
 }
 ```
 
-Do not use `*ngIf="data && !loading && !error"` chains — they produce invisible error states.
+Do not use `@if (data && !loading && !error)` chains — they produce invisible error states.
 
 ---
 
@@ -322,9 +322,13 @@ Show `mat-error` only after a field is touched or the form has been submitted. N
 <mat-form-field appearance="outline" subscriptSizing="dynamic">
   <mat-label>Email</mat-label>
   <input matInput formControlName="email" type="email" />
-  <mat-error *ngIf="form.controls.email.hasError('required')">Email is required</mat-error>
-  <mat-error *ngIf="form.controls.email.hasError('email')">Enter a valid email address</mat-error>
-  <mat-error *ngIf="form.controls.email.hasError('emailTaken')">This email is already registered</mat-error>
+  @if (form.controls.email.hasError('required')) {
+    <mat-error>Email is required</mat-error>
+  } @else if (form.controls.email.hasError('email')) {
+    <mat-error>Enter a valid email address</mat-error>
+  } @else if (form.controls.email.hasError('emailTaken')) {
+    <mat-error>This email is already registered</mat-error>
+  }
 </mat-form-field>
 ```
 
@@ -338,7 +342,9 @@ Async validators (e.g. email uniqueness) show a `mat-spinner` in the suffix slot
 <mat-form-field appearance="outline">
   <mat-label>Email</mat-label>
   <input matInput formControlName="email" />
-  <mat-spinner *ngIf="form.controls.email.pending" matSuffix diameter="18" />
+  @if (form.controls.email.pending) {
+    <mat-spinner matSuffix diameter="18" />
+  }
 </mat-form-field>
 ```
 
@@ -380,8 +386,8 @@ All feature routes are **lazily loaded**. No eager imports of feature components
 export const routes: Routes = [
   { path: '', loadComponent: () => import('./features/home/home-page.component') },
   { path: 'search', loadComponent: () => import('./features/catalog/search-page.component') },
-  { path: 'product/:id', loadComponent: () => import('./features/catalog/product-detail-page.component') },
-  { path: 'cart', loadComponent: () => import('./features/cart/cart-page.component'), canActivate: [authGuard] },
+  { path: 'products/:id', loadComponent: () => import('./features/catalog/product-detail-page.component') },
+  { path: 'cart', loadComponent: () => import('./features/cart/cart-page.component') }, // no guard: guest cart (US-B-08)
   { path: 'checkout', loadChildren: () => import('./features/checkout/checkout.routes'), canActivate: [authGuard, emailVerifiedGuard] },
   { path: 'orders', loadChildren: () => import('./features/orders/orders.routes'), canActivate: [authGuard] },
   { path: 'account', loadChildren: () => import('./features/account/account.routes'), canActivate: [authGuard] },
@@ -389,18 +395,22 @@ export const routes: Routes = [
 ];
 ```
 
-**Seller portal:** all routes require `sellerApprovedGuard` except the KYC submission flow.
+**Seller portal:** the shell requires `sellerAuthGuard`; listings and inventory routes add `sellerApprovedGuard` and `sellerNotSuspendedGuard`. The dashboard and KYC screens carry no approval guard — they explain the state instead of blocking it. Route-by-route table: [navigation-routing.md](../phase-1/ui-design/navigation-routing.md#route-level-guard-summary).
 
-**Admin portal:** all routes require `roleGuard` with `role: 'ADMIN'`.
+**Admin portal:** the shell requires `adminAuthGuard` (`authGuard` + `roleGuard('ADMIN')`); children add no guard.
 
 ### Guard matrix
 
 | Guard | Condition | Failure redirect |
 |-------|-----------|-----------------|
 | `authGuard` | Valid access token present in `AuthService` | `/login?returnUrl=<current>` — the portal login route: `/login` in the buyer app, `/seller/login` in the seller app, `/admin/login` in the admin app |
-| `emailVerifiedGuard` | `currentUser.emailVerified === true` | `/account/verify-email` |
+| `emailVerifiedGuard` | `currentUser.emailVerified === true` | `/email-verification-pending` |
+| `roleGuard(role)` | `currentUser.roles` contains required role | `/403` |
+| `sellerAuthGuard` / `adminAuthGuard` | `authGuard` + `roleGuard('SELLER')` / `roleGuard('ADMIN')` | `/seller/login` / `/admin/login` |
 | `sellerApprovedGuard` | `currentUser.sellerKycStatus === 'APPROVED'` | `/seller/kyc` |
-| `roleGuard` | `currentUser.roles` contains required role | `/403` |
+| `sellerNotSuspendedGuard` | seller suspension status is not `SUSPENDED` | `/seller/profile` |
+
+The full guard list, including `guestGuard`, is in [navigation-routing.md](../phase-1/ui-design/navigation-routing.md#route-level-guard-summary).
 
 All guards are `CanActivateFn` (functional guards — no class-based guards).
 
@@ -626,21 +636,17 @@ Each portal shell includes a skip-to-main-content link as the first focusable el
 
 Every feature route must be lazily loaded with `loadComponent` or `loadChildren`. Eager loading a feature route is a build-time error (enforced by `@angular-eslint` rule `no-forward-ref` + code review).
 
-### trackBy on ngFor
+### track on @for
 
-Use `trackBy` on every `*ngFor` over a list that can change:
+`@for` requires a `track` expression. Track by a stable identity, never by `$index`, on any list that can change:
 
-```typescript
-trackByOrderId(_index: number, order: Order): string {
-  return order.id;
+```html
+@for (order of orders; track order.id) {
+  <mat-list-item>{{ order.displayId }}</mat-list-item>
 }
 ```
 
-```html
-<mat-list-item *ngFor="let order of orders; trackBy: trackByOrderId">
-```
-
-For static lists (e.g. enum labels), `trackBy` is optional.
+For static lists (e.g. enum labels), `track $index` is acceptable.
 
 ### OnPush everywhere
 
@@ -652,7 +658,9 @@ Use the `async` pipe in templates to subscribe to observables. It auto-unsubscri
 
 ```html
 <!-- Correct -->
-<mat-list-item *ngFor="let n of notifications$ | async">
+@for (n of notifications$ | async; track n.id) {
+  <mat-list-item>{{ n.title }}</mat-list-item>
+}
 
 <!-- Wrong — requires manual ngOnDestroy unsubscribe -->
 notifications: Notification[] = [];

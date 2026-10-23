@@ -1022,7 +1022,7 @@ mat-dialog-actions [align=end]
 ## Screen 10 — Offer Pricing
 
 **Route:** `/seller/listings/:offerId/pricing`  
-**Auth:** SELLER + APPROVED + Not Suspended (`KycApprovedGuard + SellerActiveGuard`)
+**Auth:** SELLER + APPROVED + Not Suspended (`sellerApprovedGuard + sellerNotSuspendedGuard`)
 
 ### Layout
 

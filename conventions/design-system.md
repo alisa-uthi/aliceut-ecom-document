@@ -349,15 +349,14 @@ Non-interactive (no click handler); uses `mat-chip` in display-only mode.
 
 | Status value | Class | Colour |
 |-------------|-------|--------|
-| `PENDING`, `PENDING_KYC` | `.badge-pending` | Amber |
+| `PENDING`, `PENDING_KYC`, `OPEN` | `.badge-pending` | Amber |
 | `SHIPPED`, `IN_PROGRESS`, `PARTIALLY_SHIPPED` | `.badge-active` | Blue |
-| `DELIVERED`, `COMPLETED`, `ACTIVE`, `APPROVED` | `.badge-success` | Green |
+| `DELIVERED`, `COMPLETED`, `ACTIVE`, `APPROVED`, `RESOLVED` | `.badge-success` | Green |
 | `REFUNDED`, `PARTIALLY_REFUNDED` | `.badge-refunded` | Teal |
 | `CANCELLED`, `REMOVED`, `REJECTED` | `.badge-danger` | Red |
-| `CLEARED` | `.badge-success` | Green (moderation case cleared — false positive) |
 | `PARTIALLY_PLACED`, `FLAGGED` | `.badge-warning` | Orange |
 | `SUSPENDED` | `.badge-suspended` | Deep-orange |
-| `INACTIVE`, `EXPIRED` | `.badge-inactive` | Grey |
+| `INACTIVE`, `EXPIRED`, `DISMISSED` | `.badge-inactive` | Grey |
 | `PARTIALLY_DELIVERED` | `.badge-partial` | Blue-grey |
 
 This map is the single owner of status colour. Any screen rendering a status not listed here is a gap in this table, not a licence to define a local colour: add the status to an existing row. Every status value in every V1 enum — order (derived), `fulfillment_status`, `offer_status` (`ACTIVE`, `INACTIVE`, `REMOVED`, `FLAGGED`), KYC, moderation, suspension, and reservation — resolves to one of the rows above.
