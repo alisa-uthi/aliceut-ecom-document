@@ -22,12 +22,12 @@ subgraph BUYER_P["BUYER PORTAL — /login · /register"]
     BP2 -->|"Register email/password"| BP3["Create account\nFull name + email + password"]
     BP2 -->|"Register OAuth\nGoogle or Facebook"| BP4["Account created\nPre-verified"]
     BP2 -->|"Login"| BP5["Email/Password OR OAuth"]
-    BP3 --> BP6["ET-18 Verification email\nCan browse, cannot place orders until verified"]
+    BP3 --> BP6["Session opens + ET-18 verification email\nRouted to verification-pending · Can browse, cannot place orders"]
     BP6 -->|"Email verified"| BP7["Session: BUYER role\nBuyer home"]
     BP4 --> BP7
     BP5 --> BP5V{"email_verified?"}
     BP5V -->|"Verified or OAuth\n(OAuth = pre-verified)"| BP7
-    BP5V -->|"Not verified\n(email/pw only)"| BP5W["Verification-pending prompt\nOne-click resend · Cannot proceed"]
+    BP5V -->|"Not verified\n(email/pw only)"| BP5W["Verification-pending prompt\nOne-click resend · Can browse, cannot place orders"]
     BP5W -.->|"After verifying via link"| BP7
 end
 

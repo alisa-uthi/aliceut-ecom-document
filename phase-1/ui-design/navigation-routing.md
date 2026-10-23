@@ -541,7 +541,7 @@ There is consequently **no `page` and no `pageSize` parameter** on any route. Un
 | Admin visits `/admin/kyc/<unknown>` | API answers `404`; the component renders `EmptyState` "Application not found" |
 | Admin visits `/admin/moderation/<unknown>` | API answers `404`; the component renders `EmptyState` "Case not found" |
 | Seller visits `/seller/orders/<another seller's id>` | API answers `404`, not `403` — the lookup is seller-scoped, so a foreign id is indistinguishable from a missing one and cannot be used to enumerate order volume |
-| Email verification link | `/verify-email?token=xxx` → the API validates; success redirects to `/login?verified=true`, failure shows an inline error with a resend route |
+| Email verification link | `/verify-email?token=xxx` → the API validates; success redirects to `/login?verified=true`, failure shows an inline error, with a resend action when signed in and a prompt to sign in first when not (`POST /auth/resend-verification` is JWT-guarded) |
 | Password reset link | `/reset-password?token=xxx` renders the form; the token is validated on submit. Reset tokens are portal-scoped — a seller link is not redeemable on the buyer portal, and the mismatch returns the same generic failure as an unknown token rather than confirming which portal it belongs to |
 | Seller app visited without the `/seller` prefix | Redirects to `/seller/dashboard` when authenticated, `/seller/login` otherwise |
 | Any portal, wrong role | The API answers `403`; the router shows `/403` |
