@@ -90,8 +90,8 @@ MongoDB audit collection schemas (`audit_logs`, `activity_events`): see [data-mo
   "name": "SellerKycSubmitted",
   "fields": [
     { "name": "event_id",       "type": "string" },
-    { "name": "event_type",     "type": "string", "default": "seller.kyc.submitted" },
-    { "name": "event_version",  "type": "int",    "default": 1 },
+    { "name": "event_type",     "type": "string" },
+    { "name": "event_version",  "type": "int" },
     { "name": "occurred_at",    "type": "string" },
     { "name": "correlation_id", "type": "string" },
     {
@@ -141,8 +141,8 @@ MongoDB audit collection schemas (`audit_logs`, `activity_events`): see [data-mo
   "name": "SellerKycDecided",
   "fields": [
     { "name": "event_id",       "type": "string" },
-    { "name": "event_type",     "type": "string", "default": "seller.kyc.decided" },
-    { "name": "event_version",  "type": "int",    "default": 1 },
+    { "name": "event_type",     "type": "string" },
+    { "name": "event_version",  "type": "int" },
     { "name": "occurred_at",    "type": "string" },
     { "name": "correlation_id", "type": "string" },
     {
@@ -194,8 +194,8 @@ MongoDB audit collection schemas (`audit_logs`, `activity_events`): see [data-mo
   "name": "SellerSuspended",
   "fields": [
     { "name": "event_id",       "type": "string" },
-    { "name": "event_type",     "type": "string", "default": "seller.suspended" },
-    { "name": "event_version",  "type": "int",    "default": 1 },
+    { "name": "event_type",     "type": "string" },
+    { "name": "event_version",  "type": "int" },
     { "name": "occurred_at",    "type": "string" },
     { "name": "correlation_id", "type": "string" },
     {
@@ -248,8 +248,8 @@ MongoDB audit collection schemas (`audit_logs`, `activity_events`): see [data-mo
   "name": "FulfillmentPlaced",
   "fields": [
     { "name": "event_id",       "type": "string" },
-    { "name": "event_type",     "type": "string", "default": "fulfillment.placed" },
-    { "name": "event_version",  "type": "int",    "default": 1 },
+    { "name": "event_type",     "type": "string" },
+    { "name": "event_version",  "type": "int" },
     { "name": "occurred_at",    "type": "string" },
     { "name": "correlation_id", "type": "string" },
     {
@@ -332,8 +332,8 @@ MongoDB audit collection schemas (`audit_logs`, `activity_events`): see [data-mo
   "name": "FulfillmentShipped",
   "fields": [
     { "name": "event_id",       "type": "string" },
-    { "name": "event_type",     "type": "string", "default": "fulfillment.shipped" },
-    { "name": "event_version",  "type": "int",    "default": 1 },
+    { "name": "event_type",     "type": "string" },
+    { "name": "event_version",  "type": "int" },
     { "name": "occurred_at",    "type": "string" },
     { "name": "correlation_id", "type": "string" },
     {
@@ -407,8 +407,8 @@ The scheduler sets `orders.fulfillment.status = DELIVERED` and writes the outbox
   "name": "FulfillmentDelivered",
   "fields": [
     { "name": "event_id",       "type": "string" },
-    { "name": "event_type",     "type": "string", "default": "fulfillment.delivered" },
-    { "name": "event_version",  "type": "int",    "default": 1 },
+    { "name": "event_type",     "type": "string" },
+    { "name": "event_version",  "type": "int" },
     { "name": "occurred_at",    "type": "string" },
     { "name": "correlation_id", "type": "string" },
     {
@@ -471,8 +471,8 @@ The scheduler sets `orders.fulfillment.status = DELIVERED` and writes the outbox
   "name": "FulfillmentRefunded",
   "fields": [
     { "name": "event_id",       "type": "string" },
-    { "name": "event_type",     "type": "string", "default": "fulfillment.refunded" },
-    { "name": "event_version",  "type": "int",    "default": 1 },
+    { "name": "event_type",     "type": "string" },
+    { "name": "event_version",  "type": "int" },
     { "name": "occurred_at",    "type": "string" },
     { "name": "correlation_id", "type": "string" },
     {
@@ -557,8 +557,8 @@ The partition key is `order_id` rather than `idempotency_key_id` because the out
   "name": "OrderFinalized",
   "fields": [
     { "name": "event_id",       "type": "string" },
-    { "name": "event_type",     "type": "string", "default": "order.finalized" },
-    { "name": "event_version",  "type": "int",    "default": 1 },
+    { "name": "event_type",     "type": "string" },
+    { "name": "event_version",  "type": "int" },
     { "name": "occurred_at",    "type": "string" },
     { "name": "correlation_id", "type": "string" },
     {
@@ -711,8 +711,8 @@ Terminal statuses count as settled, not pending:
   "name": "OrderCompleted",
   "fields": [
     { "name": "event_id",       "type": "string" },
-    { "name": "event_type",     "type": "string", "default": "order.completed" },
-    { "name": "event_version",  "type": "int",    "default": 1 },
+    { "name": "event_type",     "type": "string" },
+    { "name": "event_version",  "type": "int" },
     { "name": "occurred_at",    "type": "string" },
     { "name": "correlation_id", "type": "string" },
     {
@@ -762,8 +762,8 @@ Terminal statuses count as settled, not pending:
   "name": "ProductChanged",
   "fields": [
     { "name": "event_id",       "type": "string" },
-    { "name": "event_type",     "type": "string", "default": "product.changed" },
-    { "name": "event_version",  "type": "int",    "default": 1 },
+    { "name": "event_type",     "type": "string" },
+    { "name": "event_version",  "type": "int" },
     { "name": "occurred_at",    "type": "string" },
     { "name": "correlation_id", "type": "string" },
     {
@@ -841,8 +841,8 @@ Terminal statuses count as settled, not pending:
   "name": "OfferChanged",
   "fields": [
     { "name": "event_id",       "type": "string" },
-    { "name": "event_type",     "type": "string", "default": "offer.changed" },
-    { "name": "event_version",  "type": "int",    "default": 1 },
+    { "name": "event_type",     "type": "string" },
+    { "name": "event_version",  "type": "int" },
     { "name": "occurred_at",    "type": "string" },
     { "name": "correlation_id", "type": "string" },
     {
@@ -911,8 +911,8 @@ Terminal statuses count as settled, not pending:
   "name": "InventoryChanged",
   "fields": [
     { "name": "event_id",       "type": "string" },
-    { "name": "event_type",     "type": "string", "default": "inventory.changed" },
-    { "name": "event_version",  "type": "int",    "default": 1 },
+    { "name": "event_type",     "type": "string" },
+    { "name": "event_version",  "type": "int" },
     { "name": "occurred_at",    "type": "string" },
     { "name": "correlation_id", "type": "string" },
     {
@@ -963,8 +963,8 @@ Terminal statuses count as settled, not pending:
   "name": "InventoryLowStock",
   "fields": [
     { "name": "event_id",       "type": "string" },
-    { "name": "event_type",     "type": "string", "default": "inventory.low_stock" },
-    { "name": "event_version",  "type": "int",    "default": 1 },
+    { "name": "event_type",     "type": "string" },
+    { "name": "event_version",  "type": "int" },
     { "name": "occurred_at",    "type": "string" },
     { "name": "correlation_id", "type": "string" },
     {
@@ -1016,8 +1016,8 @@ Terminal statuses count as settled, not pending:
   "name": "ModerationListingRemoved",
   "fields": [
     { "name": "event_id",       "type": "string" },
-    { "name": "event_type",     "type": "string", "default": "moderation.listing.removed" },
-    { "name": "event_version",  "type": "int",    "default": 1 },
+    { "name": "event_type",     "type": "string" },
+    { "name": "event_version",  "type": "int" },
     { "name": "occurred_at",    "type": "string" },
     { "name": "correlation_id", "type": "string" },
     {
@@ -1072,8 +1072,8 @@ Fires when an admin lifts a seller's suspension (sets `suspension_status = ACTIV
   "name": "SellerReinstated",
   "fields": [
     { "name": "event_id",       "type": "string" },
-    { "name": "event_type",     "type": "string", "default": "seller.reinstated" },
-    { "name": "event_version",  "type": "int",    "default": 1 },
+    { "name": "event_type",     "type": "string" },
+    { "name": "event_version",  "type": "int" },
     { "name": "occurred_at",    "type": "string" },
     { "name": "correlation_id", "type": "string" },
     {
@@ -1123,8 +1123,8 @@ Fires when an admin lifts a seller's suspension (sets `suspension_status = ACTIV
   "name": "FulfillmentCancelled",
   "fields": [
     { "name": "event_id",       "type": "string" },
-    { "name": "event_type",     "type": "string", "default": "fulfillment.cancelled" },
-    { "name": "event_version",  "type": "int",    "default": 1 },
+    { "name": "event_type",     "type": "string" },
+    { "name": "event_version",  "type": "int" },
     { "name": "occurred_at",    "type": "string" },
     { "name": "correlation_id", "type": "string" },
     {
@@ -1203,8 +1203,8 @@ Fires when an admin lifts a seller's suspension (sets `suspension_status = ACTIV
   "name": "FulfillmentRefundSuspendedSeller",
   "fields": [
     { "name": "event_id",       "type": "string" },
-    { "name": "event_type",     "type": "string", "default": "fulfillment.refund_suspended_seller" },
-    { "name": "event_version",  "type": "int",    "default": 1 },
+    { "name": "event_type",     "type": "string" },
+    { "name": "event_version",  "type": "int" },
     { "name": "occurred_at",    "type": "string" },
     { "name": "correlation_id", "type": "string" },
     {
@@ -1279,8 +1279,8 @@ Fires when an admin lifts a seller's suspension (sets `suspension_status = ACTIV
   "name": "SellerSuspensionExpired",
   "fields": [
     { "name": "event_id",       "type": "string" },
-    { "name": "event_type",     "type": "string", "default": "seller.suspension_expired" },
-    { "name": "event_version",  "type": "int",    "default": 1 },
+    { "name": "event_type",     "type": "string" },
+    { "name": "event_version",  "type": "int" },
     { "name": "occurred_at",    "type": "string" },
     { "name": "correlation_id", "type": "string" },
     {
@@ -1333,8 +1333,8 @@ The sweep is the **one** place that scopes on `order_id` rather than `fulfillmen
   "name": "InventoryReservationExpired",
   "fields": [
     { "name": "event_id",       "type": "string" },
-    { "name": "event_type",     "type": "string", "default": "inventory.reservation_expired" },
-    { "name": "event_version",  "type": "int",    "default": 1 },
+    { "name": "event_type",     "type": "string" },
+    { "name": "event_version",  "type": "int" },
     { "name": "occurred_at",    "type": "string" },
     { "name": "correlation_id", "type": "string" },
     {
@@ -1382,8 +1382,8 @@ The sweep is the **one** place that scopes on `order_id` rather than `fulfillmen
   "name": "FxRateUpdated",
   "fields": [
     { "name": "event_id",       "type": "string" },
-    { "name": "event_type",     "type": "string", "default": "fx_rate.updated" },
-    { "name": "event_version",  "type": "int",    "default": 1 },
+    { "name": "event_type",     "type": "string" },
+    { "name": "event_version",  "type": "int" },
     { "name": "occurred_at",    "type": "string" },
     { "name": "correlation_id", "type": "string" },
     {
@@ -1439,8 +1439,8 @@ This is the one topic with **no `platform.audit` consumer**: the FX table is a p
   "name": "ListingSoftDeleted",
   "fields": [
     { "name": "event_id",       "type": "string" },
-    { "name": "event_type",     "type": "string", "default": "listing.soft_deleted" },
-    { "name": "event_version",  "type": "int",    "default": 1 },
+    { "name": "event_type",     "type": "string" },
+    { "name": "event_version",  "type": "int" },
     { "name": "occurred_at",    "type": "string" },
     { "name": "correlation_id", "type": "string" },
     {
@@ -1484,8 +1484,8 @@ This is the one topic with **no `platform.audit` consumer**: the FX table is a p
   "name": "AuthEmailVerificationRequested",
   "fields": [
     { "name": "event_id",       "type": "string" },
-    { "name": "event_type",     "type": "string", "default": "auth.email_verification_requested" },
-    { "name": "event_version",  "type": "int",    "default": 1 },
+    { "name": "event_type",     "type": "string" },
+    { "name": "event_version",  "type": "int" },
     { "name": "occurred_at",    "type": "string" },
     { "name": "correlation_id", "type": "string" },
     {
@@ -1533,8 +1533,8 @@ This is the one topic with **no `platform.audit` consumer**: the FX table is a p
   "name": "AuthPasswordResetRequested",
   "fields": [
     { "name": "event_id",       "type": "string" },
-    { "name": "event_type",     "type": "string", "default": "auth.password_reset_requested" },
-    { "name": "event_version",  "type": "int",    "default": 1 },
+    { "name": "event_type",     "type": "string" },
+    { "name": "event_version",  "type": "int" },
     { "name": "occurred_at",    "type": "string" },
     { "name": "correlation_id", "type": "string" },
     {
@@ -1581,8 +1581,8 @@ This is the one topic with **no `platform.audit` consumer**: the FX table is a p
   "name": "AuthPasswordChanged",
   "fields": [
     { "name": "event_id",       "type": "string" },
-    { "name": "event_type",     "type": "string", "default": "auth.password_changed" },
-    { "name": "event_version",  "type": "int",    "default": 1 },
+    { "name": "event_type",     "type": "string" },
+    { "name": "event_version",  "type": "int" },
     { "name": "occurred_at",    "type": "string" },
     { "name": "correlation_id", "type": "string" },
     {
@@ -1637,8 +1637,8 @@ Fires whenever a `moderation_case` is opened against a live listing. Two produce
   "name": "ListingFlagged",
   "fields": [
     { "name": "event_id",       "type": "string" },
-    { "name": "event_type",     "type": "string", "default": "listing.flagged" },
-    { "name": "event_version",  "type": "int",    "default": 1 },
+    { "name": "event_type",     "type": "string" },
+    { "name": "event_version",  "type": "int" },
     { "name": "occurred_at",    "type": "string" },
     { "name": "correlation_id", "type": "string" },
     {
@@ -1696,8 +1696,8 @@ The read handler writes the outbox row **in the transaction that serves the requ
   "name": "PiiAccessed",
   "fields": [
     { "name": "event_id",       "type": "string" },
-    { "name": "event_type",     "type": "string", "default": "pii.accessed" },
-    { "name": "event_version",  "type": "int",    "default": 1 },
+    { "name": "event_type",     "type": "string" },
+    { "name": "event_version",  "type": "int" },
     { "name": "occurred_at",    "type": "string", "doc": "ISO 8601 — the moment the data was read" },
     { "name": "correlation_id", "type": "string" },
     {
@@ -1747,8 +1747,8 @@ Fires when an admin adds or removes a term in `admin.keyword_blocklist`. The mut
   "name": "KeywordBlocklistChanged",
   "fields": [
     { "name": "event_id",       "type": "string" },
-    { "name": "event_type",     "type": "string", "default": "keyword_blocklist.changed" },
-    { "name": "event_version",  "type": "int",    "default": 1 },
+    { "name": "event_type",     "type": "string" },
+    { "name": "event_version",  "type": "int" },
     { "name": "occurred_at",    "type": "string" },
     { "name": "correlation_id", "type": "string" },
     {
@@ -1799,8 +1799,8 @@ Fires when a seller edits their own business name through `PATCH /seller/profile
   "name": "SellerProfileChanged",
   "fields": [
     { "name": "event_id",       "type": "string" },
-    { "name": "event_type",     "type": "string", "default": "seller.profile_changed" },
-    { "name": "event_version",  "type": "int",    "default": 1 },
+    { "name": "event_type",     "type": "string" },
+    { "name": "event_version",  "type": "int" },
     { "name": "occurred_at",    "type": "string" },
     { "name": "correlation_id", "type": "string" },
     {
@@ -1850,8 +1850,8 @@ Fires when an admin changes the end date or the reason of a suspension that is a
   "name": "SellerSuspensionAmended",
   "fields": [
     { "name": "event_id",       "type": "string" },
-    { "name": "event_type",     "type": "string", "default": "seller.suspension_amended" },
-    { "name": "event_version",  "type": "int",    "default": 1 },
+    { "name": "event_type",     "type": "string" },
+    { "name": "event_version",  "type": "int" },
     { "name": "occurred_at",    "type": "string" },
     { "name": "correlation_id", "type": "string" },
     {
