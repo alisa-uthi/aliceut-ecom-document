@@ -215,7 +215,7 @@ Real shipping is out of V1 scope (BRD §3.2) and Phase 1 defines no tax engine, 
   ```json
   {
     "statusCode": 409,
-    "error": "Conflict",
+    "error": "CONFLICT",
     "message": "PRICE_CHANGED",
     "updatedPrices": [{ "offerId": "uuid", "productTitle": "string", "shownAmount": "99.99", "newAmount": "109.99", "currency": "USD" }]
   }
