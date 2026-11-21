@@ -126,7 +126,7 @@ Auth: PUBLIC
 ```json
 {
   "statusCode": 503,
-  "error": "Service Unavailable",
+  "error": "SERVICE_UNAVAILABLE",
   "message": "One or more required dependencies are unavailable",
   "data": {
     "status": "down",
@@ -264,7 +264,7 @@ Only the changed check is shown; the response always carries the full set.
 ```json
 {
   "statusCode": 503,
-  "error": "Service Unavailable",
+  "error": "SERVICE_UNAVAILABLE",
   "message": "One or more required dependencies are unavailable",
   "data": {
     "status": "down",

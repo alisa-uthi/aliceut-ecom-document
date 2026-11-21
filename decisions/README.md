@@ -78,3 +78,4 @@ Copy [`0000-adr-template.md`](0000-adr-template.md) to start one.
 | [0027](0027-postgresql-18.md) | PostgreSQL 18 is the Phase 1 database version | Accepted |
 | [0028](0028-compose-lives-in-the-code-repos-infra-repo-retired.md) | Local compose lives in the code repos; `aliceut-ecom-infra` is retired | Accepted |
 | [0029](0029-scheduled-jobs-do-not-rely-on-the-lock-alone.md) | Scheduled jobs that send or emit do not rely on the advisory lock alone | Accepted |
+| [0030](0030-error-field-is-an-upper-snake-code.md) | The `error` field of an error response is an upper-snake code | Accepted |

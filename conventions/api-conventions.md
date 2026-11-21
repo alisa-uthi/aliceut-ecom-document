@@ -146,13 +146,15 @@ Without a total, a client cannot render page numbers, "N of M", or a last-page j
 ```json
 {
   "statusCode": 400,
-  "error": "Bad Request",
+  "error": "BAD_REQUEST",
   "message": "Validation failed",
   "errors": [{ "field": "email", "message": "must be an email" }]
 }
 ```
 
 Field `errors` is present only for 400 validation failures.
+
+`error` is always an upper-snake code, never an HTTP reason phrase: the status name from the table below, or the `AppError` code (`PRODUCT_NOT_FOUND`) when one produced the response. See [ADR-0030](../decisions/0030-error-field-is-an-upper-snake-code.md).
 
 ### HTTP error codes reference
 
@@ -165,7 +167,8 @@ Field `errors` is present only for 400 validation failures.
 | 409 | CONFLICT | Duplicate resource, state conflict, or price change |
 | 422 | UNPROCESSABLE | Business rule violation (no items, unsupported currency) |
 | 429 | TOO_MANY_REQUESTS | Rate limit exceeded |
-| 500 | INTERNAL_ERROR | Unexpected server error |
+| 500 | INTERNAL_SERVER_ERROR | Unexpected server error |
+| 503 | SERVICE_UNAVAILABLE | A required dependency is down (health probe) |
 
 ---
 
