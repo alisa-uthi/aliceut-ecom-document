@@ -543,7 +543,7 @@ discovery.relabel "add_service_label" {
   }
 
   rule {
-    source_labels = ["__meta_docker_compose_service"]
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
     target_label  = "compose_service"
   }
 }
