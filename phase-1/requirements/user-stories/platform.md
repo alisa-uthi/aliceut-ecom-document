@@ -200,7 +200,7 @@ Priority: Must — trace: FR-B-10, FR-S-05
 - `REFUNDED` and `CANCELLED` fulfillments are not pending for that check. An order whose fulfillments are all in a terminal state with at least one `DELIVERED` completes; an order whose every fulfillment is `CANCELLED` or `REFUNDED` emits no `order.completed` and lands on the derived `CANCELLED`/`REFUNDED` order status instead.
 - ETA is set at order placement (mock): `estimated_delivery_at = placed_at + fulfillment_window_days`. `fulfillment_window_days` is platform-level seeded configuration with a default of 7 days — the same single value that US-P-16 uses as the ship-by window, not a second setting alongside it. It is not a real carrier estimate, and there is no randomisation: the same fulfillment always yields the same ETA.
 - Tick interval configurable via env var (default: `60s`).
-- Job is idempotent: re-running against already-`DELIVERED` fulfillments produces no side effects.
+- Job is idempotent: re-running against already-`DELIVERED` fulfillments produces no side effects. This holds without the advisory lock ([ADR-0029](../../../decisions/0029-scheduled-jobs-do-not-rely-on-the-lock-alone.md)): the transition is `UPDATE … SET status = 'DELIVERED' … WHERE id = :id AND status = 'SHIPPED' RETURNING …`, and the `fulfillment.delivered` outbox row is written in the same transaction only when that statement returned a row.
 - Job failure does not affect API availability; unprocessed fulfillments are retried on the next tick.
 
 ---
@@ -218,7 +218,7 @@ Priority: Should — trace: FR-A-05
   3. Stock restoration is **not** performed by this job. The Inventory module is the single writer of `inventory.*` and restores stock from the event, only for fulfillments whose prior status was `PENDING` — a `SHIPPED` fulfillment restores nothing, because its reservations were consumed at shipment. Restoration is therefore eventually consistent, bounded by consumer lag, and available-stock reads may lag briefly.
   4. Downstream consumers send ET-13 (buyer) and ET-13b (seller).
 - Tick interval configurable via env var (default: `3600s`).
-- Job is idempotent: re-running against already-`REFUNDED` fulfillments produces no side effects.
+- Job is idempotent: re-running against already-`REFUNDED` fulfillments produces no side effects. This holds without the advisory lock ([ADR-0029](../../../decisions/0029-scheduled-jobs-do-not-rely-on-the-lock-alone.md)): the transition is `UPDATE … SET status = 'REFUNDED' … WHERE id = :id AND status = 'PENDING' RETURNING …`, and the `fulfillment.refund_suspended_seller` outbox row is written in the same transaction only when that statement returned a row. Without that, two overlapping runs would emit two events with different `event_id`s and the Inventory consumer would restore the stock twice.
 - Job failure does not affect API availability; unprocessed fulfillments are retried on the next tick.
 - **SHIPPED fulfillments during suspension:** `SHIPPED` fulfillments from a suspended seller are not subject to auto-refund. Goods already in transit proceed normally through the mock delivery scheduler (US-P-15) until `DELIVERED`. Only `PENDING` fulfillments past the fulfillment window are auto-refunded by this job. Explicitly: seller suspension does not interrupt in-transit fulfillments.
 

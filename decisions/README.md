@@ -19,9 +19,12 @@ Concretely, when you find code that does not match the design:
    update the spec to match the decision, and change the code in the same pass.
    All three land together, and the ADR is linked from the spec section it
    changes.
-3. **If you cannot decide yet:** record it in
-   [`phase-1/technical-design/spec-compliance.md`](../phase-1/technical-design/spec-compliance.md)
-   as an open divergence. Never leave a silent mismatch.
+3. **If you cannot decide yet:** open a GitHub Issue describing the divergence
+   or the gap in the design. Never leave a silent mismatch. There is no
+   checked-in register: `phase-1/technical-design/spec-compliance.md` was
+   deleted on 2026-11-21, because implementation restarts from the specs and its
+   entries described code that is not being carried forward. Earlier ADRs cite
+   it as history.
 
 A spec edit that is purely editorial — fixing a typo, clarifying wording that
 changes no behaviour — needs no ADR.
@@ -73,3 +76,5 @@ Copy [`0000-adr-template.md`](0000-adr-template.md) to start one.
 | [0025](0025-fulfillment-events-carry-product-id.md) | `fulfillment.*` items carry `product_id`, and `fulfillment.refunded` items carry `offer_id` | Accepted |
 | [0026](0026-inventory-stock-holds-product-id.md) | `inventory.stock` holds `product_id` | Accepted |
 | [0027](0027-postgresql-18.md) | PostgreSQL 18 is the Phase 1 database version | Accepted |
+| [0028](0028-compose-lives-in-the-code-repos-infra-repo-retired.md) | Local compose lives in the code repos; `aliceut-ecom-infra` is retired | Accepted |
+| [0029](0029-scheduled-jobs-do-not-rely-on-the-lock-alone.md) | Scheduled jobs that send or emit do not rely on the advisory lock alone | Accepted |
