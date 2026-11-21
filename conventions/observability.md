@@ -126,11 +126,31 @@ LoggerModule.forRootAsync({
       pinoHttp: {
         autoLogging: true,
         quietReqLogger: false,
-        genReqId: (req) => req.headers['x-correlation-id'] ?? uuidv7(),
-        customProps: (req) => ({
-          correlationId: req.id,
-          service: process.env.SERVICE_NAME,
-        }),
+        // pino's default message key is `msg`; the §3 envelope says `message`.
+        messageKey: 'message',
+        // Service name and level come from the Joi-validated ConfigService, never process.env
+        // (backend-coding-standards §6.3). Each app sets its own SERVICE_NAME
+        // (`aliceut-api`, `aliceut-workers`); the default lives in that app's Joi schema.
+        base: { service: config.getOrThrow<string>('SERVICE_NAME') },
+        // Every line, HTTP or not, carries the AsyncLocalStorage correlation context.
+        mixin: () => {
+          const store = correlationStorage.getStore();
+          return {
+            correlationId: store?.correlationId ?? null,
+            requestId: store?.correlationId ?? null,
+            userId: store?.userId ?? null,
+          };
+        },
+        // A client-supplied id is accepted only when short and header-safe
+        // (<= 128 chars, /^[A-Za-z0-9._:-]+$/); otherwise a UUIDv7 is minted. An unvalidated id
+        // would be echoed back as a response header, so an oversized or hostile value must never pass.
+        // The id is written back to the request so the correlation middleware agrees with it.
+        genReqId: (req, res) => {
+          const id = resolveCorrelationId(req.headers['x-correlation-id']) || uuidv7();
+          req.headers['x-correlation-id'] = id;
+          res.setHeader('X-Correlation-ID', id);
+          return id;
+        },
         serializers: {
           req: (req) => ({
             method: req.method,
@@ -147,10 +167,10 @@ LoggerModule.forRootAsync({
           ],
           censor: '[Redacted]',
         },
-        transport: process.env.NODE_ENV === 'development'
+        transport: config.get<string>('NODE_ENV') === 'development'
           ? { target: 'pino-pretty', options: { colorize: true } }
           : undefined,
-        level: process.env.LOG_LEVEL ?? 'info',
+        level: config.getOrThrow<string>('LOG_LEVEL'),
       },
     };
   },
@@ -177,10 +197,14 @@ export class OrdersService {
   private readonly logger = new Logger(OrdersService.name);
 
   async place(dto: PlaceOrderDto) {
-    this.logger.log('Placing order', { orderId: dto.id, buyerId: dto.buyerId });
+    // Domain data is always nested under `context` (§3), never spread onto the top level.
+    // Pass ONE object: with nestjs-pino an object in the second argument is not merged into the line.
+    this.logger.log({ message: 'Placing order', context: { orderId: dto.id, buyerId: dto.buyerId } });
   }
 }
 ```
+
+**Domain fields live under `context`.** Top-level keys are reserved for the §3 envelope (`timestamp`, `level`, `service`, `module`, `correlationId`, `requestId`, `userId`, `message`) and for HTTP transport lines (`req`, `res`, `direction`, `method`, `url`, `status`, `statusCode`, `body`). A service never adds its own top-level key, so a domain field named `service` or `level` cannot collide with the envelope, and Loki queries address domain data uniformly as `context.orderId`.
 
 ### Sensitive field masking
 
@@ -264,12 +288,14 @@ export class LoggingInterceptor implements NestInterceptor {
 
     return next.handle().pipe(
       tap((body) => {
-        this.logger.log('Response', {
+        // One object: nestjs-pino does not merge an object passed as a second argument.
+        // correlationId is added to every line by the pino `mixin`, so it is not repeated here.
+        this.logger.log({
+          message: 'Response',
           direction: 'outgoing',
           method: req.method,
           url: req.url,
           statusCode: res.statusCode,
-          correlationId: req.headers['x-correlation-id'],
           body: this.sanitize(body),
         });
       }),
@@ -289,9 +315,7 @@ The global HTTP path — `pino-http` inbound, `LoggingInterceptor` outbound — 
 
 ```typescript
 // PREFERRED for domain events — avoid duplicating what the HTTP path already logged.
-this.logger.log('User loaded', {
-  userId: user.id,
-});
+this.logger.log({ message: 'User loaded', context: { userId: user.id } });
 ```
 
 
@@ -334,11 +358,11 @@ export class HttpLoggingModule implements OnModuleInit {
         config.headers['x-correlation-id'] = correlationId;
       }
 
-      this.logger.log('Outgoing request', {
+      this.logger.log({
+        message: 'Outgoing request',
         direction: 'outgoing',
         method: config.method?.toUpperCase(),
         url: config.url,
-        correlationId,
         body: this.sanitize(config.data),
       });
 
@@ -347,25 +371,25 @@ export class HttpLoggingModule implements OnModuleInit {
 
     this.http.axiosRef.interceptors.response.use(
       (response) => {
-        this.logger.log('Outgoing response', {
+        this.logger.log({
+          message: 'Outgoing response',
           direction: 'outgoing',
           status: response.status,
           method: response.config.method?.toUpperCase(),
           url: response.config.url,
-          correlationId: response.config.headers['x-correlation-id'],
           body: this.sanitize(response.data),
         });
 
         return response;
       },
       (error: AxiosError) => {
-        this.logger.error('Outgoing request failed', {
+        this.logger.error({
+          message: 'Outgoing request failed',
           direction: 'outgoing',
           status: error.response?.status,
           method: error.config?.method?.toUpperCase(),
           url: error.config?.url,
-          correlationId: error.config?.headers?.['x-correlation-id'],
-          message: error.message,
+          context: { error: error.message },
           requestBody: this.sanitize(error.config?.data),
           responseBody: this.sanitize(error.response?.data),
         });
@@ -380,6 +404,7 @@ export class HttpLoggingModule implements OnModuleInit {
 **Rules:**
 - Always forward `X-Correlation-ID` on outbound calls — propagation is the primary goal, logging is secondary.
 - Log the outgoing request and response body, both through `buildSanitizer()` — the same `LOG_SENSITIVE_KEYS` masking and `LOG_MAX_BODY_BYTES` truncation as inbound bodies get.
+- `correlationId` is not repeated in the call: the pino `mixin` adds it to every line from the AsyncLocalStorage context.
 - `direction: outgoing` distinguishes outbound HTTP entries from inbound ones in Loki queries.
 - Import `HttpLoggingModule` instead of `HttpModule` in any feature module that makes outbound HTTP calls.
 
@@ -414,14 +439,14 @@ Every log line emitted to stdout must be valid JSON containing these fields. `ne
 |---|---|---|
 | `timestamp` | Yes | pino auto |
 | `level` | Yes | pino auto |
-| `service` | Yes | `SERVICE_NAME` env var via `customProps` |
+| `service` | Yes | `SERVICE_NAME` via the validated `ConfigService` (pino `base`); each app has its own value |
 | `module` | Yes | NestJS `Logger(ClassName)` auto |
 | `correlationId` | Yes | From `X-Correlation-ID` header or generated at request boundary |
 | `requestId` | Yes | Same as `correlationId` for HTTP-initiated flows |
 | `userId` | No | Set after JWT decode; `null` for unauthenticated |
 | `traceId` / `spanId` | No | Reserved for OpenTelemetry Phase 2 |
-| `message` | Yes | Log call |
-| `context` | No | Domain-specific structured data |
+| `message` | Yes | Log call. pino is configured with `messageKey: 'message'` (its default is `msg`) |
+| `context` | No | All domain-specific structured data, nested under this one key — never top-level |
 | `body` | HTTP logs | Sanitized/truncated request or response body |
 
 **Monetary values in logs:** same rule as API — strings, never numbers.
