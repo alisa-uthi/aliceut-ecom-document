@@ -141,9 +141,10 @@ LoggerModule.forRootAsync({
             userId: store?.userId ?? null,
           };
         },
-        // A client-supplied id is accepted only when short and header-safe
-        // (<= 128 chars, /^[A-Za-z0-9._:-]+$/); otherwise a UUIDv7 is minted. An unvalidated id
-        // would be echoed back as a response header, so an oversized or hostile value must never pass.
+        // A client-supplied id is accepted only when it is a valid UUID of any version (the id is
+        // copied into platform.outbox_event.correlation_id, a UUID column, data-model-erd.md); a
+        // missing or malformed value is replaced by a minted UUIDv7. An unvalidated id would also be
+        // echoed back as a response header, so a hostile value must never pass.
         // The id is written back to the request so the correlation middleware agrees with it.
         genReqId: (req, res) => {
           const id = resolveCorrelationId(req.headers['x-correlation-id']) || uuidv7();
