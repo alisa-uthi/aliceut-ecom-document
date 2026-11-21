@@ -73,9 +73,11 @@ Daily log of work on this project. Newest entry on top. One entry per active day
 - MinIO stays the local object store. The emulator is a possible candidate for backend integration tests only, and that needs its own decision.
 - Implementation restarts from the specs, so the divergence register had nothing left to track.
 - ADR-0029: the scheduled-job gaps from the review are settled in the spec, not tracked. Delivery mock and auto-refund guard the status change with `WHERE status = <expected>` and write the outbox row only when a row was returned (US-P-15, US-P-16); the ET-09 digest claims rows with `FOR UPDATE SKIP LOCKED` in the transaction that sends and deletes; the four non-retention jobs get named lock keys, and the registry asserts unique `hashtext` values at boot. Edited: `platform.md`, `backend-module-architecture.md`, `cleanup-jobs.md`, `data-model-erd.md`.
+- `phase-1/tasks.csv` deleted as stale (issues are the record); CLAUDE.md, README.md and `scripts/github-issues` docs reworded so a seed exists only while a phase is being decomposed.
 
 **Next:**
-- Re-run `import-issues.sh --phase 1` to update the `IN-03` issue.
+- Backend rebuilt from scratch, local first: Nx scaffold, then `libs/shared` common primitives (IN-01, IN-07, IN-08).
+- Update the `IN-03` GitHub issue by hand (its seed is gone).
 - Implement the backend and frontend compose files when code starts.
 
 <a id="2026-10-23"></a>

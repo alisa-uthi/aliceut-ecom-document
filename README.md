@@ -106,13 +106,11 @@ aliceut-ecom-document/
 │   │   ├── navigation-routing.md      Route trees, auth guards, guard matrix, TitleStrategy
 │   │   └── shared-components.md       libs/ui/ Angular component library spec
 │   │
-│   ├── screens/                       Design mock exports referenced by the UI design docs
-│   │   └── AliceUT_Buyer_Portal.png   Buyer portal mock (source of truth is the Figma file)
-│   │
-│   └── tasks.csv                      Issue import seed for this phase — 136 rows, no status column
+│   └── screens/                       Design mock exports referenced by the UI design docs
+│       └── AliceUT_Buyer_Portal.png   Buyer portal mock (source of truth is the Figma file)
 │
 ├── scripts/
-│   └── github-issues/                 Issue import tooling (seeds live in phase-N/tasks.csv)
+│   └── github-issues/                 Issue import tooling for new phases (a seed lives at phase-N/tasks.csv while in use)
 │       ├── import-issues.sh           Creates/updates issues, links them to the Project board
 │       ├── validate-tasks.sh          Checks a seed: fields, ids, deps, spec files and anchors
 │       ├── TEMPLATE.md                Row contract, Definition of Done, new-phase procedure
