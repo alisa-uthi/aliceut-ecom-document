@@ -58,9 +58,13 @@ existing failure line:**
   used on any HTTP line. Bodies pass through the sanitizer as before.
 - **`status` on both directions**, so one column serves both. The key
   `statusCode` is not used on log lines.
-- **`quietReqLogger: true`.** The incoming `req` object is no longer bound to
-  every other line of the request; the one `Incoming request` line carries
-  `method`, `url` and `requestBody` itself.
+- **`quietReqLogger: true` and `quietResLogger: true`.** Neither the `req` nor the
+  `res` object is bound to any line. pino-http's default finish objects carry
+  `res` and `err`, so they are replaced with the duration alone and the line is
+  built from flat fields: no header (`Set-Cookie` included) can reach the log.
+  The one `Incoming request` line carries `method`, `url` and `requestBody`
+  itself. Under Express the request body is `req.body` and the URL is
+  `req.originalUrl` (`req.url` is rewritten under the global prefix).
 - A 5xx still writes the separate operator-diagnosis line (`Server error`, with
   the rate-limited stack). That line is a different kind of record, not a
   second copy of the call.
