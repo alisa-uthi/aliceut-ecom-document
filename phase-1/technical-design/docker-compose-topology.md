@@ -24,29 +24,37 @@
 <a id="repository-layout"></a>
 ## 1. Repository layout
 
-The project is four sibling repositories under one parent directory. `docker-compose.yml` lives in the infrastructure repository and is always invoked with its working directory at that repository's root — that is what makes every `../` path in this document resolve.
+Four repositories, no shared compose. Each code repo owns the local stack it defines ([ADR-0028](../../decisions/0028-compose-lives-in-the-code-repos-infra-repo-retired.md)); `aliceut-ecom-infra` is retired. Every `docker compose` command runs from the root of the repo whose file it uses, so every `./` path below resolves inside that repo.
 
 ```
-D:/Github/aliceut-ecom/
-├── aliceut-ecom-document/     requirements, technical design, UI design (this repository)
-├── aliceut-ecom-backend/      Nx monorepo: apps/api, apps/workers, libs/<module>, migrations/
-├── aliceut-ecom-frontend/     Nx monorepo: apps/{buyer,seller,admin}-app, nginx/*.conf, dist/
-└── aliceut-ecom-infra/        docker-compose.yml, .env, config/
+aliceut-ecom-document/          requirements, technical design, UI design (this repository)
+aliceut-ecom-backend/           Nx monorepo + docker-compose.yml, .env.example, docker/   (§6)
+aliceut-ecom-frontend/          Nx monorepo + docker-compose.yml, nginx/*.conf, dist/     (§6.1)
+aliceut-ecom-utility-pipeline/  dev / sit / uat compose, env config, deploy workflows     (§1.1)
 ```
+
+Backend `docker-compose.yml` (run from `aliceut-ecom-backend/`):
 
 | Path in compose | Resolves to |
 |---|---|
-| `../aliceut-ecom-backend` | `api` and `workers` build context |
-| `../aliceut-ecom-backend/migrations/init` | first-boot Postgres bootstrap (see §6, `postgres`) |
-| `../aliceut-ecom-frontend/dist/{buyer,seller,admin}-app` | built Angular bundles served by the nginx containers |
-| `../aliceut-ecom-frontend/nginx/{buyer,seller,admin}.conf` | per-portal nginx server blocks |
-| `./config/alloy/config.alloy` | Alloy collector config ([observability.md §5](../../conventions/observability.md#alloy-config)) |
-| `./config/prometheus/prometheus.yml` | Prometheus scrape config |
-| `./config/grafana/provisioning/` | Grafana datasource and dashboard provisioning |
+| `.` | `api` and `workers` build context |
+| `./migrations/init` | first-boot Postgres bootstrap (see §6, `postgres`) |
+| `./docker/alloy/config.alloy` | Alloy collector config ([observability.md §5](../../conventions/observability.md#alloy-config)) |
+| `./docker/prometheus/prometheus.yml` | Prometheus scrape config |
+| `./docker/grafana/provisioning/` | Grafana datasource and dashboard provisioning |
 
-All four directories are created by the developer as siblings; compose does not create them. Run every `docker compose` command from `aliceut-ecom-infra/`.
+Frontend `docker-compose.yml` (run from `aliceut-ecom-frontend/`):
 
-The three `./config/` paths resolve inside the infra repository itself, not a sibling. They are committed there, so a clone plus `docker compose up` yields a query-ready Grafana with no manual UI setup.
+| Path in compose | Resolves to |
+|---|---|
+| `./dist/{buyer,seller,admin}-app` | built Angular bundles served by the nginx containers |
+| `./nginx/{buyer,seller,admin}.conf` | per-portal nginx server blocks |
+
+No path in either file leaves its repo, so the repos need not be cloned as siblings for compose to work. The `./docker/` files are committed, so a clone plus `docker compose up` yields a query-ready Grafana with no manual UI setup.
+
+### 1.1 Environments
+
+Dev, sit and uat are deployed from `aliceut-ecom-utility-pipeline`, which holds the per-environment compose files or overlays, env config, nginx and observability config, and the deploy workflows. The files in the code repos are the base; an environment overrides them and never copies them. Secrets stay in GitHub Secrets.
 
 ---
 
@@ -57,11 +65,11 @@ Every service below starts in V1 (the count is published in [architecture-overvi
 
 | Service | Image / Build | Host port | Purpose |
 |---------|--------------|-----------|---------|
-| `buyer-nginx` | `nginx:1.27-alpine` (+ built Angular dist) | `4200:80` | Serves buyer Angular app |
-| `seller-nginx` | `nginx:1.27-alpine` (+ built Angular dist) | `4201:80` | Serves seller Angular app |
-| `admin-nginx` | `nginx:1.27-alpine` (+ built Angular dist) | `4202:80` | Serves admin Angular app |
-| `api` | `../aliceut-ecom-backend` (Dockerfile) | `3000:3000` | NestJS HTTP API |
-| `workers` | `../aliceut-ecom-backend` (Dockerfile, worker entrypoint) | — | Outbox relay + Kafka consumers |
+| `buyer-nginx` | `nginx:1.27-alpine` (+ built Angular dist) | `4200:80` | Serves buyer Angular app (frontend repo compose, §6.1) |
+| `seller-nginx` | `nginx:1.27-alpine` (+ built Angular dist) | `4201:80` | Serves seller Angular app (frontend repo compose, §6.1) |
+| `admin-nginx` | `nginx:1.27-alpine` (+ built Angular dist) | `4202:80` | Serves admin Angular app (frontend repo compose, §6.1) |
+| `api` | `.` (backend repo Dockerfile) | `3000:3000` | NestJS HTTP API |
+| `workers` | `.` (backend repo Dockerfile, worker entrypoint) | — | Outbox relay + Kafka consumers |
 | `postgres` | `postgres:18-alpine` | `5432:5432` | Primary PostgreSQL database |
 | `mongodb` | `mongo:7` | `27017:27017` | Audit and activity log store |
 | `elasticsearch` | `docker.elastic.co/elasticsearch/elasticsearch:8.14.0` | `9200:9200` | Search index |
@@ -89,13 +97,12 @@ The last four are the observability stack specified by [conventions/observabilit
 ## 3. Networks
 
 ```
-aliceut_frontend   buyer-nginx, seller-nginx, admin-nginx (no backend access)
 aliceut_backend    api, workers, postgres, mongodb, elasticsearch, kafka, kafka-init,
                    schema-registry, schema-init, kafka-ui, minio, minio-init, redis, mailpit,
                    alloy, loki, prometheus, grafana
 ```
 
-nginx containers are on **both** networks; they proxy `/api/*` to `api:3000`.  
+The portal nginx containers are in the frontend repo's compose project, on that project's own default network (§6.1). They reach the API through its published host port, not through `aliceut_backend`.  
 `api` and `workers` are on `aliceut_backend` only.  
 `kafka-ui` is on `aliceut_backend` only (not exposed to browser directly in production, but exposed via host port for development).  
 `mailpit` is on `aliceut_backend` so `api` and `workers` can reach `mailpit:1025`.  
@@ -343,12 +350,10 @@ SEED_ADMIN_PASSWORD=change_me_seed_admin
 <a id="docker-compose-yml"></a>
 ## 6. `docker-compose.yml`
 
-Lives at `aliceut-ecom-infra/docker-compose.yml` (§1). Compose v2 — no top-level `version:` key.
+Lives at `aliceut-ecom-backend/docker-compose.yml` (§1). Portal nginx services are in the frontend repo's compose (§6.1). Compose v2 — no top-level `version:` key.
 
 ```yaml
 networks:
-  aliceut_frontend:
-    driver: bridge
   aliceut_backend:
     driver: bridge
 
@@ -364,76 +369,14 @@ volumes:
 
 services:
 
-  # ── Frontend nginx containers ────────────────────────────
-
-  buyer-nginx:
-    image: nginx:1.27-alpine
-    container_name: aliceut_buyer_nginx
-    restart: unless-stopped
-    ports:
-      - "4200:80"
-    volumes:
-      - ../aliceut-ecom-frontend/dist/buyer-app:/usr/share/nginx/html:ro
-      - ../aliceut-ecom-frontend/nginx/buyer.conf:/etc/nginx/conf.d/default.conf:ro
-    networks:
-      - aliceut_frontend
-      - aliceut_backend
-    depends_on:
-      api:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:80/"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-
-  seller-nginx:
-    image: nginx:1.27-alpine
-    container_name: aliceut_seller_nginx
-    restart: unless-stopped
-    ports:
-      - "4201:80"
-    volumes:
-      - ../aliceut-ecom-frontend/dist/seller-app:/usr/share/nginx/html:ro
-      - ../aliceut-ecom-frontend/nginx/seller.conf:/etc/nginx/conf.d/default.conf:ro
-    networks:
-      - aliceut_frontend
-      - aliceut_backend
-    depends_on:
-      api:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:80/"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-
-  admin-nginx:
-    image: nginx:1.27-alpine
-    container_name: aliceut_admin_nginx
-    restart: unless-stopped
-    ports:
-      - "4202:80"
-    volumes:
-      - ../aliceut-ecom-frontend/dist/admin-app:/usr/share/nginx/html:ro
-      - ../aliceut-ecom-frontend/nginx/admin.conf:/etc/nginx/conf.d/default.conf:ro
-    networks:
-      - aliceut_frontend
-      - aliceut_backend
-    depends_on:
-      api:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:80/"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
+  # The three portal nginx containers are not in this file: they belong to the
+  # frontend repo's own docker-compose.yml (§6.1, ADR-0028).
 
   # ── NestJS API ───────────────────────────────────────────
 
   api:
     build:
-      context: ../aliceut-ecom-backend
+      context: .
       dockerfile: Dockerfile
       target: api
     container_name: aliceut_api
@@ -494,7 +437,7 @@ services:
 
   workers:
     build:
-      context: ../aliceut-ecom-backend
+      context: .
       dockerfile: Dockerfile
       target: workers
     container_name: aliceut_workers
@@ -605,7 +548,7 @@ services:
       - postgres_data:/var/lib/postgresql
       # First-boot only (runs when postgres_data is empty): roles and grants, and
       # nothing else. No schema, no extensions — see §10 for what does not belong here.
-      - ../aliceut-ecom-backend/migrations/init:/docker-entrypoint-initdb.d:ro
+      - ./migrations/init:/docker-entrypoint-initdb.d:ro
     networks:
       - aliceut_backend
     healthcheck:
@@ -816,7 +759,7 @@ services:
 
   # One-shot: registers every libs/contracts/avro/<topic>.avsc as its
   # <topic>-value subject (BACKWARD) before workers publishes or consumes.
-  # It runs the backend's own CI registration script from the sibling repo,
+  # It runs the backend's own CI registration script from the backend repo,
   # so local compose registers exactly what CI registers (ADR-0012).
   schema-init:
     image: node:22.12.0-alpine
@@ -831,8 +774,8 @@ services:
       SCHEMA_REGISTRY_URL: http://schema-registry:8081
       AVRO_SCHEMA_DIR: /avro
     volumes:
-      - ../aliceut-ecom-backend/libs/contracts/avro:/avro:ro
-      - ../aliceut-ecom-backend/tools/avro/register-schemas.js:/register-schemas.js:ro
+      - ./libs/contracts/avro:/avro:ro
+      - ./tools/avro/register-schemas.js:/register-schemas.js:ro
     entrypoint: ["node", "/register-schemas.js"]
 
   # ── MinIO (object storage) ──────────────────────────────
@@ -973,7 +916,7 @@ services:
     ports:
       - "12345:12345"   # Alloy UI — development only
     volumes:
-      - ./config/alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - ./docker/alloy/config.alloy:/etc/alloy/config.alloy:ro
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
       # Log discovery reads the Docker API. On Windows hosts this is the Docker
       # Desktop socket proxied into WSL2; the path inside the container is fixed.
@@ -1015,7 +958,7 @@ services:
     ports:
       - "9090:9090"
     volumes:
-      - ./config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus_data:/prometheus
     networks:
       - aliceut_backend
@@ -1041,7 +984,7 @@ services:
       GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD}
     volumes:
       - grafana_data:/var/lib/grafana
-      - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./docker/grafana/provisioning:/etc/grafana/provisioning:ro
     networks:
       - aliceut_backend
     depends_on:
@@ -1056,6 +999,37 @@ services:
       retries: 5
       start_period: 30s
 ```
+
+---
+
+### 6.1 Frontend portal compose
+
+Lives at `aliceut-ecom-frontend/docker-compose.yml`; run from `aliceut-ecom-frontend/`. It starts only the three portals and needs the backend stack's `api` listening on host port 3000.
+
+```yaml
+services:
+  buyer-nginx:
+    image: nginx:1.27-alpine
+    container_name: aliceut_buyer_nginx
+    restart: unless-stopped
+    ports:
+      - "4200:80"
+    volumes:
+      - ./dist/buyer-app:/usr/share/nginx/html:ro
+      - ./nginx/buyer.conf:/etc/nginx/conf.d/default.conf:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:80/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # seller-nginx (4201, seller-app, seller.conf) and admin-nginx (4202, admin-app,
+  # admin.conf) are identical apart from those three values.
+```
+
+There is no `depends_on: api`: the services are in different compose projects. A portal that starts before the API returns 502 on `/api/` until the API is up. During feature work prefer `ng serve` and skip these containers.
 
 ---
 
@@ -1121,7 +1095,7 @@ server {
 
     # Proxy API calls to NestJS
     location /api/ {
-        proxy_pass http://api:3000;
+        proxy_pass http://host.docker.internal:3000;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -1143,7 +1117,7 @@ server {
 }
 ```
 
-`seller.conf` and `admin.conf` follow the same pattern with appropriate `server_name`.
+`seller.conf` and `admin.conf` follow the same pattern with appropriate `server_name`. These files live in `aliceut-ecom-frontend/nginx/`. `api` is not a resolvable name from the frontend compose project, so the upstream is the API's published port on the host (`host.docker.internal:3000`); the frontend compose declares `extra_hosts: ["host.docker.internal:host-gateway"]` so this also works on Linux. In dev, sit and uat the pipeline repo overrides the upstream with the environment's API address.
 
 ---
 
@@ -1193,7 +1167,7 @@ There is no `elasticsearch-init` container and there will not be one. The Search
 
 ### Prerequisite — build the frontend before starting nginx
 
-The three nginx services bind-mount `../aliceut-ecom-frontend/dist/<app>` from the host (§1). Compose does not build the Angular apps. **Build them first**, from `aliceut-ecom-frontend/`:
+The three nginx services bind-mount `./dist/<app>` from the frontend repo (§1). Compose does not build the Angular apps. **Build them first**, from `aliceut-ecom-frontend/`:
 
 ```bash
 npm run build:buyer && npm run build:seller && npm run build:admin
@@ -1201,16 +1175,16 @@ npm run build:buyer && npm run build:seller && npm run build:admin
 
 Skipping this step is not a build failure — the containers start, mount an empty or missing directory, and every request returns 403 or 404. Rebuild after any frontend change; nginx serves whatever is on disk, so no container restart is needed.
 
-### Prerequisite — the three `config/` files must exist
+### Prerequisite — the three `docker/` config files must exist
 
-`alloy`, `prometheus` and `grafana` bind-mount configuration from `aliceut-ecom-infra/config/` (§1). These are committed files, not generated ones, and each fails differently when absent: Docker creates a **directory** where a missing bind-mounted file was expected, so Alloy starts and exits on a parse error, Prometheus starts with no scrape targets and reports healthy while collecting nothing, and Grafana starts with no datasource so every panel reads "No data". The Alloy config is specified in [observability.md §5](../../conventions/observability.md#alloy-config); `prometheus.yml` must scrape `api:3000` and `workers:3001` with `metrics_path: /metrics`; Grafana's provisioning directory must declare Loki and Prometheus as datasources so the stack is query-ready on first boot.
+`alloy`, `prometheus` and `grafana` bind-mount configuration from `aliceut-ecom-backend/docker/` (§1). These are committed files, not generated ones, and each fails differently when absent: Docker creates a **directory** where a missing bind-mounted file was expected, so Alloy starts and exits on a parse error, Prometheus starts with no scrape targets and reports healthy while collecting nothing, and Grafana starts with no datasource so every panel reads "No data". The Alloy config is specified in [observability.md §5](../../conventions/observability.md#alloy-config); `prometheus.yml` must scrape `api:3000` and `workers:3001` with `metrics_path: /metrics`; Grafana's provisioning directory must declare Loki and Prometheus as datasources so the stack is query-ready on first boot.
 
 Those three values are **literals in `prometheus.yml`, not `${PORT_WORKERS}` and `${METRICS_PATH}`.** Prometheus performs no environment substitution in its config file — the only expansion it ships is `--enable-feature=expand-external-labels`, which applies to `external_labels` and nothing else — so a `${PORT_WORKERS}` in a `targets` list is a parse failure at boot, not a fallback to a default. The duplication with §5 is real and unavoidable: the two Nest processes do expand `PORT_WORKERS` and `METRICS_PATH`, so changing either variable without editing `prometheus.yml` by hand leaves Prometheus scraping the old address and reporting healthy while it collects nothing. That is the failure this paragraph exists to make findable.
 
 ### First run
 
 ```bash
-# Copy and edit environment
+# From aliceut-ecom-backend/: copy and edit environment
 cp .env.example .env
 
 # Start infrastructure only (no app containers)
@@ -1218,12 +1192,12 @@ docker compose up postgres mongodb elasticsearch kafka schema-registry kafka-ui 
   redis minio minio-init mailpit loki prometheus grafana alloy -d
 
 # Snapshot the Postgres volume before applying any schema change (NFR-11)
-docker run --rm -v aliceut-ecom-infra_postgres_data:/data -v "$PWD/backups:/backup" \
+docker run --rm -v aliceut-ecom-backend_postgres_data:/data -v "$PWD/backups:/backup" \
   alpine tar czf /backup/postgres_data_$(date +%Y%m%dT%H%M%S).tar.gz -C /data .
 
 # Apply raw-SQL migrations in filename order (operator-triggered; TypeORM never
 # synchronizes schema). 0001_create_extensions runs first and must — see below.
-cd ../aliceut-ecom-backend && npm run migration:run
+npm run migration:run
 
 # Seed database
 npm run seed
@@ -1231,12 +1205,10 @@ npm run seed
 # Start API and workers in development mode (hot reload)
 npm run start:dev
 
-# Build frontend (see prerequisite above), then start nginx
-cd ../aliceut-ecom-frontend
-npm run build:buyer && npm run build:seller && npm run build:admin
-cd ../aliceut-ecom-infra && docker compose up buyer-nginx seller-nginx admin-nginx -d
-
-# Start everything
+# Portals: from aliceut-ecom-frontend/ (separate compose project, needs the API on :3000)
+#   npm run build:buyer && npm run build:seller && npm run build:admin
+#   docker compose up -d
+# Start every backend service
 docker compose up -d
 ```
 
@@ -1246,7 +1218,7 @@ They run in filename order, and that order is load-bearing rather than tidy: `00
 
 ### What the `migrations/init` mount is not for
 
-`../aliceut-ecom-backend/migrations/init` is mounted into `docker-entrypoint-initdb.d` (§6, `postgres`) and holds **roles and grants only**. Never schema. Schema comes exclusively from the TypeORM raw-SQL migrations run above (BRD §12, NFR-18), because those are versioned and recorded in the migration state table. Anything applied through the initdb mount bypasses that table entirely: the objects exist but no migration is recorded, so the next `migration:run` tries to create them again, and a volume that already has data silently diverges from a volume created fresh. Postgres also runs that directory exactly once — when `postgres_data` is empty — so a statement added there later never executes for any existing developer. The directory name invites the mistake; this paragraph is here so the answer is written down.
+`./migrations/init` is mounted into `docker-entrypoint-initdb.d` (§6, `postgres`) and holds **roles and grants only**. Never schema. Schema comes exclusively from the TypeORM raw-SQL migrations run above (BRD §12, NFR-18), because those are versioned and recorded in the migration state table. Anything applied through the initdb mount bypasses that table entirely: the objects exist but no migration is recorded, so the next `migration:run` tries to create them again, and a volume that already has data silently diverges from a volume created fresh. Postgres also runs that directory exactly once — when `postgres_data` is empty — so a statement added there later never executes for any existing developer. The directory name invites the mistake; this paragraph is here so the answer is written down.
 
 ### Required extension
 
@@ -1337,7 +1309,7 @@ No antivirus or scanner sidecar runs in V1. A seller can upload a file that is a
 <a id="design-decisions"></a>
 ## 13. [DESIGN DECISIONS]
 
-- **[DESIGN DECISION]** The compose file lives in the sibling `aliceut-ecom-infra` repository, not in the backend or frontend repository, because it wires all of them together and belongs to neither. Every `../` path in it resolves against that repository's root (§1). Compose commands run from there.
+- **[DESIGN DECISION]** Each code repo owns the local compose for what it defines: the backend repo runs every service except the portals, the frontend repo runs the three nginx portals ([ADR-0028](../../decisions/0028-compose-lives-in-the-code-repos-infra-repo-retired.md)). The former `aliceut-ecom-infra` repo is retired. No bind mount leaves its repo, so a service or config change is one PR. Dev, sit and uat are deployed from `aliceut-ecom-utility-pipeline`, layered over these files.
 - **[DESIGN DECISION]** Kafka uses KRaft mode (no ZooKeeper). `apache/kafka:3.8.0` ships with KRaft; a `CLUSTER_ID` is pre-generated. This removes ZooKeeper as a dependency, reducing the compose service count.
 - **[DESIGN DECISION]** Kafka advertises two client listeners, `INTERNAL://kafka:9092` and `EXTERNAL://localhost:29092`. A broker can advertise only one address per listener, and `kafka:9092` is unresolvable from the host while `localhost:29092` is unreachable from inside the network. Publishing host port 9092 is deliberately avoided: a host client connecting there would be redirected to `kafka:9092` and fail confusingly. In-network clients (`api`, `workers`, `schema-registry`, `kafka-ui`) use `KAFKA_BROKERS=kafka:9092`; host tooling and host-mode development use `localhost:29092`.
 - **[DESIGN DECISION]** Postgres stays on the stock `postgres:18-alpine` image. No custom image and no in-database scheduler: all scheduled work runs in the `workers` service via `@nestjs/schedule`. See [backend-module-architecture.md](./backend-module-architecture.md#scheduled-tasks) for the job inventory and [cleanup-jobs.md](./cleanup-jobs.md) for the per-job schedule and env var. The distinction that matters is bundled versus third-party: the official image ships the standard contrib modules, so `btree_gist` is a plain `CREATE EXTENSION` in migration `0001` (§10) and needs no Dockerfile. `pg_cron` is not a contrib module — it would require building or sourcing a different image, which is what this decision rejects.

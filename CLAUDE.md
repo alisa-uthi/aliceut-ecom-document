@@ -43,7 +43,7 @@ phase-2/                 (planned, not yet on disk: V2 scope — K8s, real payme
 
 Numeric `phase-N/` prefix sorts by delivery order. `conventions/` holds stable cross-phase technical decisions. `guidelines/` holds developer process docs (git, testing, onboarding). Requirements and technical design cleanly separated per phase.
 
-**Sibling repos.** This document repo is one of four that must be cloned side by side: `aliceut-ecom-document`, `aliceut-ecom-backend`, `aliceut-ecom-frontend`, `aliceut-ecom-infra`. The `docker-compose.yml` and every config it mounts live in `aliceut-ecom-infra`, and its bind mounts are relative to that repo root — a different layout breaks compose (`architecture-overview.md § 10`, `guidelines/development-flow.md § 1`).
+**Sibling repos.** Four repos, conventionally cloned side by side: `aliceut-ecom-document`, `aliceut-ecom-backend`, `aliceut-ecom-frontend`, `aliceut-ecom-utility-pipeline`. The backend repo holds the local `docker-compose.yml` and its config; the frontend repo holds the portal nginx compose; the pipeline repo holds dev / sit / uat deployment. `aliceut-ecom-infra` is retired ([ADR-0028](decisions/0028-compose-lives-in-the-code-repos-infra-repo-retired.md)) (`architecture-overview.md § 10`, `guidelines/development-flow.md § 1`).
 
 Solo developer, learning/portfolio project, no deadline — quality over speed.
 
@@ -91,9 +91,10 @@ A spec only changes by decision, never by observation:
 1. **Code diverges, spec is right** -> fix the code. No ADR.
 2. **Spec should change** -> write an ADR in [`decisions/`](decisions/), update
    the spec, and change the code in the same pass. All three land together.
-3. **Cannot decide yet** -> record it in
-   [`phase-1/technical-design/spec-compliance.md`](phase-1/technical-design/spec-compliance.md).
-   Never leave a silent mismatch.
+3. **Cannot decide yet** -> open a GitHub Issue describing the divergence or
+   the gap in the design. Never leave a silent mismatch. There is no
+   checked-in register (`spec-compliance.md` was deleted 2026-11-21), for the
+   same reason there is no checked-in backlog.
 
 Never edit a spec to describe whatever the code happens to do. That is how the
 contract drift of 2026-10-03 happened: the specs stopped being trustworthy, so

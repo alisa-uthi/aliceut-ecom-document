@@ -31,6 +31,7 @@ Daily log of work on this project. Newest entry on top. One entry per active day
 > **Note on `phase-1/audits/` paths below.** That directory is gone: its two files — `2026-09-22-wave0-decisions.md` (decision records D-01…D-14) and `2026-09-22-alignment-audit-fix-plan.md` — were committed on 2026-09-22 and deleted again on 2026-09-24 by commit `c5767b8`. A `phase-1/audits/README.md` was never committed at any point, so entries below that describe creating one describe work that did not land. Every `phase-1/audits/…` path in the dated entries records what was worked from at the time; none of them resolve today. The decisions themselves are recorded inline in the documents they bind — `BRD.md` §12 and its amendment list, and `CLAUDE.md` Core Rules — and in the git history of commits `4f24166`, `61bbda4`, `f0db299` and `c5767b8`.
 
 **Index**
+- [2026-11-21](#2026-11-21) — Local compose moves into the backend and frontend repos, `aliceut-ecom-infra` retired, dev/sit/uat owned by utility-pipeline (ADR-0028).
 - [2026-10-23](#2026-10-23) — PostgreSQL 18 adopted (ADR-0027): native `uuidv7()`, `postgres:18-alpine`, new volume mount path.
 - [2026-10-16](#2026-10-16) — Phase-1 migrations run on an empty database (ADR-0014), with a CI job that proves it.
 - [2026-10-15](#2026-10-15) — Spec-compliance wave 3: seller register to ADR-0007, CurrencyScaleCache, legacy category route deleted, frontend on the generated client, client sync pipeline live.
@@ -52,6 +53,30 @@ Daily log of work on this project. Newest entry on top. One entry per active day
 - [2026-08-29](#2026-08-29) — Requirements deep-dive: order lifecycle, buyer stories, auth portals, BA revalidation.
 - [2026-08-22](#2026-08-22) — Phase 1 technical-design kickoff; architecture overview + ERD.
 - [2026-08-19](#2026-08-19) — Requirements freeze (BRD v1.2 signed off) + repo scaffolding.
+
+<a id="2026-11-21"></a>
+## 2026-11-21
+**Focus:** retire `aliceut-ecom-infra`; compose lives with the code it runs.
+
+**Done:**
+- ADR-0028 written; topology spec split by owner (§1, §1.1, §3, §6, new §6.1 frontend portal compose, §8, §10, §13).
+- Backend compose and `docker/` config, frontend portal compose and nginx, and pipeline-owned dev/sit/uat reflected in CLAUDE.md, README, architecture-overview §10, development-flow, workspace template.
+- `IN-03` re-homed in `tasks.csv` and `TEMPLATE.md`; validator clean.
+- AWS Emulator (`aws/aws-emulator`) evaluated for the local stack and rejected; recorded in ADR-0028 Alternatives. A Docker spike on S3 passed 20 of 23 checks, but it serves self-signed HTTPS with a new CA each start, keeps state in memory only, and serves the public `product-images` bucket only with `--auth off`. ElastiCache, DocumentDB and OpenSearch were dropped untested.
+- Scheduled-job review (`cleanup-jobs.md`, `backend-module-architecture.md` § Scheduled tasks, health.md): `workers` is a separate process from `api`; the advisory-lock guard is fully specified for the 11 retention jobs only. One failing job does not affect the others; a `workers` crash stops all jobs, consumers and the relay together.
+- `spec-compliance.md` deleted, and the two live references to it (`CLAUDE.md` Spec section, `decisions/README.md` rule 3) now point to GitHub Issues. ADRs that cite it are left as history.
+
+**Decisions:**
+- No bind mount leaves its repo; sibling clone is a convention, not a compose requirement.
+- Portal nginx proxies to the API's published host port (`host.docker.internal:3000`).
+- Earlier ADRs naming the infra repo stay as history.
+- MinIO stays the local object store. The emulator is a possible candidate for backend integration tests only, and that needs its own decision.
+- Implementation restarts from the specs, so the divergence register had nothing left to track.
+- ADR-0029: the scheduled-job gaps from the review are settled in the spec, not tracked. Delivery mock and auto-refund guard the status change with `WHERE status = <expected>` and write the outbox row only when a row was returned (US-P-15, US-P-16); the ET-09 digest claims rows with `FOR UPDATE SKIP LOCKED` in the transaction that sends and deletes; the four non-retention jobs get named lock keys, and the registry asserts unique `hashtext` values at boot. Edited: `platform.md`, `backend-module-architecture.md`, `cleanup-jobs.md`, `data-model-erd.md`.
+
+**Next:**
+- Re-run `import-issues.sh --phase 1` to update the `IN-03` issue.
+- Implement the backend and frontend compose files when code starts.
 
 <a id="2026-10-23"></a>
 ## 2026-10-23

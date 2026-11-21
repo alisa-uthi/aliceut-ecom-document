@@ -126,16 +126,16 @@ aliceut-ecom-document/
 
 ### Sibling repositories
 
-The running system is built from four repositories, cloned side by side under one parent folder:
+The running system is built from four repositories, conventionally cloned under one parent folder:
 
 | Repo | Contents |
 |------|----------|
 | `aliceut-ecom-document` | This repo — requirements, technical design, UI design, conventions, guidelines |
-| `aliceut-ecom-backend` | NestJS Nx monorepo — `apps/api`, `apps/workers`, `libs/<module>/` |
-| `aliceut-ecom-frontend` | Angular Nx monorepo — `apps/buyer-app`, `apps/seller-app`, `apps/admin-app` |
-| `aliceut-ecom-infra` | `docker-compose.yml` and every config it mounts |
+| `aliceut-ecom-backend` | NestJS Nx monorepo — `apps/api`, `apps/workers`, `libs/<module>/`, plus the local `docker-compose.yml` |
+| `aliceut-ecom-frontend` | Angular Nx monorepo — `apps/buyer-app`, `apps/seller-app`, `apps/admin-app`, plus the portal nginx compose |
+| `aliceut-ecom-utility-pipeline` | dev / sit / uat compose, env config, deploy and CI utility workflows |
 
-The sibling layout is load-bearing, not a preference: the compose file's bind mounts are relative to `aliceut-ecom-infra/`, so a different arrangement breaks `docker compose up`. [`guidelines/development-flow.md` §1](guidelines/development-flow.md#1-repository-overview) has the full clone list and the parent-folder layout.
+Each code repo runs its own local compose and no bind mount leaves its repo ([ADR-0028](decisions/0028-compose-lives-in-the-code-repos-infra-repo-retired.md)), so the sibling layout is a convention, not a requirement. [`guidelines/development-flow.md` §1](guidelines/development-flow.md#1-repository-overview) has the full clone list.
 
 ---
 

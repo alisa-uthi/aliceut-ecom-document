@@ -181,7 +181,7 @@ The 21 services: three nginx containers serving the built Angular apps (`buyer-n
 
 The 2 applications are `api` and `workers`, both built from the same backend monorepo. The 11 module libraries are domain libs inside it, not separately deployed units — see `conventions/backend-module-architecture.md`.
 
-The compose file and the config it mounts live in a sibling repository, `aliceut-ecom-infra`, alongside `aliceut-ecom-document`, `aliceut-ecom-backend` and `aliceut-ecom-frontend`. Its bind mounts are relative to that repo root, so the repos must be cloned as siblings — see `guidelines/development-flow.md § 1`. The nginx containers serve host-built Angular output, so the frontend is built before compose is brought up, not by it.
+Each code repo owns the local compose for what it defines ([ADR-0028](decisions/0028-compose-lives-in-the-code-repos-infra-repo-retired.md)): `aliceut-ecom-backend` holds `docker-compose.yml` and the config it mounts (under `docker/`) and runs every service except the portals; `aliceut-ecom-frontend` holds a small compose that runs the three nginx containers. No bind mount leaves its repo. The nginx containers serve host-built Angular output, so the frontend is built before its compose is brought up, not by it. Dev, sit and uat are deployed from `aliceut-ecom-utility-pipeline`, layered over the local files.
 
 **Phase 2+ (Kubernetes):** One `Deployment` per domain module. Each service owns its data store. Kafka via Strimzi. Service mesh via Istio. Extraction begins with low-coupling consumers (Search, Notifications) and progresses inward. A module extraction is complete when the extracted service is the sole writer of its schema and all consumers use its API or Kafka events instead of direct database access.
 

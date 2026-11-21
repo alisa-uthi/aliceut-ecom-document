@@ -11,7 +11,7 @@ This document is the developer's starting point for AliceUT. Read it once when o
 
 | # | Section | Description |
 |---|---------|-------------|
-| 1 | [Repository overview](#1-repository-overview) | Repo layout: docs, backend, frontend, infra, utility pipeline |
+| 1 | [Repository overview](#1-repository-overview) | Repo layout: docs, backend, frontend, utility pipeline |
 | 2 | [Local development setup](#2-local-development-setup) | Prerequisites, `.env`, frontend build, docker compose, seed data |
 | 3 | [Daily development workflow](#3-daily-development-workflow) | Branch → code → test → PR → merge cycle |
 | 4 | [Conventions map](#4-conventions-map) | Which convention to read for which concern |
@@ -33,21 +33,19 @@ AliceUT is a multi-repo system:
 | Repo | Contents |
 |------|----------|
 | `aliceut-ecom-document` | Design docs, architecture, conventions, guidelines, phase requirements |
-| `aliceut-ecom-backend` | NestJS backend — Nx monorepo: API server, Kafka workers, domain libs |
-| `aliceut-ecom-frontend` | Angular frontend — Nx monorepo: buyer/seller/admin portals, shared libs |
-| `aliceut-ecom-infra` | `docker-compose.yml` and the config it mounts (nginx, alloy, prometheus, grafana) |
-| `aliceut-ecom-utility-pipeline` | CI utility workflows (non-migration); seed data scripts, infra automation |
+| `aliceut-ecom-backend` | NestJS backend — Nx monorepo: API server, Kafka workers, domain libs; the local `docker-compose.yml` and the config it mounts (`docker/`: alloy, prometheus, grafana) |
+| `aliceut-ecom-frontend` | Angular frontend — Nx monorepo: buyer/seller/admin portals, shared libs; the portal nginx `docker-compose.yml` and `nginx/*.conf` |
+| `aliceut-ecom-utility-pipeline` | CI utility workflows (non-migration); dev / sit / uat compose, env config and deploy workflows ([ADR-0028](../decisions/0028-compose-lives-in-the-code-repos-infra-repo-retired.md)) |
 
 ### Local workspace layout
 
-Clone all repos as siblings under a single parent folder. The compose file lives in `aliceut-ecom-infra` and its relative bind-mount paths (`../aliceut-ecom-backend`, `../aliceut-ecom-frontend/dist/<app>`) assume exactly this layout — the sibling arrangement is load-bearing, not a preference.
+Clone the repos under a single parent folder. This is a convention (the workspace `CLAUDE.md` and relative doc links assume it), not a compose requirement: each repo's compose file mounts only paths inside its own repo.
 
 ```
 aliceut-ecom/
 ├── aliceut-ecom-document/          # this repo — design docs and conventions
 ├── aliceut-ecom-backend/           # NestJS backend
 ├── aliceut-ecom-frontend/          # Angular frontend
-├── aliceut-ecom-infra/             # docker-compose.yml + mounted config
 ├── aliceut-ecom-utility-pipeline/  # Utility Pipelines (non-migration)
 ```
 
@@ -108,7 +106,6 @@ mkdir aliceut-ecom && cd aliceut-ecom
 git clone git@github.com:alisa-uthi/aliceut-ecom-backend.git
 git clone git@github.com:alisa-uthi/aliceut-ecom-frontend.git
 git clone git@github.com:alisa-uthi/aliceut-ecom-document.git
-git clone git@github.com:alisa-uthi/aliceut-ecom-infra.git
 git clone git@github.com:alisa-uthi/aliceut-ecom-utility-pipeline.git
 
 # Install dependencies in each app repo
@@ -136,7 +133,7 @@ Required variables per service are documented in [backend-coding-standards.md §
 
 ### Step 3 — Build the frontend apps
 
-**Do this before `docker compose up`.** The three nginx services do not build the Angular apps — they bind-mount `../aliceut-ecom-frontend/dist/<app>` from the host. If the `dist/` directories do not exist yet, nginx starts successfully and serves an empty directory: every portal returns 403/404 and nothing in the compose output says why.
+**Do this before starting the portal compose.** The three nginx services do not build the Angular apps — they bind-mount `./dist/<app>` from the frontend repo. If the `dist/` directories do not exist yet, nginx starts successfully and serves an empty directory: every portal returns 403/404 and nothing in the compose output says why.
 
 ```bash
 # Run from inside aliceut-ecom-frontend/
@@ -147,10 +144,10 @@ Re-run the relevant build after any frontend change you want to see through ngin
 
 ### Step 4 — Start infrastructure
 
-The compose file lives in `aliceut-ecom-infra/` — run compose from that directory so its relative bind mounts resolve.
+The backend stack's compose file lives in `aliceut-ecom-backend/` — run compose from that directory. It starts every service except the three portal nginx containers, which run from the frontend repo (see below the table).
 
 ```bash
-# Run from inside aliceut-ecom-infra/
+# Run from inside aliceut-ecom-backend/
 docker compose up -d
 
 # Verify all containers are healthy
@@ -161,9 +158,6 @@ Compose services:
 
 | Service | Port | Purpose |
 |---------|------|---------|
-| `buyer-nginx` | 4200 | Serves the built buyer app |
-| `seller-nginx` | 4201 | Serves the built seller app |
-| `admin-nginx` | 4202 | Serves the built admin app |
 | `api` | 3000 | NestJS HTTP API |
 | `workers` | — | Outbox relay + Kafka consumers |
 | `postgres` | 5432 | Primary DB |
@@ -186,6 +180,13 @@ Compose services:
 Every service above is V1 — the observability four are not a later addition, and nothing here is optional for a working local stack. The table is the port map; the authoritative service, module-library and application counts are published in [architecture-overview.md § 10](../architecture-overview.md#deployment-topology) and are not restated here.
 
 **Where outbound email goes.** Nothing in development sends real mail. The notification consumer's SMTP transport points at `mailpit:1025`, and every message it produces — email verification links, KYC decisions, low-stock digests, order confirmations — lands in the Mailpit inbox at `http://localhost:8025`, where links are clickable. That inbox is the way to verify an email-producing flow end to end; there is no other sink and no provider account to configure. Mailpit holds mail in memory and has no volume, so a `docker compose restart mailpit` empties it.
+
+**Portals.** The three nginx containers (`buyer-nginx` 4200, `seller-nginx` 4201, `admin-nginx` 4202) run from `aliceut-ecom-frontend/` with its own compose file, after Step 3 and with the backend stack up (they proxy `/api/` to host port 3000):
+
+```bash
+# Run from inside aliceut-ecom-frontend/
+docker compose up -d
+```
 
 Full service definitions, health checks, and startup order: [docker-compose-topology.md](../phase-1/technical-design/docker-compose-topology.md).
 
