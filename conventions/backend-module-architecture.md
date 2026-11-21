@@ -595,7 +595,7 @@ Scheduled tasks use `@Cron()` from `@nestjs/schedule` and live under `apps/worke
 | `shared/errors` | `AppError` base, `NotFoundError`, `ForbiddenError`, domain error hierarchy |
 | `shared/logger` | `StructuredLogger` — JSON output with `correlation_id`, `trace_id` |
 | `shared/pagination` | `CursorPage<T>`, `OffsetPage<T>`, cursor encode/decode |
-| `shared/uuidv7` | `uuidv7()` generator (wraps `uuid` library) |
+| `shared/uuid` | `uuidv7()` generator (wraps `uuid` library). The folder and file are named `uuid`, not `uuidv7`, so adopting a newer UUID version changes only this one file |
 | `shared/guards` | `JwtAuthGuard`, `RolesGuard`, `EmailVerifiedGuard`, `SellerApprovedGuard` |
 | `shared/decorators` | `@CurrentUser()`, `@Roles()`, `@ApiMoney()` |
 
