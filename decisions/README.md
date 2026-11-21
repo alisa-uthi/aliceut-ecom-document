@@ -80,3 +80,4 @@ Copy [`0000-adr-template.md`](0000-adr-template.md) to start one.
 | [0029](0029-scheduled-jobs-do-not-rely-on-the-lock-alone.md) | Scheduled jobs that send or emit do not rely on the advisory lock alone | Accepted |
 | [0030](0030-error-field-is-an-upper-snake-code.md) | The `error` field of an error response is an upper-snake code | Accepted |
 | [0031](0031-compose-images-loki-probe-and-alloy-scope.md) | Compose image pins, the Loki readiness probe and Alloy's scope follow what actually runs | Accepted |
+| [0032](0032-one-log-line-per-http-call-with-request-and-response-bodies.md) | One log line per HTTP call, inbound and outbound, with `requestBody` and `responseBody` | Accepted |

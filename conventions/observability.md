@@ -124,8 +124,25 @@ LoggerModule.forRootAsync({
 
     return {
       pinoHttp: {
+        // One line per incoming call, written on response finish (ADR-0032). The request is not
+        // bound to every other line of the request, so `req` does not repeat on them.
         autoLogging: true,
-        quietReqLogger: false,
+        quietReqLogger: true,
+        customAttributeKeys: { responseTime: 'durationMs' },
+        customLogLevel: (_req, res, err) =>
+          err || res.statusCode >= 500 ? 'error' : res.statusCode >= 400 ? 'warn' : 'info',
+        customSuccessMessage: (_req, res) => (res.statusCode >= 400 ? 'Incoming request failed' : 'Incoming request'),
+        customErrorMessage: () => 'Incoming request failed',
+        // Flat transport fields plus both bodies. The response body is set on res.locals by
+        // LoggingInterceptor (success) or GlobalExceptionFilter (error) before the line is written.
+        customProps: (req, res) => ({
+          direction: 'incoming',
+          method: req.method,
+          url: maskQuery(req.url),
+          status: res.statusCode,
+          requestBody: req.raw?.body ? sanitize(req.raw.body) : undefined,
+          responseBody: res.locals?.responseBody,
+        }),
         // pino's default message key is `msg`; the §3 envelope says `message`.
         messageKey: 'message',
         // Service name and level come from the Joi-validated ConfigService, never process.env
@@ -152,14 +169,8 @@ LoggerModule.forRootAsync({
           res.setHeader('X-Correlation-ID', id);
           return id;
         },
-        serializers: {
-          req: (req) => ({
-            method: req.method,
-            url: req.url,
-            body: req.raw?.body ? sanitize(req.raw.body) : undefined,
-          }),
-          // res body captured via LoggingInterceptor — stream consumed before this runs
-        },
+        // req/res objects are not logged: the flat fields in customProps replace them.
+        serializers: { req: () => undefined, res: () => undefined },
         redact: {
           paths: [
             'req.headers.authorization',
@@ -205,7 +216,7 @@ export class OrdersService {
 }
 ```
 
-**Domain fields live under `context`.** Top-level keys are reserved for the §3 envelope (`timestamp`, `level`, `service`, `module`, `correlationId`, `requestId`, `userId`, `message`) and for HTTP transport lines (`req`, `res`, `direction`, `method`, `url`, `status`, `statusCode`, `body`). A service never adds its own top-level key, so a domain field named `service` or `level` cannot collide with the envelope, and Loki queries address domain data uniformly as `context.orderId`.
+**Domain fields live under `context`.** Top-level keys are reserved for the §3 envelope (`timestamp`, `level`, `service`, `module`, `correlationId`, `requestId`, `userId`, `message`) and for HTTP call lines (`direction`, `method`, `url`, `status`, `durationMs`, `requestBody`, `responseBody`). A service never adds its own top-level key, so a domain field named `service` or `level` cannot collide with the envelope, and Loki queries address domain data uniformly as `context.orderId`.
 
 ### Sensitive field masking
 
@@ -264,7 +275,7 @@ export function buildSanitizer(
 
 **Response body — `LoggingInterceptor`:**
 
-pino-http cannot access the response body (stream already consumed). Capture it in a NestJS interceptor registered globally. Injects `ConfigService` to use the same sanitizer config.
+pino-http cannot read the response body (the stream is consumed), and it writes the one `Incoming request` line on response finish ([ADR-0032](../decisions/0032-one-log-line-per-http-call-with-request-and-response-bodies.md)). The interceptor therefore does **not** log: it sanitizes the handler's return value and stores it on `res.locals.responseBody`, where the pino `customProps` above picks it up. `GlobalExceptionFilter` does the same for an error body, so a 4xx or 5xx reaches the same line. Registered globally; injects `ConfigService` to use the same sanitizer config.
 
 ```typescript
 // shared/logging.interceptor.ts
@@ -272,33 +283,17 @@ pino-http cannot access the response body (stream already consumed). Capture it 
 export class LoggingInterceptor implements NestInterceptor {
   private readonly sanitize: (body: unknown) => unknown;
 
-  constructor(
-    private readonly logger: Logger,
-    private readonly config: ConfigService,
-  ) {
-    const sensitiveKeys = new Set<string>(
-      this.config.get<string[]>('log.sensitiveKeys', []),
-    );
-    const maxBytes = this.config.get<number>('log.maxBodyLogBytes', 10_000);
-    this.sanitize = buildSanitizer(sensitiveKeys, maxBytes);
+  constructor(private readonly config: ConfigService) {
+    const sensitiveKeys = new Set<string>(this.config.getOrThrow<string[]>('log.sensitiveKeys'));
+    this.sanitize = buildSanitizer(sensitiveKeys, this.config.getOrThrow<number>('log.maxBodyLogBytes'));
   }
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
-    const req = context.switchToHttp().getRequest<Request>();
     const res = context.switchToHttp().getResponse<Response>();
-
     return next.handle().pipe(
       tap((body) => {
-        // One object: nestjs-pino does not merge an object passed as a second argument.
-        // correlationId is added to every line by the pino `mixin`, so it is not repeated here.
-        this.logger.log({
-          message: 'Response',
-          direction: 'outgoing',
-          method: req.method,
-          url: req.url,
-          statusCode: res.statusCode,
-          body: this.sanitize(body),
-        });
+        // Never throws and never logs: a sanitizer failure must not fail a response that succeeded.
+        res.locals.responseBody = safely(() => this.sanitize(body));
       }),
     );
   }
@@ -312,7 +307,7 @@ app.useGlobalInterceptors(app.get(LoggingInterceptor));
 
 ### Body logging rules
 
-The global HTTP path — `pino-http` inbound, `LoggingInterceptor` outbound — already logs and sanitizes every request and response body, so a handler never re-logs one. Direct domain logging carries IDs and the structured fields that matter, not the whole object:
+The global HTTP path — one `Incoming request` line from `pino-http` per incoming call, one `Outgoing request` line from `HttpLoggingModule` per outgoing call — already logs and sanitizes every request and response body, so a handler never re-logs one. Direct domain logging carries IDs and the structured fields that matter, not the whole object:
 
 ```typescript
 // PREFERRED for domain events — avoid duplicating what the HTTP path already logged.
@@ -359,42 +354,35 @@ export class HttpLoggingModule implements OnModuleInit {
         config.headers['x-correlation-id'] = correlationId;
       }
 
-      this.logger.log({
-        message: 'Outgoing request',
-        direction: 'outgoing',
-        method: config.method?.toUpperCase(),
-        url: config.url,
-        body: this.sanitize(config.data),
-      });
-
+      // Nothing is logged yet: the call is logged once, when it finishes (ADR-0032).
+      config.metadata = { startedAt: Date.now() };
       return config;
     });
 
+    const log = (config: AxiosRequestConfig, response?: AxiosResponse, error?: AxiosError): void => {
+      const status = response?.status ?? error?.response?.status;
+      const level = status === undefined || status >= 500 ? 'error' : status >= 400 ? 'warn' : 'log';
+      const failed = status === undefined || status >= 400;
+      this.logger[level === 'log' ? 'log' : level]({
+        message: failed ? 'Outgoing request failed' : 'Outgoing request',
+        direction: 'outgoing',
+        method: config.method?.toUpperCase(),
+        url: maskQuery(config.url),
+        status,
+        durationMs: Date.now() - (config.metadata?.startedAt ?? Date.now()),
+        requestBody: this.sanitize(config.data),
+        responseBody: this.sanitize((response ?? error?.response)?.data),
+        ...(error ? { context: { error: error.message, code: error.code } } : {}),
+      });
+    };
+
     this.http.axiosRef.interceptors.response.use(
       (response) => {
-        this.logger.log({
-          message: 'Outgoing response',
-          direction: 'outgoing',
-          status: response.status,
-          method: response.config.method?.toUpperCase(),
-          url: response.config.url,
-          body: this.sanitize(response.data),
-        });
-
+        log(response.config, response);
         return response;
       },
       (error: AxiosError) => {
-        this.logger.error({
-          message: 'Outgoing request failed',
-          direction: 'outgoing',
-          status: error.response?.status,
-          method: error.config?.method?.toUpperCase(),
-          url: error.config?.url,
-          context: { error: error.message },
-          requestBody: this.sanitize(error.config?.data),
-          responseBody: this.sanitize(error.response?.data),
-        });
-
+        log(error.config ?? {}, undefined, error);
         return Promise.reject(error);
       },
     );
@@ -403,11 +391,11 @@ export class HttpLoggingModule implements OnModuleInit {
 ```
 
 **Rules:**
-- Always forward `X-Correlation-ID` on outbound calls — propagation is the primary goal, logging is secondary.
-- Log the outgoing request and response body, both through `buildSanitizer()` — the same `LOG_SENSITIVE_KEYS` masking and `LOG_MAX_BODY_BYTES` truncation as inbound bodies get.
+- Always forward `X-Correlation-ID` on outgoing calls — propagation is the primary goal, logging is secondary.
+- One line per outgoing call, written when it finishes, carrying `requestBody` and `responseBody` together, both through `buildSanitizer()` — the same `LOG_SENSITIVE_KEYS` masking and `LOG_MAX_BODY_BYTES` truncation as inbound bodies get. `status` is absent when no response arrived.
 - `correlationId` is not repeated in the call: the pino `mixin` adds it to every line from the AsyncLocalStorage context.
-- `direction: outgoing` distinguishes outbound HTTP entries from inbound ones in Loki queries.
-- Import `HttpLoggingModule` instead of `HttpModule` in any feature module that makes outbound HTTP calls.
+- `direction` is `incoming` or `outgoing` and distinguishes the two kinds of call in Loki queries.
+- Import `HttpLoggingModule` instead of `HttpModule` in any feature module that makes outgoing HTTP calls.
 
 ---
 
@@ -448,7 +436,9 @@ Every log line emitted to stdout must be valid JSON containing these fields. `ne
 | `traceId` / `spanId` | No | Reserved for OpenTelemetry Phase 2 |
 | `message` | Yes | Log call. pino is configured with `messageKey: 'message'` (its default is `msg`) |
 | `context` | No | All domain-specific structured data, nested under this one key — never top-level |
-| `body` | HTTP logs | Sanitized/truncated request or response body |
+| `direction` | HTTP call lines | `incoming` (a call we receive) or `outgoing` (a call we make) |
+| `method`, `url`, `status`, `durationMs` | HTTP call lines | One line per call, written when it finishes; `url` has secrets in the query string masked; `status` is absent on an outgoing call that got no response |
+| `requestBody`, `responseBody` | HTTP call lines | Sanitized/truncated bodies. The key `body` is not used ([ADR-0032](../decisions/0032-one-log-line-per-http-call-with-request-and-response-bodies.md)) |
 
 **Monetary values in logs:** same rule as API — strings, never numbers.
 
@@ -465,7 +455,7 @@ Every API endpoint, without exception:
 
 1. **Accepts** an `X-Correlation-ID` request header.
 2. **Generates** one (UUIDv7) at the request boundary when the header is absent or empty. A request is never processed without a correlation id.
-3. **Propagates** it — through `AsyncLocalStorage` for the whole request, onto outbound HTTP calls as `X-Correlation-ID`, and into the `correlation_id` field of every Kafka event envelope and `platform.outbox_event` row written during that request.
+3. **Propagates** it — through `AsyncLocalStorage` for the whole request, onto outgoing HTTP calls as `X-Correlation-ID`, and into the `correlation_id` field of every Kafka event envelope and `platform.outbox_event` row written during that request.
 4. **Echoes** it on the response as `X-Correlation-ID`, on success and error responses alike.
 5. **Logs** it as `correlationId` on every log line emitted in that request's context (§3).
 
@@ -481,16 +471,15 @@ Client request
   → NestJS middleware reads or generates correlationId
   → stored in AsyncLocalStorage (correlation context)
   → pino-http attaches to all log lines for this request
-  → request body is logged through the configured sanitizer
-  → response body is logged through LoggingInterceptor
+  → one `Incoming request` line is written on response finish, with requestBody and responseBody
+    (the response body is handed over by LoggingInterceptor / GlobalExceptionFilter)
   → response includes X-Correlation-ID header back to client
 
 NestJS → downstream service
   → Axios interceptor reads correlationId from AsyncLocalStorage
   → forwards as X-Correlation-ID on the outbound request
-  → logs sanitized request body
   → downstream service continues the chain identically
-  → downstream response body is logged
+  → one `Outgoing request` line is written when the call finishes (request + response body)
 
 ```
 
