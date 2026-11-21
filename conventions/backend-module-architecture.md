@@ -560,7 +560,7 @@ async function bootstrap() {
 
 `apps/workers/src/workers.module.ts` wires only infrastructure + consumer services.
 
-Workers process bootstraps a minimal HTTP server on `PORT_WORKERS` (default: `3001`) exposing a single `GET /health` endpoint that returns HTTP 200 when the outbox relay and all registered consumer groups are running. This is required by the docker-compose healthcheck: `curl -f http://localhost:3001/health`. A NestJS standalone app or a minimal Express server is acceptable for this purpose.
+Workers process bootstraps a minimal HTTP server on `PORT_WORKERS` (default: `3001`) exposing a single `GET /api/v1/health` endpoint that returns HTTP 200 when the outbox relay and all registered consumer groups are running. It sits under the global prefix and has no unversioned alias, so the docker-compose healthcheck targets the prefixed path: `curl -f http://localhost:3001/api/v1/health` (see [docker-compose-topology.md § workers health](../phase-1/technical-design/docker-compose-topology.md) and [api-design/health.md](../phase-1/technical-design/api-design/health.md)). A NestJS standalone app or a minimal Express server is acceptable for this purpose, provided it applies the same prefix and version.
 
 ```typescript
 @Module({
