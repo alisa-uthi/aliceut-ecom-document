@@ -38,7 +38,7 @@ Backend `docker-compose.yml` (run from `aliceut-ecom-backend/`):
 | Path in compose | Resolves to |
 |---|---|
 | `.` | `api` and `workers` build context |
-| `./migrations/init` | first-boot Postgres bootstrap (see §6, `postgres`) |
+| `./docker/postgres/init` | first-boot Postgres bootstrap, a placeholder directory until migrations exist (see §6, `postgres`) |
 | `./docker/alloy/config.alloy` | Alloy collector config ([observability.md §5](../../conventions/observability.md#alloy-config)) |
 | `./docker/prometheus/prometheus.yml` | Prometheus scrape config |
 | `./docker/grafana/provisioning/` | Grafana datasource and dashboard provisioning |
@@ -77,11 +77,11 @@ Every service below starts in V1 (the count is published in [architecture-overvi
 | `kafka-init` | `apache/kafka:3.8.0` | — | One-shot topic provisioning: creates every event topic in [kafka-events.md § 1](./kafka-events.md#topic-summary), one DLQ per consumer group, and `email.outbound.dlq`, each with its documented retention, partition count and replication factor |
 | `schema-registry` | `confluentinc/cp-schema-registry:7.7.0` | `8081:8081` | Confluent Schema Registry (Community) |
 | `schema-init` | `node:22.12.0-alpine` | — | One-shot subject registration: runs the backend's `tools/avro/register-schemas.js` against every `libs/contracts/avro/<topic>.avsc`, registering each `<topic>-value` subject at `BACKWARD` ([ADR-0012](../../decisions/0012-avro-subjects-registered-by-ci-and-schema-init.md)) |
-| `kafka-ui` | `provectus/kafka-ui:v0.7.2` | `8080:8080` | Kafka management UI |
-| `minio` | `minio/minio:RELEASE.2024-11-07T00-52-20Z` | `9000:9000`, `9001:9001` | S3-compatible object storage (product images, KYC docs, user assets) |
-| `minio-init` | `minio/mc:latest` | — | One-shot bucket creation init container — the one unpinned tag here, see below |
+| `kafka-ui` | `provectuslabs/kafka-ui:v0.7.2` | `8080:8080` | Kafka management UI |
+| `minio` | `pgsty/minio:RELEASE.2026-08-04T00-00-00Z` (community fork; override with `MINIO_IMAGE`, [ADR-0031](../../decisions/0031-compose-images-loki-probe-and-alloy-scope.md)) | `9000:9000`, `9001:9001` | S3-compatible object storage (product images, KYC docs, user assets) |
+| `minio-init` | `pgsty/mc:RELEASE.2026-11-12T00-00-00Z` (override with `MINIO_MC_IMAGE`) | — | One-shot bucket creation init container |
 | `redis` | `redis:7-alpine` | `6379:6379` | JWT revocation key store (`auth:revoke_before:{userId}` keys, TTL 960 s) |
-| `mailpit` | `axllent/mailpit:v1.41.1` | `8025:8025`, `1025:1025` | SMTP sink and web inbox — the target of every `ET-*` email the notification consumer sends |
+| `mailpit` | `axllent/mailpit:v1.34.0` | `8025:8025`, `1025:1025` | SMTP sink and web inbox — the target of every `ET-*` email the notification consumer sends |
 | `alloy` | `grafana/alloy:v1.19.2` | `12345:12345` | Unified collector: tails container logs, forwards to Loki |
 | `loki` | `grafana/loki:3.7.7` | `3100:3100` | Log aggregation and LogQL query API |
 | `prometheus` | `prom/prometheus:v3.14.0` | `9090:9090` | Metrics scrape, including the outbox-lag gauge (§12) |
@@ -89,7 +89,7 @@ Every service below starts in V1 (the count is published in [architecture-overvi
 
 The last four are the observability stack specified by [conventions/observability.md §5-6](../../conventions/observability.md#docker-compose); that document owns their configuration and this one owns their wiring. Image tags are pinned to an exact patch release rather than a floating `latest` or `3.x` — a topology whose behaviour changes on `docker compose pull` is not reproducible.
 
-**`minio-init` is the one exception, and it is the only image where `latest` is tolerable.** It is a one-shot container that runs `mc mb --ignore-existing` against a bucket list and exits; it serves no request, holds no state, and is not running when anything else talks to MinIO, so a newer `mc` changes the topology's behaviour only if bucket creation itself breaks — which fails loudly at start-up rather than silently at runtime. Pinning it is still the better default: replace `latest` with the `RELEASE.*` tag published alongside the `minio/minio` version above when one is confirmed against the registry. Every other service here carries an exact tag and must keep one.
+**Every image is pinned**, `minio-init` included: the former `latest` exception is withdrawn ([ADR-0031](../../decisions/0031-compose-images-loki-probe-and-alloy-scope.md)), since the upstream `minio/mc` is no longer pullable.
 
 ---
 
@@ -548,7 +548,7 @@ services:
       - postgres_data:/var/lib/postgresql
       # First-boot only (runs when postgres_data is empty): roles and grants, and
       # nothing else. No schema, no extensions — see §10 for what does not belong here.
-      - ./migrations/init:/docker-entrypoint-initdb.d:ro
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
     networks:
       - aliceut_backend
     healthcheck:
@@ -781,7 +781,7 @@ services:
   # ── MinIO (object storage) ──────────────────────────────
 
   minio:
-    image: minio/minio:RELEASE.2024-11-07T00-52-20Z
+    image: ${MINIO_IMAGE:-pgsty/minio:RELEASE.2026-08-04T00-00-00Z}
     container_name: aliceut_minio
     restart: unless-stopped
     ports:
@@ -804,7 +804,7 @@ services:
       start_period: 10s
 
   minio-init:
-    image: minio/mc:latest
+    image: ${MINIO_MC_IMAGE:-pgsty/mc:RELEASE.2026-11-12T00-00-00Z}
     container_name: aliceut_minio_init
     restart: "no"
     depends_on:
@@ -861,7 +861,7 @@ services:
     # Pinned, like every other image in this file. On `latest` the UI's configuration
     # schema can change under a `docker compose pull` on a shared dev machine, and the
     # DLQ alert in §12 is a screen in this container.
-    image: provectus/kafka-ui:v0.7.2
+    image: provectuslabs/kafka-ui:v0.7.2
     container_name: aliceut_kafka_ui
     restart: unless-stopped
     ports:
@@ -888,7 +888,7 @@ services:
   # ── Mailpit (SMTP sink + web inbox) ──────────────────────
 
   mailpit:
-    image: axllent/mailpit:v1.41.1
+    image: axllent/mailpit:v1.34.0
     container_name: aliceut_mailpit
     restart: unless-stopped
     ports:
@@ -926,7 +926,7 @@ services:
       - aliceut_backend
     depends_on:
       loki:
-        condition: service_healthy
+        condition: service_started
     # No healthcheck: the image ships neither wget nor curl, and the Alloy binary has
     # no readiness subcommand. A probe here would be a guess. Alloy failing is visible
     # as an empty Loki result, and its own UI on :12345 reports component health.
@@ -944,12 +944,9 @@ services:
     command: -config.file=/etc/loki/local-config.yaml
     networks:
       - aliceut_backend
-    healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3100/ready"]
-      interval: 15s
-      timeout: 5s
-      retries: 10
-      start_period: 30s
+    # No healthcheck: the grafana/loki image has no shell, wget or curl, so a probe here
+    # can never pass (ADR-0031). Probe from the host: `curl localhost:3100/ready` answers
+    # 503 for ~15 s after start, then 200. alloy and grafana use service_started.
 
   prometheus:
     image: prom/prometheus:v3.14.0
@@ -989,7 +986,7 @@ services:
       - aliceut_backend
     depends_on:
       loki:
-        condition: service_healthy
+        condition: service_started
       prometheus:
         condition: service_healthy
     healthcheck:
