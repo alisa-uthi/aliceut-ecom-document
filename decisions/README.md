@@ -81,3 +81,4 @@ Copy [`0000-adr-template.md`](0000-adr-template.md) to start one.
 | [0030](0030-error-field-is-an-upper-snake-code.md) | The `error` field of an error response is an upper-snake code | Accepted |
 | [0031](0031-compose-images-loki-probe-and-alloy-scope.md) | Compose image pins, the Loki readiness probe and Alloy's scope follow what actually runs | Accepted |
 | [0032](0032-one-log-line-per-http-call-with-request-and-response-bodies.md) | One log line per HTTP call, inbound and outbound, with `requestBody` and `responseBody` | Accepted |
+| [0034](0034-avro-envelope-fields-have-no-defaults.md) | Avro envelope fields have no defaults | Accepted |
