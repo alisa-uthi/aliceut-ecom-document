@@ -193,9 +193,3 @@ IN-03,infra,platform,0,must,[IN] Local compose in backend and frontend repos,Sta
 
 Note `NUMERIC(19 4)` — the space is deliberate, because a comma would break the row. Write values
 that way rather than reaching for quoting, which the parser rejects.
-
-## Phase 1 shape, for calibration
-
-136 rows from 60 stories: 61 backend, 44 frontend, 13 migration, 18 infra. Sprint 0: 21, 1: 23,
-2: 19, 3: 19, 4: 28, 5: 26. Migration rows are one per Postgres schema, plus enum types, plus
-cross-schema constraints, plus retention indexes.
