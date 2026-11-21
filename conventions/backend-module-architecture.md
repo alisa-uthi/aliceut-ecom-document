@@ -543,7 +543,14 @@ async function bootstrap() {
     transform: true,
   }));
   app.useGlobalFilters(new GlobalExceptionFilter());
-  app.enableCors({ origin: [...allowedOrigins], credentials: true });
+  // exposedHeaders: a browser on another origin (ng serve 4200 -> API 3000) can read the
+  // X-Correlation-ID response header only when it is exposed (observability.md §4).
+  app.enableCors({
+    origin: [...allowedOrigins],
+    credentials: true,
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Correlation-ID', 'Idempotency-Key'],
+    exposedHeaders: ['X-Correlation-ID'],
+  });
   useContainer(app.select(AppModule), { fallbackOnErrors: true });
 
   const swagger = SwaggerModule.createDocument(app, swaggerConfig);
