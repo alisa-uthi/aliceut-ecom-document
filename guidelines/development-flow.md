@@ -95,6 +95,10 @@ See [frontend-coding-standards.md](../conventions/frontend-coding-standards.md) 
 | npm | 10+ | ships with Node 22 |
 | Docker Desktop | Latest | https://docker.com |
 | Angular CLI | 22+ | `npm install -g @angular/cli` |
+| Python | 3.11+ | https://python.org (only to run `pre-commit`) |
+| pre-commit | Latest | `pip install pre-commit` |
+
+You do **not** install gitleaks yourself: `pre-commit` builds the version pinned in the backend's `.pre-commit-config.yaml` ([Secret scanning](#secret-scanning)).
 
 No migration CLI to install: migrations run through TypeORM, which is already a backend dependency ([database-migrations.md § 2](../conventions/database-migrations.md#execution-engine)).
 
@@ -111,6 +115,9 @@ git clone git@github.com:alisa-uthi/aliceut-ecom-utility-pipeline.git
 # Install dependencies in each app repo
 cd aliceut-ecom-backend && npm ci && cd ..
 cd aliceut-ecom-frontend && npm ci && cd ..
+
+# Enable the secret-scan hook on every commit (backend only, once per clone)
+cd aliceut-ecom-backend && pre-commit install && cd ..
 
 # Copy CLAUDE.md templates so Claude Code loads project conventions automatically
 # Workspace CLAUDE.md: start Claude Code from this parent folder and it loads the document repo's CLAUDE.md
@@ -130,6 +137,25 @@ cp apps/workers/.env.example apps/workers/.env
 ```
 
 Required variables per service are documented in [backend-coding-standards.md §6.2](../conventions/backend-coding-standards.md#6-environment-config). Commit `.env.example` files alongside source code with placeholder values (no secrets).
+
+<a id="secret-scanning"></a>
+### Secret scanning (gitleaks)
+
+[gitleaks](https://github.com/gitleaks/gitleaks) blocks committed secrets in two places, with the same version and rules:
+
+| Where | How | When |
+|-------|-----|------|
+| Your machine | `pre-commit` hook from `aliceut-ecom-backend/.pre-commit-config.yaml` | Every `git commit`, on staged changes |
+| CI | `secret-scan` job (gitleaks pinned to the same version) | Every PR (commit range and working tree) and every push to `main` |
+
+**Setup:** `pip install pre-commit`, then `pre-commit install` inside `aliceut-ecom-backend/` (Step 1). The first commit after that is slower while `pre-commit` builds gitleaks; later runs use the cache. A commit with a secret fails with "Detect hardcoded secrets ... Failed".
+
+**Rules:**
+- There is **no allowlist and no gitleaks config file**. Gitleaks runs with its default rules over every file, test and example files included.
+- If a placeholder or test value is flagged, change the value so it no longer looks like a secret (for example build it with `'test-jwt-secret-'.padEnd(40, '0')` instead of spelling out a long random-looking string). Do not add an exemption.
+- A secret that reached a commit is compromised: rotate it, then rewrite the branch before the PR. Deleting it in a later commit does not help, because CI scans every commit in the PR.
+- To skip the hook for a single commit, prefix it: `SKIP=gitleaks git commit ...`. CI still scans, so a skipped secret fails the PR.
+- When CI's gitleaks version changes (`GITLEAKS_VERSION` in `.github/workflows/ci.yml`), bump `rev` in `.pre-commit-config.yaml` to the same version.
 
 ### Step 3 — Build the frontend apps
 
